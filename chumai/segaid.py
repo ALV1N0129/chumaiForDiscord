@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import aiohttp
 from yarl import URL
 
+from . import tls
 from .net_parsers import parse_error_message
 
 log = logging.getLogger(__name__)
@@ -63,10 +64,25 @@ class TokenExpired(SegaError):
 
 def _new_session() -> aiohttp.ClientSession:
     return aiohttp.ClientSession(
+        connector=aiohttp.TCPConnector(ssl=tls.SSL_CONTEXT),
         cookie_jar=aiohttp.CookieJar(),
         headers={"User-Agent": USER_AGENT},
         timeout=aiohttp.ClientTimeout(total=60),
     )
+
+
+async def _request(session: aiohttp.ClientSession, method: str, url, **kwargs) -> tuple[aiohttp.ClientResponse, bytes]:
+    """Make a request, fixing an incomplete certificate chain once if needed."""
+    for attempt in range(2):
+        try:
+            async with session.request(method, url, **kwargs) as resp:
+                return resp, await resp.read()
+        except aiohttp.ClientConnectorCertificateError as e:
+            host = e.host
+            if attempt == 0 and await tls.add_missing_intermediate(host, e.port or 443):
+                continue
+            raise SegaError(f"{host} 의 보안 인증서를 확인하지 못했어요.") from e
+    raise AssertionError("unreachable")
 
 
 def _get_clal(session: aiohttp.ClientSession) -> str | None:
@@ -80,25 +96,28 @@ async def login(sega_id: str, password: str, otp: str | None = None) -> str:
     """Log in with SEGA ID and return the `clal` token."""
     site = SITES["chunithm"]
     async with _new_session() as s:
-        async with s.get(site.auth_url) as resp:
-            await resp.read()
+        await _request(s, "GET", site.auth_url)
 
-        async with s.post(
+        resp, _ = await _request(
+            s,
+            "POST",
             GATEWAY / "common_auth/login/sid",
             data={"retention": "1", "sid": sega_id, "password": password},
             allow_redirects=False,
-        ) as resp:
-            location = resp.headers.get("Location", "")
+        )
+        location = resp.headers.get("Location", "")
 
         if location.rstrip("/").endswith("/common_auth/login/otp"):
             if not otp:
                 raise LoginFailed("2단계 인증이 켜져 있어요. 인증 코드(OTP)도 입력해 주세요.")
-            async with s.post(
+            resp, _ = await _request(
+                s,
+                "POST",
                 GATEWAY / "common_auth/login/otpauth",
                 data={"password": otp},
                 allow_redirects=False,
-            ) as resp:
-                location = resp.headers.get("Location", "")
+            )
+            location = resp.headers.get("Location", "")
             if not any(site.base.host in location for site in SITES.values()):
                 raise LoginFailed("2단계 인증 코드가 올바르지 않아요.")
 
@@ -133,9 +152,8 @@ class NetClient:
 
     async def _authenticate(self) -> None:
         assert self._session is not None
-        async with self._session.get(self.site.auth_url) as resp:
-            body = await resp.read()
-            final = resp.url
+        resp, body = await _request(self._session, "GET", self.site.auth_url)
+        final = resp.url
         if final.host == GATEWAY.host:
             if "/common_auth/redirect" in final.path:
                 raise SegaError("등록된 Aime/바나패스 카드가 없어요. https://my-aime.net 에서 카드를 등록해 주세요.")
@@ -151,9 +169,8 @@ class NetClient:
         for attempt in range(2):
             if not self._authed:
                 await self._authenticate()
-            async with self._session.get(target) as resp:
-                body = await resp.read()
-                final = resp.url
+            resp, body = await _request(self._session, "GET", target)
+            final = resp.url
             if final.host == target.host and final.path == target.path and resp.status == 200:
                 return body
             if attempt == 0:

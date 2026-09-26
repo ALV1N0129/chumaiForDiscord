@@ -39,7 +39,8 @@ def test_download_and_use_logo(tmp_path, monkeypatch):
     assert (tmp_path / "maimai.png").exists() and not (tmp_path / "chunithm.png").exists()
 
     monkeypatch.setattr(render, "LOGO_DIR", tmp_path)
-    monkeypatch.setattr(render, "ASSETS", tmp_path / "no-assets")
     logo = render._logo_image("maimai")
-    assert logo.size == (300, 100)  # transparent margins trimmed
-    assert render._logo_image("chunithm").size != (300, 100)  # falls back to the wordmark
+    # transparent margins trimmed (3:1 like the red box), then scaled to fit the logo area
+    assert abs(logo.width / logo.height - 3) < 0.05
+    assert logo.width <= render.LOGO_BOX[0] and logo.height <= render.LOGO_BOX[1]
+    assert render._logo_image("chunithm").size != logo.size  # not downloaded: bundled logo instead

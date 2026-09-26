@@ -341,8 +341,8 @@ LOGO_DIR = Path(os.environ.get("LOGO_DIR", "data/logos"))
 
 
 def _logo_image(game: str) -> Image.Image:
-    """Official logo if available (assets/logos/ or downloaded), else a text wordmark."""
-    for path in (ASSETS / "logos" / f"{game}.png", LOGO_DIR / f"{game}.png"):
+    """Official logo (downloaded via .env URL, else bundled in assets/logos/), or a text wordmark."""
+    for path in (LOGO_DIR / f"{game}.png", ASSETS / "logos" / f"{game}.png"):
         if not path.is_file():
             continue
         try:

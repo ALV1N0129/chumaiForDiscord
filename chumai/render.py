@@ -80,6 +80,7 @@ LAMP_COLORS = {
 RAINBOW = [(255, 96, 96), (255, 190, 70), (120, 220, 110), (80, 170, 255), (190, 110, 255)]
 PLATES = {
     "maimai": [
+        (16000, RAINBOW),
         (15000, RAINBOW),
         (14500, [(222, 230, 240), (170, 190, 215)]),
         (14000, [(255, 216, 90), (214, 160, 40)]),
@@ -93,6 +94,7 @@ PLATES = {
         (0, [(200, 204, 214), (150, 154, 166)]),
     ],
     "chunithm": [
+        (17.0, RAINBOW),
         (16.0, RAINBOW),
         (15.25, [(222, 230, 240), (170, 190, 215)]),
         (14.5, [(255, 216, 90), (214, 160, 40)]),
@@ -402,8 +404,8 @@ def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dic
 
 
 TIER_NAMES = {
-    "maimai": ["RAINBOW", "PLATINUM", "GOLD", "SILVER", "BRONZE", "PURPLE", "RED", "YELLOW", "GREEN", "BLUE", "WHITE"],
-    "chunithm": ["RAINBOW", "PLATINUM", "GOLD", "SILVER", "BRONZE", "PURPLE", "RED", "ORANGE", "GREEN"],
+    "maimai": ["極 RAINBOW", "RAINBOW", "PLATINUM", "GOLD", "SILVER", "BRONZE", "PURPLE", "RED", "YELLOW", "GREEN", "BLUE", "WHITE"],
+    "chunithm": ["極 RAINBOW", "RAINBOW", "PLATINUM", "GOLD", "SILVER", "BRONZE", "PURPLE", "RED", "ORANGE", "GREEN"],
 }
 PLATE_STYLE = os.environ.get("PLATE_STYLE", "glass")
 
@@ -433,6 +435,12 @@ def _draw_plate(canvas: Image.Image, game: str, rating: str, width: int, st: dic
         # dark translucent panel, tier-colored outline, gradient number
         pw, ph = 340, 136
         px, py = right - pw, 40
+        if tier.startswith("極"):
+            glow = _gradient_fill((pw + 40, ph + 40), colors)
+            gm = Image.new("L", glow.size, 0)
+            ImageDraw.Draw(gm).rounded_rectangle((20, 20, pw + 19, ph + 19), radius=20, fill=200)
+            glow.putalpha(gm.filter(ImageFilter.GaussianBlur(12)))
+            canvas.alpha_composite(glow, (px - 20, py - 20))
         panel = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
         border = _gradient_fill((pw, ph), colors)
         border.putalpha(_rounded_mask((pw, ph), 20))
@@ -442,7 +450,11 @@ def _draw_plate(canvas: Image.Image, game: str, rating: str, width: int, st: dic
         panel.alpha_composite(inner, (3, 3))
         canvas.alpha_composite(panel, (px, py))
         draw.text((px + 22, py + 18), "RATING", font=num(18, "SemiBold"), fill=st["muted"])
-        draw.text((px + pw - 22, py + 18), tier, font=num(18, "SemiBold"), fill=st["muted"], anchor="ra")
+        if tier.startswith("極"):
+            label = _gradient_text("極 RAINBOW", cjk(18), [tuple(min(255, c + 40) for c in col) for col in colors])
+            canvas.alpha_composite(label, (px + pw - 14 - label.width, py + 10))
+        else:
+            draw.text((px + pw - 22, py + 18), tier, font=num(18, "SemiBold"), fill=st["muted"], anchor="ra")
         number = _gradient_text(rating, num(84), [tuple(min(255, c + 40) for c in col) for col in colors])
         canvas.alpha_composite(number, (px + pw - 18 - number.width, py + ph - 14 - number.height))
 

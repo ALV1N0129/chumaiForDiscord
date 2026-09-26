@@ -47,6 +47,10 @@ STYLES = {
               "faint": (130, 136, 160), "rank": (255, 206, 84)},
     "calm": {"bg": "collage_dim", "card": "jacket", "text": (255, 255, 255), "muted": (190, 194, 210),
              "faint": (150, 154, 172), "rank": (255, 206, 84)},
+    "mosaic": {"bg": "mosaic", "card": "jacket", "text": (255, 255, 255), "muted": (190, 194, 210),
+               "faint": (150, 154, 172), "rank": (255, 206, 84)},
+    "chara": {"bg": "chara", "card": "jacket", "text": (255, 255, 255), "muted": (190, 194, 210),
+              "faint": (150, 154, 172), "rank": (255, 206, 84)},
     "light": {"bg": "light", "card": "light", "text": (28, 28, 40), "muted": (92, 96, 116),
               "faint": (140, 144, 162), "rank": (214, 146, 0)},
 }
@@ -611,6 +615,36 @@ def _background(b50: B50, size: tuple[int, int], theme: dict, st: dict) -> Image
                  (int(w * 0.2), int(h * 0.75), 520, pastel[3]), (int(w * 0.85), int(h * 0.9), 460, pastel[2])]
         base.alpha_composite(_radial_glows(size, glows, 160))
         base.alpha_composite(_stripes(size, (255, 255, 255, 60)))
+        return base
+
+    if st["bg"] == "mosaic":
+        paths = [e.jacket_path for e in b50.old + b50.new if e.jacket_path]
+        if paths:
+            tile = 150
+            cols, rows = -(-w // tile) + 1, -(-h // tile)
+            art = Image.new("RGB", (cols * tile, rows * tile))
+            for i in range(cols * rows):
+                j = _load_jacket(paths[i % len(paths)])
+                if j is not None:
+                    art.paste(j.resize((tile, tile)), ((i % cols) * tile - (tile // 2 if (i // cols) % 2 else 0),
+                                                       (i // cols) * tile))
+            art = art.crop((0, 0, w, h)).filter(ImageFilter.GaussianBlur(3))
+            art = Image.blend(art, Image.new("RGB", size, theme["bottom"]), 0.82).convert("RGBA")
+            art.alpha_composite(_stripes(size, (255, 255, 255, 6)))
+            return art
+
+    if st["bg"] == "chara" and b50.icon:
+        base = _vertical_gradient(size, theme["top"], theme["bottom"]).convert("RGBA")
+        icon = _open_image(b50.icon)
+        if icon is not None:
+            big = ImageOps.fit(icon.convert("RGB"), (h // 2, h // 2), Image.LANCZOS).convert("RGBA")
+            big = big.resize((w // 2, w // 2)) if big.width < w // 2 else big
+            fade = Image.linear_gradient("L").rotate(90).resize(big.size).point(lambda v: (255 - v) * 110 // 255)
+            big.putalpha(fade)
+            base.alpha_composite(big.filter(ImageFilter.GaussianBlur(2)), (w - big.width, 0))
+            shade = Image.new("RGBA", size, (*theme["bottom"], 0))
+            shade.putalpha(Image.linear_gradient("L").resize(size).point(lambda v: v * 200 // 255))
+            base.alpha_composite(shade)
         return base
 
     if st["bg"] in ("collage", "collage_dim"):

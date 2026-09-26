@@ -45,7 +45,7 @@ STYLES = {
     "light": {"bg": "light", "card": "light", "text": (28, 28, 40), "muted": (92, 96, 116),
               "faint": (140, 144, 162), "rank": (214, 146, 0)},
 }
-DEFAULT_STYLE = "glow"
+DEFAULT_STYLE = "collage"
 
 DIFFS = {
     "basic": ("BAS", (46, 180, 80)),
@@ -310,11 +310,75 @@ def _stat(draw: ImageDraw.ImageDraw, x: int, y: int, label: str, value: str, st:
     return int(x + max(draw.textlength(label, font=num(16, "SemiBold")), draw.textlength(value, font=num(30)))) + 36
 
 
+LOGO_BOX = (640, 120)  # max logo size, centered at the top
+LOGO_GRADIENTS = {
+    "maimai": [(255, 120, 190), (255, 196, 90), (110, 214, 255)],
+    "chunithm": [(255, 226, 90), (255, 150, 60), (240, 70, 120)],
+}
+
+
+def _gradient_text(text: str, font, stops) -> Image.Image:
+    """Text filled with a horizontal gradient, with a soft shadow."""
+    l, t, r, b = font.getbbox(text)
+    w, h = r - l + 16, b - t + 16
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).text((8 - l, 8 - t), text, font=font, fill=255)
+    fill = _horizontal_gradient((w, h), stops).convert("RGBA")
+    fill.putalpha(mask)
+    out = Image.new("RGBA", (w, h + 6), (0, 0, 0, 0))
+    shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    shadow.putalpha(mask.point(lambda v: v * 110 // 255))
+    out.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(4)), (0, 5))
+    out.alpha_composite(fill, (0, 0))
+    return out
+
+
+# Where downloaded official logos live (see logos.py); the bot sets this from config.
+LOGO_DIR = Path(os.environ.get("LOGO_DIR", "data/logos"))
+
+
+def _logo_image(game: str) -> Image.Image:
+    """Official logo if available (assets/logos/ or downloaded), else a text wordmark."""
+    for path in (ASSETS / "logos" / f"{game}.png", LOGO_DIR / f"{game}.png"):
+        if not path.is_file():
+            continue
+        try:
+            with Image.open(path) as im:
+                logo = im.convert("RGBA")
+            bbox = logo.getbbox()  # trim transparent margins
+            if bbox:
+                logo = logo.crop(bbox)
+            logo.thumbnail(LOGO_BOX, Image.LANCZOS)
+            return logo
+        except Exception:
+            continue
+    stops = LOGO_GRADIENTS[game]
+    if game == "maimai":
+        word = _gradient_text("maimai", num(104), stops)
+        dx = Image.new("RGBA", (96, 64), (0, 0, 0, 0))
+        d = ImageDraw.Draw(dx)
+        d.rounded_rectangle((0, 0, 95, 63), radius=14, fill=(255, 255, 255))
+        d.text((48, 32), "DX", font=num(50), fill=(236, 70, 120), anchor="mm")
+        logo = Image.new("RGBA", (word.width + 110, max(word.height, 100)), (0, 0, 0, 0))
+        logo.alpha_composite(word, (0, (logo.height - word.height) // 2))
+        logo.alpha_composite(dx, (word.width + 10, (logo.height - 64) // 2 + 6))
+    else:
+        logo = _gradient_text("CHUNITHM", num(96), stops)
+    logo.thumbnail(LOGO_BOX, Image.LANCZOS)
+    return logo
+
+
+def _draw_logo(canvas: Image.Image, game: str, width: int, theme: dict) -> None:
+    logo = _logo_image(game)
+    canvas.alpha_composite(logo, ((width - logo.width) // 2, 34 + (LOGO_BOX[1] - logo.height) // 2))
+
+
 def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dict) -> None:
     draw = ImageDraw.Draw(canvas)
     old_slots, new_slots = SLOTS[b50.game]
 
-    draw.text((MARGIN, 38), f"{GAME_NAMES[b50.game].upper()}   BEST {old_slots + new_slots}",
+    _draw_logo(canvas, b50.game, width, theme)
+    draw.text((MARGIN, 38), f"BEST {old_slots + new_slots}",
               font=num(20, "SemiBold"), fill=theme["accent"])
     # Official sites use full-width letters for names (ＡＬＶ１Ｎ); show them normally.
     name = unicodedata.normalize("NFKC", b50.username)

@@ -5,16 +5,18 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+from pathlib import Path
 from typing import Literal
 
 import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import net_parsers, rating
+from . import net_parsers, rating, render
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .config import Config
 from .jackets import JacketStore
+from .logos import download_logos
 from .render import render_b50
 from .segaid import LoginFailed, NetClient, SegaError, login
 from .songdb import SongDB
@@ -38,6 +40,8 @@ class ChumaiBot(discord.Client):
     async def setup_hook(self) -> None:
         await self.songdb.load_or_update(self.config.songdb_dir)
         await self.jackets.load_or_update()
+        render.LOGO_DIR = Path(self.config.logo_dir)
+        await download_logos(self.config.logo_dir, self.config.logo_urls)
         self.refresh_songdb.start()
         if self.config.guild_id:
             guild = discord.Object(id=self.config.guild_id)

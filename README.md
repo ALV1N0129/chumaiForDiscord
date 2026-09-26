@@ -20,6 +20,10 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 - 공식 사이트는 보면 상수를 보여주지 않으므로, 상수는 공개된 곡 데이터 파일
   ([Tachi](https://github.com/TNG-dev/Tachi)의 seeds)을 GitHub에서 내려받아 사용합니다.
   계정이나 로그인은 필요 없고, 하루에 한 번 갱신되며 `SONGDB_DIR`에 캐시됩니다.
+- 이미지 스타일은 `.env`의 `B50_STYLE`로 고릅니다: `collage`(기본, 1위 곡 자켓 배경), `glow`, `light`.
+- 상단 가운데 로고는 `.env`의 `MAIMAI_LOGO_URL` / `CHUNITHM_LOGO_URL`에 공식 로고 이미지 주소를 넣으면
+  처음 실행할 때 받아서 씁니다(`data/logos`에 저장). 비워두면 글자 로고를 그립니다.
+  `chumai/assets/logos/maimai.png`처럼 파일을 직접 넣어도 됩니다.
 - 곡 자켓은 SEGA 공식 곡 목록(`music.json`, `maimai_songs.json`)에서 찾아 내려받고 `JACKET_DIR`에 캐시합니다.
 - 국제판(SEGA ID) 전용입니다. 일본판은 로그인 방식이 달라 지원하지 않습니다.
 

@@ -26,6 +26,8 @@ class Config:
     token_key: str | None
     songdb_dir: str
     jacket_dir: str
+    logo_dir: str
+    logo_urls: dict[str, str | None]
     new_versions: dict[str, list[str]]
 
     @classmethod
@@ -42,6 +44,11 @@ class Config:
             token_key=os.environ.get("TOKEN_ENCRYPTION_KEY") or None,
             songdb_dir=os.environ.get("SONGDB_DIR", "data/songdb"),
             jacket_dir=os.environ.get("JACKET_DIR", "data/jackets"),
+            logo_dir=os.environ.get("LOGO_DIR", "data/logos"),
+            logo_urls={
+                "maimai": os.environ.get("MAIMAI_LOGO_URL") or None,
+                "chunithm": os.environ.get("CHUNITHM_LOGO_URL") or None,
+            },
             new_versions={
                 game: _split(os.environ.get(f"{game.upper()}_NEW_VERSIONS", default))
                 for game, default in DEFAULT_NEW_VERSIONS.items()

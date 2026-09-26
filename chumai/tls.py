@@ -5,12 +5,14 @@ intermediate CA. Browsers quietly download the missing intermediate (via the
 certificate's "CA Issuers" / AIA URL); Python does not, so verification fails
 with "unable to get local issuer certificate".
 
-We handle this two ways:
-- On Windows/macOS, `truststore` lets the OS verify certificates, and the OS
-  fetches missing intermediates itself.
-- Everywhere else (or if that still fails), `add_missing_intermediate` does the
-  AIA fetch ourselves. The fetched certificate is only used to build the chain;
-  it must still chain up to a trusted root, so a forged one is rejected.
+`add_missing_intermediate` does that AIA fetch ourselves, asynchronously.
+(Letting the OS do it, e.g. via `truststore` on Windows, blocks the whole event
+loop during the handshake, so the bot stops answering Discord.) The fetched
+certificate is only used to build the chain; it must still chain up to a
+trusted root, so a forged one is rejected.
+
+Roots come from the system store plus certifi's bundle, since Windows only
+installs some roots on demand and Python can't trigger that.
 """
 
 from __future__ import annotations
@@ -18,9 +20,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import ssl
-import sys
 
 import aiohttp
+import certifi
 from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import AuthorityInformationAccessOID, ExtensionOID
@@ -29,14 +31,8 @@ log = logging.getLogger(__name__)
 
 
 def _make_context() -> ssl.SSLContext:
-    if sys.platform in ("win32", "darwin"):
-        try:
-            import truststore
-
-            return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        except Exception:  # pragma: no cover - platform specific
-            log.warning("truststore unavailable; using Python's certificate store")
     ctx = ssl.create_default_context()
+    ctx.load_verify_locations(certifi.where())
     # A fetched intermediate must never act as a trust anchor on its own.
     ctx.verify_flags &= ~ssl.VERIFY_X509_PARTIAL_CHAIN
     return ctx

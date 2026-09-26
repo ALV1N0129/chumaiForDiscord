@@ -30,9 +30,22 @@ MUTED = (178, 184, 204)
 FAINT = (120, 126, 148)
 
 THEMES = {
-    "maimai": {"top": (58, 30, 74), "bottom": (16, 18, 36), "accent": (255, 132, 186), "card": (40, 36, 60)},
-    "chunithm": {"top": (18, 44, 84), "bottom": (8, 12, 26), "accent": (255, 214, 64), "card": (28, 36, 58)},
+    "maimai": {"top": (58, 30, 74), "bottom": (16, 18, 36), "accent": (255, 132, 186), "glow2": (90, 170, 255),
+               "card": (34, 30, 52)},
+    "chunithm": {"top": (18, 44, 84), "bottom": (8, 12, 26), "accent": (255, 214, 64), "glow2": (60, 200, 255),
+                 "card": (22, 30, 50)},
 }
+
+# Look of the page. "text"/"muted"/"faint" are text colors on cards and header.
+STYLES = {
+    "glow": {"bg": "glow", "card": "jacket", "text": (255, 255, 255), "muted": (178, 184, 204),
+             "faint": (130, 136, 160), "rank": (255, 206, 84)},
+    "collage": {"bg": "collage", "card": "jacket", "text": (255, 255, 255), "muted": (190, 194, 210),
+                "faint": (150, 154, 172), "rank": (255, 206, 84)},
+    "light": {"bg": "light", "card": "light", "text": (28, 28, 40), "muted": (92, 96, 116),
+              "faint": (140, 144, 162), "rank": (214, 146, 0)},
+}
+DEFAULT_STYLE = "glow"
 
 DIFFS = {
     "basic": ("BAS", (46, 180, 80)),
@@ -193,25 +206,43 @@ def _load_jacket(path: str) -> Image.Image | None:
 
 
 @lru_cache(maxsize=256)
-def _card_background(path: str | None, fallback: tuple[int, int, int]) -> Image.Image:
-    if path:
-        try:
-            with Image.open(path) as im:
-                bg = ImageOps.fit(im.convert("RGB"), (CARD_W, CARD_H), Image.LANCZOS, centering=(0.5, 0.4))
-            bg = bg.filter(ImageFilter.GaussianBlur(14))
-            return Image.blend(bg, Image.new("RGB", bg.size, (10, 10, 18)), 0.62)
-        except Exception:
-            pass
-    return Image.new("RGB", (CARD_W, CARD_H), fallback)
+def _card_background(path: str | None, mode: str, fallback: tuple[int, int, int]) -> Image.Image:
+    """RGBA card background. The jacket shows through on the right, fading out to the left."""
+    if mode == "light":
+        return Image.new("RGBA", (CARD_W, CARD_H), (255, 255, 255, 236))
+    base = Image.new("RGBA", (CARD_W, CARD_H), (*fallback, 228))
+    if not path:
+        return base
+    try:
+        with Image.open(path) as im:
+            art = ImageOps.fit(im.convert("RGB"), (CARD_W, CARD_W), Image.LANCZOS)
+    except Exception:
+        return base
+    art = art.crop((0, (CARD_W - CARD_H) // 2, CARD_W, (CARD_W + CARD_H) // 2)).filter(ImageFilter.GaussianBlur(3))
+    art = Image.blend(art, Image.new("RGB", art.size, (12, 12, 20)), 0.45).convert("RGBA")
+    fade = Image.linear_gradient("L").rotate(90).resize((CARD_W, CARD_H))  # 255 at left -> 0 at right
+    fade = fade.point(lambda v: 255 - v)  # 0 at left -> 255 at right
+    fade = fade.point(lambda v: int(min(255, max(0, (v - 70) * 1.2))))
+    art.putalpha(fade)
+    return Image.alpha_composite(base, art)
 
 
 # ------------------------------------------------------------------- card
 
 
-def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: dict) -> None:
+def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: dict, st: dict) -> None:
     label, color, is_dx = _diff(e)
-
-    canvas.paste(_card_background(e.jacket_path, theme["card"]), (x, y), _rounded_mask((CARD_W, CARD_H), RADIUS))
+    mask = _rounded_mask((CARD_W, CARD_H), RADIUS)
+    if st["card"] == "light":
+        shadow = Image.new("RGBA", (CARD_W + 24, CARD_H + 24), (0, 0, 0, 0))
+        ImageDraw.Draw(shadow).rounded_rectangle((12, 16, CARD_W + 11, CARD_H + 15), radius=RADIUS,
+                                                 fill=(60, 40, 90, 40))
+        shadow = shadow.filter(ImageFilter.GaussianBlur(7))
+        canvas.alpha_composite(shadow, (x - 12, y - 12))
+    bg = _card_background(e.jacket_path, st["card"], theme["card"])
+    card = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
+    card.paste(bg, (0, 0), mask)
+    canvas.alpha_composite(card, (x, y))
     draw = ImageDraw.Draw(canvas)
 
     # jacket with a difficulty-colored frame and a level tag along the bottom
@@ -237,25 +268,26 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
     # text column
     tx = jx + JACKET + 16
     right = x + CARD_W - 14
-    draw.text((right, y + 12), f"#{idx}", font=num(17, "SemiBold"), fill=FAINT, anchor="ra")
+    draw.text((right, y + 12), f"#{idx}", font=num(17, "SemiBold"), fill=st["faint"], anchor="ra")
     title_w = right - tx - 30
-    draw.text((tx, y + 10), _fit(draw, e.title, cjk(17), title_w), font=cjk(17), fill=WHITE)
+    draw.text((tx, y + 10), _fit(draw, e.title, cjk(17), title_w), font=cjk(17), fill=st["text"])
 
     score = f"{e.score:.4f}%" if e.game == "maimai" else f"{int(e.score):,}"
-    draw.text((tx, y + 38), score, font=num(32), fill=WHITE)
+    draw.text((tx, y + 38), score, font=num(32), fill=st["text"])
 
     rx = tx
     rank_font = num(20)
-    draw.text((rx, y + 86), e.rank, font=rank_font, fill=RANK_COLORS.get(e.rank, MUTED))
+    top_rank = e.rank in RANK_COLORS
+    draw.text((rx, y + 86), e.rank, font=rank_font, fill=st["rank"] if top_rank else st["muted"])
     rx += draw.textlength(e.rank, font=rank_font) + 8
     if e.lamp:
         lf = num(15)
         w = draw.textlength(e.lamp, font=lf) + 12
-        lamp_color = LAMP_COLORS.get(e.lamp, MUTED)
+        lamp_color = LAMP_COLORS.get(e.lamp, st["muted"])
         draw.rounded_rectangle((rx, y + 89, rx + w, y + 109), radius=5, outline=lamp_color, width=2)
         draw.text((rx + w / 2, y + 99), e.lamp, font=lf, fill=lamp_color, anchor="mm")
 
-    draw.text((right, y + CARD_H - 10), e.rating_text, font=num(34), fill=WHITE, anchor="rd")
+    draw.text((right, y + CARD_H - 10), e.rating_text, font=num(34), fill=st["text"], anchor="rd")
 
 
 # ----------------------------------------------------------------- header
@@ -272,13 +304,13 @@ def _plate_colors(game: str, value: str) -> list[tuple[int, int, int]]:
     return PLATES[game][-1][1]
 
 
-def _stat(draw: ImageDraw.ImageDraw, x: int, y: int, label: str, value: str) -> int:
-    draw.text((x, y), label, font=num(16, "SemiBold"), fill=FAINT)
-    draw.text((x, y + 20), value, font=num(30), fill=WHITE)
+def _stat(draw: ImageDraw.ImageDraw, x: int, y: int, label: str, value: str, st: dict) -> int:
+    draw.text((x, y), label, font=num(16, "SemiBold"), fill=st["faint"])
+    draw.text((x, y + 20), value, font=num(30), fill=st["text"])
     return int(x + max(draw.textlength(label, font=num(16, "SemiBold")), draw.textlength(value, font=num(30)))) + 36
 
 
-def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict) -> None:
+def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dict) -> None:
     draw = ImageDraw.Draw(canvas)
     old_slots, new_slots = SLOTS[b50.game]
 
@@ -286,14 +318,14 @@ def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict) -> None
               font=num(20, "SemiBold"), fill=theme["accent"])
     # Official sites use full-width letters for names (ＡＬＶ１Ｎ); show them normally.
     name = unicodedata.normalize("NFKC", b50.username)
-    draw.text((MARGIN - 2, 62), _fit(draw, name, cjk(52), width - 520), font=cjk(52), fill=WHITE)
+    draw.text((MARGIN - 2, 62), _fit(draw, name, cjk(52), width - 520), font=cjk(52), fill=st["text"])
 
     fmt = (lambda v: f"{float(v):.2f}") if b50.game == "chunithm" else (lambda v: str(int(v)))
     x = MARGIN
-    x = _stat(draw, x, 150, f"BEST {old_slots} TOTAL", fmt(b50.old_sum))
-    x = _stat(draw, x, 150, f"NEW {new_slots} TOTAL", fmt(b50.new_sum))
-    x = _stat(draw, x, 150, f"BEST {old_slots} AVG", b50.average_text(b50.old))
-    x = _stat(draw, x, 150, f"NEW {new_slots} AVG", b50.average_text(b50.new))
+    x = _stat(draw, x, 150, f"BEST {old_slots} TOTAL", fmt(b50.old_sum), st)
+    x = _stat(draw, x, 150, f"NEW {new_slots} TOTAL", fmt(b50.new_sum), st)
+    x = _stat(draw, x, 150, f"BEST {old_slots} AVG", b50.average_text(b50.old), st)
+    x = _stat(draw, x, 150, f"NEW {new_slots} AVG", b50.average_text(b50.new), st)
 
     # rating plate
     rating = b50.official_rating or b50.total_text()
@@ -307,45 +339,95 @@ def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict) -> None
               stroke_width=3, stroke_fill=(20, 20, 30))
     if b50.official_rating and b50.official_rating != b50.total_text():
         draw.text((px + pw, py + ph + 10), f"CALCULATED {b50.total_text()}", font=num(16, "SemiBold"),
-                  fill=FAINT, anchor="ra")
+                  fill=st["faint"], anchor="ra")
 
 
-def _draw_section(canvas: Image.Image, y: int, title: str, sub: str, width: int, theme: dict) -> int:
+def _draw_section(canvas: Image.Image, y: int, title: str, sub: str, width: int, theme: dict, st: dict) -> int:
     draw = ImageDraw.Draw(canvas)
     draw.rectangle((MARGIN, y + 22, MARGIN + 5, y + 46), fill=theme["accent"])
-    draw.text((MARGIN + 16, y + 34), title, font=num(28), fill=WHITE, anchor="lm")
+    draw.text((MARGIN + 16, y + 34), title, font=num(28), fill=st["text"], anchor="lm")
     tw = draw.textlength(title, font=num(28))
-    draw.text((MARGIN + 28 + tw, y + 36), sub, font=num(18, "SemiBold"), fill=FAINT, anchor="lm")
+    draw.text((MARGIN + 28 + tw, y + 36), sub, font=num(18, "SemiBold"), fill=st["faint"], anchor="lm")
     line_x = MARGIN + 44 + tw + draw.textlength(sub, font=num(18, "SemiBold"))
-    draw.line((line_x, y + 35, width - MARGIN, y + 35), fill=(255, 255, 255, 40), width=1)
+    draw.line((line_x, y + 35, width - MARGIN, y + 35), fill=(*st["faint"], 90), width=1)
     return y + SECTION_H
 
 
-def render_b50(b50: B50, now: datetime | None = None) -> bytes:
+def _radial_glows(size: tuple[int, int], glows, blur: int) -> Image.Image:
+    layer = Image.new("RGBA", size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    for (cx, cy, r, color) in glows:
+        d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=color)
+    return layer.filter(ImageFilter.GaussianBlur(blur))
+
+
+def _stripes(size: tuple[int, int], color, spacing: int = 26) -> Image.Image:
+    w, h = size
+    layer = Image.new("RGBA", size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    for off in range(-h, w, spacing):
+        d.line((off, h, off + h, 0), fill=color, width=2)
+    return layer
+
+
+def _background(b50: B50, size: tuple[int, int], theme: dict, st: dict) -> Image.Image:
+    w, h = size
+    if st["bg"] == "light":
+        base = _vertical_gradient(size, (252, 248, 255), (238, 242, 252)).convert("RGBA")
+        pastel = [(255, 170, 210, 150), (150, 215, 255, 150), (255, 226, 150, 120), (200, 170, 255, 130)]
+        glows = [(int(w * 0.1), int(h * 0.05), 420, pastel[0]), (int(w * 0.95), int(h * 0.15), 480, pastel[1]),
+                 (int(w * 0.2), int(h * 0.75), 520, pastel[3]), (int(w * 0.85), int(h * 0.9), 460, pastel[2])]
+        base.alpha_composite(_radial_glows(size, glows, 160))
+        base.alpha_composite(_stripes(size, (255, 255, 255, 60)))
+        return base
+
+    if st["bg"] == "collage":
+        top = next((e.jacket_path for e in b50.old + b50.new if e.jacket_path), None)
+        if top:
+            with Image.open(top) as im:
+                art = ImageOps.fit(im.convert("RGB"), size, Image.LANCZOS)
+            art = art.filter(ImageFilter.GaussianBlur(28))
+            art = Image.blend(art, Image.new("RGB", size, theme["bottom"]), 0.6).convert("RGBA")
+            shade = _vertical_gradient(size, (0, 0, 0), theme["bottom"]).convert("RGBA")
+            shade.putalpha(Image.linear_gradient("L").resize(size).point(lambda v: 60 + v * 150 // 255))
+            art.alpha_composite(shade)
+            return art
+
+    base = _vertical_gradient(size, theme["top"], theme["bottom"]).convert("RGBA")
+    a = theme["accent"]
+    glows = [(int(w * 0.08), 0, 520, (*a, 70)), (int(w * 0.9), int(h * 0.3), 560, (*theme["glow2"], 60)),
+             (int(w * 0.3), int(h * 0.95), 600, (*theme["glow2"], 50))]
+    base.alpha_composite(_radial_glows(size, glows, 200))
+    base.alpha_composite(_stripes(size, (255, 255, 255, 7)))
+    return base
+
+
+def render_b50(b50: B50, now: datetime | None = None, style: str | None = None) -> bytes:
     theme = THEMES[b50.game]
+    st = STYLES[style or os.environ.get("B50_STYLE", DEFAULT_STYLE)]
     old_slots, new_slots = SLOTS[b50.game]
     old_rows, new_rows = -(-old_slots // COLS), -(-new_slots // COLS)
     width = MARGIN * 2 + COLS * CARD_W + (COLS - 1) * GAP_X
     height = (HEADER_H + 2 * SECTION_H + (old_rows + new_rows) * (CARD_H + GAP_Y) + FOOTER_H)
 
-    canvas = _vertical_gradient((width, height), theme["top"], theme["bottom"]).convert("RGBA")
-    _draw_header(canvas, b50, width, theme)
+    canvas = _background(b50, (width, height), theme, st)
+    _draw_header(canvas, b50, width, theme, st)
 
     y = HEADER_H
     for title, sub, entries, rows in (
         (f"BEST {old_slots}", "OLD VERSIONS", b50.old, old_rows),
         (f"NEW {new_slots}", "CURRENT VERSION", b50.new, new_rows),
     ):
-        y = _draw_section(canvas, y, title, sub, width, theme)
+        y = _draw_section(canvas, y, title, sub, width, theme, st)
         for i, e in enumerate(entries):
             r, c = divmod(i, COLS)
-            _draw_card(canvas, MARGIN + c * (CARD_W + GAP_X), y + r * (CARD_H + GAP_Y), i + 1, e, theme)
+            _draw_card(canvas, MARGIN + c * (CARD_W + GAP_X), y + r * (CARD_H + GAP_Y), i + 1, e, theme, st)
         y += rows * (CARD_H + GAP_Y)
 
     draw = ImageDraw.Draw(canvas)
     stamp = (now or datetime.now()).strftime("%Y-%m-%d %H:%M")
     source = f"{b50.source}  ·  " if b50.source else ""
-    draw.text((width - MARGIN, height - 28), f"{source}{stamp}", font=num(17, "Medium"), fill=FAINT, anchor="rm")
+    draw.text((width - MARGIN, height - 28), f"{source}{stamp}", font=num(17, "Medium"), fill=st["faint"], anchor="rm")
 
     buf = io.BytesIO()
     canvas.convert("RGB").save(buf, format="PNG", optimize=True)

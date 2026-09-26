@@ -12,7 +12,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import net_parsers, rating, render, snapshot, updater
+from . import net_parsers, rating, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .config import Config
 from .jackets import JacketStore
@@ -103,13 +103,11 @@ def register_commands(bot: ChumaiBot) -> None:
     @app_commands.describe(
         game="게임",
         member="다른 디스코드 유저의 B50 보기",
-        export="디자인 작업용 데이터 파일(zip)도 나에게만 보내기",
     )
     async def b50(
         interaction: discord.Interaction,
         game: GameChoice,
         member: discord.User | None = None,
-        export: bool = False,
     ) -> None:
         who = member or interaction.user
         is_self = who.id == interaction.user.id
@@ -125,13 +123,6 @@ def register_commands(bot: ChumaiBot) -> None:
         await interaction.response.defer(thinking=True)
         result = await sega_b50(bot, game, who.id, token)
         await send_b50(interaction, result, game)
-        if export and is_self and isinstance(result, B50):
-            data = snapshot.dump(result)
-            await interaction.followup.send(
-                "디자인 목업용 데이터예요. 이 파일을 저장소의 `mock_data` 폴더에 올려 주세요.",
-                file=discord.File(io.BytesIO(data), filename=f"{game}.zip"),
-                ephemeral=True,
-            )
 
     @tree.command(name="calc", description="보면 상수와 점수로 단일 곡 레이팅을 계산합니다")
     @app_commands.describe(

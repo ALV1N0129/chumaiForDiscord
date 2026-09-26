@@ -6,8 +6,7 @@ chumaiForDiscord(이하 "봇")가 어떤 정보를 저장하고 어떻게 쓰는
 
 | 정보 | 언제 | 용도 |
 | --- | --- | --- |
-| 디스코드 사용자 ID | `/login` 또는 `/link` 사용 시 | 연결된 계정을 찾기 위해 |
-| Kamaitachi 아이디 | `/link` 사용 시 | Kamaitachi에서 기록을 불러오기 위해 |
+| 디스코드 사용자 ID | `/login` 사용 시 | 로그인 정보를 찾기 위해 |
 | SEGA 로그인 유지 토큰 | `/login` 사용 시 | CHUNITHM-NET / maimai DX NET에서 기록을 불러오기 위해 |
 | 공개 여부 설정 | `/privacy` 사용 시 | 다른 사람이 내 B50을 볼 수 있는지 판단하기 위해 |
 
@@ -27,15 +26,11 @@ chumaiForDiscord(이하 "봇")가 어떤 정보를 저장하고 어떻게 쓰는
 봇은 기록을 불러오기 위해 다음 서비스에 접속합니다. 각 서비스의 정책도 함께 적용됩니다.
 
 - SEGA (CHUNITHM-NET, maimai DX NET, aime 로그인)
-- Kamaitachi (kamai.tachi.ac)
 - Discord
 
 ## 정보 삭제
 
-- `/logout`: 저장된 SEGA 로그인 토큰을 삭제합니다.
-- `/unlink`: 저장된 Kamaitachi 아이디를 삭제합니다.
-
-두 명령어를 모두 사용하면 봇에 저장된 내 정보가 모두 삭제됩니다.
+`/logout`을 사용하면 봇에 저장된 내 정보(로그인 토큰, 공개 여부 설정)가 모두 삭제됩니다.
 
 ## 문의
 

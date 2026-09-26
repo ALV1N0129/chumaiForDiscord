@@ -1,4 +1,4 @@
-"""Per-user data in SQLite: Kamaitachi links and SEGA ID login tokens."""
+"""Per-user data in SQLite: SEGA ID login tokens."""
 
 from __future__ import annotations
 
@@ -18,10 +18,6 @@ class LinkStore:
         self._db = sqlite3.connect(path)
         self._db.executescript(
             """
-            CREATE TABLE IF NOT EXISTS links (
-                discord_id INTEGER PRIMARY KEY,
-                tachi_user TEXT NOT NULL
-            );
             CREATE TABLE IF NOT EXISTS sega_tokens (
                 discord_id INTEGER PRIMARY KEY,
                 token TEXT NOT NULL,
@@ -33,29 +29,6 @@ class LinkStore:
         self._fernet = Fernet(token_key.encode()) if token_key else None
         if self._fernet is None:
             log.warning("TOKEN_ENCRYPTION_KEY is not set; SEGA login tokens are stored unencrypted")
-
-    # ---- Kamaitachi
-
-    def set(self, discord_id: int, tachi_user: str) -> None:
-        self._db.execute(
-            "INSERT INTO links (discord_id, tachi_user) VALUES (?, ?) "
-            "ON CONFLICT(discord_id) DO UPDATE SET tachi_user = excluded.tachi_user",
-            (discord_id, tachi_user),
-        )
-        self._db.commit()
-
-    def get(self, discord_id: int) -> str | None:
-        row = self._db.execute(
-            "SELECT tachi_user FROM links WHERE discord_id = ?", (discord_id,)
-        ).fetchone()
-        return row[0] if row else None
-
-    def delete(self, discord_id: int) -> bool:
-        cur = self._db.execute("DELETE FROM links WHERE discord_id = ?", (discord_id,))
-        self._db.commit()
-        return cur.rowcount > 0
-
-    # ---- SEGA ID
 
     def set_sega_token(self, discord_id: int, token: str) -> None:
         stored = self._fernet.encrypt(token.encode()).decode() if self._fernet else token

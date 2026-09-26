@@ -1,4 +1,4 @@
-"""Chart constants and versions, taken from Kamaitachi's public seed data.
+"""Chart constants and versions, taken from Tachi's public seed data on GitHub.
 
 CHUNITHM-NET and maimai DX NET show scores but not chart constants, so we look
 those up here. The seeds are downloaded from GitHub and cached on disk.

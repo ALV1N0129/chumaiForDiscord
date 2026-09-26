@@ -14,10 +14,3 @@ def test_sega_token_encrypted(tmp_path):
     assert store.set_public(1, False) and not store.is_public(1)
     assert store.delete_sega_token(1) and store.get_sega_token(1) is None
 
-
-def test_kamaitachi_link(tmp_path):
-    store = LinkStore(tmp_path / "db.sqlite")
-    store.set(1, "alice")
-    store.set(1, "bob")
-    assert store.get(1) == "bob"
-    assert store.delete(1) and store.get(1) is None

@@ -9,23 +9,12 @@ from typing import Iterable
 from . import rating
 from .net_parsers import ChunithmRecord, MaimaiRecord, PlayerInfo
 from .songdb import SongDB, level_to_min_const
-from .tachi import PBBundle
 
 # (old-song slots, new-song slots)
 SLOTS = {
     "maimai": (35, 15),
     "chunithm": (30, 20),
 }
-
-LAMP_SHORT = {
-    "ALL PERFECT+": "AP+",
-    "ALL PERFECT": "AP",
-    "FULL COMBO+": "FC+",
-    "FULL COMBO": "FC",
-    "ALL JUSTICE CRITICAL": "AJC",
-    "ALL JUSTICE": "AJ",
-}
-
 
 @dataclass
 class Entry:
@@ -61,7 +50,7 @@ class B50:
     new: list[Entry]
     # Rating shown on the official site, when the data came from there.
     official_rating: str | None = None
-    source: str = "Kamaitachi"
+    source: str = ""
 
     @property
     def old_sum(self) -> Fraction:
@@ -88,15 +77,6 @@ class B50:
             return "-"
         avg = sum((e.rating for e in entries), Fraction(0)) / len(entries)
         return f"{float(avg):.2f}"
-
-
-def _pick_lamp(score_data: dict) -> str | None:
-    # Newer Tachi splits CHUNITHM lamps into noteLamp/clearLamp.
-    for key in ("lamp", "noteLamp"):
-        lamp = score_data.get(key)
-        if lamp and lamp in LAMP_SHORT:
-            return LAMP_SHORT[lamp]
-    return None
 
 
 def make_entry(
@@ -135,32 +115,6 @@ def _is_new(display_version: str, new_versions: Iterable[str]) -> bool:
     return display_version.strip().lower() in {v.strip().lower() for v in new_versions if v.strip()}
 
 
-def build_entries(game: str, bundle: PBBundle, new_versions: Iterable[str]) -> list[Entry]:
-    new_versions = list(new_versions)
-    entries: list[Entry] = []
-    for pb in bundle.pbs:
-        chart = bundle.charts.get(pb.chart_id)
-        if chart is None:
-            continue
-        song = bundle.songs.get(chart.song_id)
-        raw = pb.score_data.get("percent" if game == "maimai" else "score")
-        if raw is None:
-            continue
-        entries.append(
-            make_entry(
-                game,
-                song.title if song else "?",
-                chart.difficulty,
-                chart.level,
-                chart.level_const,
-                raw,
-                _pick_lamp(pb.score_data),
-                _is_new(chart.display_version, new_versions),
-            )
-        )
-    return entries
-
-
 def _sort_key(e: Entry):
     return (e.rating, e.level_const, e.score)
 
@@ -170,10 +124,6 @@ def select_b50(game: str, username: str, entries: list[Entry], **kwargs) -> B50:
     old = sorted((e for e in entries if not e.is_new), key=_sort_key, reverse=True)[:old_slots]
     new = sorted((e for e in entries if e.is_new), key=_sort_key, reverse=True)[:new_slots]
     return B50(game=game, username=username, old=old, new=new, **kwargs)
-
-
-def build_b50(game: str, bundle: PBBundle, new_versions: Iterable[str]) -> B50:
-    return select_b50(game, bundle.username, build_entries(game, bundle, new_versions))
 
 
 def b50_from_chunithm_net(

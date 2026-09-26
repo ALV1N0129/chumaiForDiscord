@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-import re
 from typing import Literal
 
 import discord
@@ -13,20 +12,16 @@ from discord import app_commands
 from discord.ext import tasks
 
 from . import net_parsers, rating
-from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net, build_b50
+from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .config import Config
 from .render import render_b50
 from .segaid import LoginFailed, NetClient, SegaError, login
 from .songdb import SongDB
 from .storage import LinkStore
-from .tachi import TachiClient, TachiError, UserNotFound
 
 log = logging.getLogger("chumai")
 
 GameChoice = Literal["maimai", "chunithm"]
-SourceChoice = Literal["auto", "sega", "kamaitachi"]
-USERNAME_RE = re.compile(r"^[A-Za-z0-9_\-]{1,40}$")
-PROFILE_URL = "https://kamai.tachi.ac/u/{user}"
 
 
 class ChumaiBot(discord.Client):
@@ -34,7 +29,6 @@ class ChumaiBot(discord.Client):
         super().__init__(intents=discord.Intents.default())
         self.config = config
         self.tree = app_commands.CommandTree(self)
-        self.tachi = TachiClient(config.tachi_base_url, config.tachi_api_key)
         self.links = LinkStore(config.db_path, config.token_key)
         self.songdb = SongDB()
         register_commands(self)
@@ -59,31 +53,12 @@ class ChumaiBot(discord.Client):
 
     async def close(self) -> None:
         self.refresh_songdb.cancel()
-        await self.tachi.close()
         self.links.close()
         await super().close()
 
 
 def register_commands(bot: ChumaiBot) -> None:
     tree = bot.tree
-
-    @tree.command(name="link", description="내 디스코드 계정에 Kamaitachi 아이디를 연동합니다")
-    @app_commands.describe(username="Kamaitachi(kamai.tachi.ac) 유저 이름")
-    async def link(interaction: discord.Interaction, username: str) -> None:
-        if not USERNAME_RE.match(username):
-            await interaction.response.send_message("올바르지 않은 유저 이름입니다.", ephemeral=True)
-            return
-        bot.links.set(interaction.user.id, username)
-        await interaction.response.send_message(
-            f"✅ Kamaitachi 계정 **{username}** 을(를) 연동했어요.\n{PROFILE_URL.format(user=username)}",
-            ephemeral=True,
-        )
-
-    @tree.command(name="unlink", description="Kamaitachi 연동을 해제합니다")
-    async def unlink(interaction: discord.Interaction) -> None:
-        removed = bot.links.delete(interaction.user.id)
-        msg = "연동을 해제했어요." if removed else "연동된 계정이 없어요."
-        await interaction.response.send_message(msg, ephemeral=True)
 
     @tree.command(name="login", description="SEGA ID로 로그인해서 CHUNITHM-NET / maimai DX NET 기록을 불러옵니다 (국제판)")
     async def login_cmd(interaction: discord.Interaction) -> None:
@@ -105,53 +80,25 @@ def register_commands(bot: ChumaiBot) -> None:
         await interaction.response.send_message(msg, ephemeral=True)
 
     @tree.command(name="b50", description="maimai DX / CHUNITHM 베스트 50 레이팅표를 보여줍니다")
-    @app_commands.describe(
-        game="게임",
-        member="다른 디스코드 유저의 B50 보기",
-        username="Kamaitachi 유저 이름으로 직접 조회",
-        source="데이터 출처 (기본: SEGA ID 로그인이 있으면 공식 사이트, 없으면 Kamaitachi)",
-    )
+    @app_commands.describe(game="게임", member="다른 디스코드 유저의 B50 보기")
     async def b50(
         interaction: discord.Interaction,
         game: GameChoice,
         member: discord.User | None = None,
-        username: str | None = None,
-        source: SourceChoice = "auto",
     ) -> None:
-        if username:
-            if not USERNAME_RE.match(username):
-                await interaction.response.send_message("올바르지 않은 유저 이름입니다.", ephemeral=True)
-                return
-            await interaction.response.defer(thinking=True)
-            await send_b50(interaction, await kamaitachi_b50(bot, game, username), game)
-            return
-
         who = member or interaction.user
         is_self = who.id == interaction.user.id
-        token = bot.links.get_sega_token(who.id) if source in ("auto", "sega") else None
-        if token and not is_self and not bot.links.is_public(who.id):
-            token = None
-            if source == "sega":
-                await interaction.response.send_message(f"{who.mention} 님은 기록을 비공개로 설정했어요.", ephemeral=True)
-                return
-        tachi_user = bot.links.get(who.id) if source in ("auto", "kamaitachi") else None
-
-        if token is None and tachi_user is None:
-            if source == "sega":
-                hint = "`/login` 으로 먼저 SEGA ID 로그인을 해 주세요." if is_self else f"{who.mention} 님은 SEGA ID 로그인을 하지 않았어요."
-            else:
-                hint = "`/login`(SEGA ID) 또는 `/link`(Kamaitachi)로 먼저 계정을 연결해 주세요." if is_self else (
-                    f"{who.mention} 님은 연결된 계정이 없어요."
-                )
+        token = bot.links.get_sega_token(who.id)
+        if token is None:
+            hint = "`/login` 으로 먼저 SEGA ID 로그인을 해 주세요." if is_self else f"{who.mention} 님은 로그인하지 않았어요."
             await interaction.response.send_message(hint, ephemeral=True)
+            return
+        if not is_self and not bot.links.is_public(who.id):
+            await interaction.response.send_message(f"{who.mention} 님은 기록을 비공개로 설정했어요.", ephemeral=True)
             return
 
         await interaction.response.defer(thinking=True)
-        if token is not None:
-            result = await sega_b50(bot, game, who.id, token)
-        else:
-            result = await kamaitachi_b50(bot, game, tachi_user)
-        await send_b50(interaction, result, game)
+        await send_b50(interaction, await sega_b50(bot, game, who.id, token), game)
 
     @tree.command(name="calc", description="보면 상수와 점수로 단일 곡 레이팅을 계산합니다")
     @app_commands.describe(
@@ -199,19 +146,6 @@ class SegaLoginModal(discord.ui.Modal, title="SEGA ID 로그인 (국제판)"):
         )
 
 
-async def kamaitachi_b50(bot: ChumaiBot, game: str, username: str) -> B50 | str:
-    try:
-        bundle = await bot.tachi.fetch_all_pbs(username, game)
-    except UserNotFound:
-        return f"Kamaitachi 유저 **{username}** 을(를) 찾을 수 없어요."
-    except TachiError as e:
-        return f"Kamaitachi에서 데이터를 가져오지 못했어요: {e}"
-    except Exception:
-        log.exception("failed to fetch PBs for %s", username)
-        return "Kamaitachi 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요."
-    return build_b50(game, bundle, bot.config.new_versions[game])
-
-
 async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str) -> B50 | str:
     try:
         async with NetClient(game, token) as net:
@@ -257,8 +191,6 @@ async def send_b50(interaction: discord.Interaction, result: B50 | str, game: st
         description=f"레이팅 **{rating_text}**",
         color=0xF5C542 if game == "maimai" else 0xE0457B,
     )
-    if result.source == "Kamaitachi":
-        embed.url = PROFILE_URL.format(user=result.username)
     embed.set_image(url=f"attachment://{file.filename}")
     embed.set_footer(text=f"데이터: {result.source}")
     await interaction.followup.send(embed=embed, file=file)

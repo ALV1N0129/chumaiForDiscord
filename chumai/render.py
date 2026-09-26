@@ -421,12 +421,20 @@ def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> N
 
     plate = _open_image(b50.plate)
     if plate is not None:
-        bg = ImageOps.fit(plate.convert("RGB"), (cw, ch), Image.LANCZOS)
-        bg = Image.blend(bg, Image.new("RGB", (cw, ch), (10, 8, 18)), 0.5).convert("RGBA")
+        # keep the nameplate's own colors; darken only toward the bottom-left where text sits
+        bg = ImageOps.fit(plate.convert("RGB"), (cw, ch), Image.LANCZOS).convert("RGBA")
+        shade = Image.new("RGBA", (cw, ch), (8, 6, 16, 0))
+        v = Image.linear_gradient("L").resize((cw, ch))  # 0 top -> 255 bottom
+        h = Image.linear_gradient("L").rotate(90).resize((cw, ch))  # 255 left -> 0 right
+        shade.putalpha(Image.blend(v, h, 0.5).point(lambda a: 10 + a * 120 // 255))
+        bg.alpha_composite(shade)
     else:
         bg = Image.new("RGBA", (cw, ch), (12, 10, 22, 200))
     card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
     card.paste(bg, (0, 0), _rounded_mask((cw, ch), 18))
+    border = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    ImageDraw.Draw(border).rounded_rectangle((0, 0, cw - 1, ch - 1), radius=18, outline=(255, 255, 255, 70), width=2)
+    card.alpha_composite(border)
     canvas.alpha_composite(card, (cx, cy))
     draw = ImageDraw.Draw(canvas)
 
@@ -464,9 +472,11 @@ def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> N
     if b50.level:
         draw.text((nx, cy + 76), "Lv.", font=num(18, "SemiBold"), fill=st["muted"], anchor="ls")
         nx += draw.textlength("Lv.", font=num(18, "SemiBold")) + 4
-        draw.text((nx, cy + 78), b50.level, font=num(34), fill=st["text"], anchor="ls")
+        draw.text((nx, cy + 78), b50.level, font=num(34), fill=st["text"], anchor="ls",
+                  stroke_width=2, stroke_fill=(10, 8, 18))
         nx += draw.textlength(b50.level, font=num(34)) + 14
-    draw.text((nx, cy + 78), _fit(draw, name, cjk(30), right - nx), font=cjk(30), fill=st["text"], anchor="ls")
+    draw.text((nx, cy + 78), _fit(draw, name, cjk(30), right - nx), font=cjk(30), fill=st["text"], anchor="ls",
+              stroke_width=2, stroke_fill=(10, 8, 18))
 
     # compact stats row
     fmt = (lambda v: f"{float(v):.2f}") if b50.game == "chunithm" else (lambda v: str(int(v)))

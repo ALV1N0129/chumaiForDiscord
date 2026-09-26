@@ -56,7 +56,7 @@ STYLES = {
     "light": {"bg": "light", "card": "light", "text": (28, 28, 40), "muted": (92, 96, 116),
               "faint": (140, 144, 162), "rank": (214, 146, 0)},
 }
-DEFAULT_STYLE = "version"
+DEFAULT_STYLE = "collage"
 
 DIFFS = {
     "basic": ("BAS", (46, 180, 80)),

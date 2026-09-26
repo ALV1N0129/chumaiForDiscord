@@ -43,6 +43,10 @@ STYLES = {
              "faint": (130, 136, 160), "rank": (255, 206, 84)},
     "collage": {"bg": "collage", "card": "jacket", "text": (255, 255, 255), "muted": (190, 194, 210),
                 "faint": (150, 154, 172), "rank": (255, 206, 84)},
+    "clean": {"bg": "glow", "card": "flat", "text": (255, 255, 255), "muted": (178, 184, 204),
+              "faint": (130, 136, 160), "rank": (255, 206, 84)},
+    "calm": {"bg": "collage_dim", "card": "flat", "text": (255, 255, 255), "muted": (190, 194, 210),
+             "faint": (150, 154, 172), "rank": (255, 206, 84)},
     "light": {"bg": "light", "card": "light", "text": (28, 28, 40), "muted": (92, 96, 116),
               "faint": (140, 144, 162), "rank": (214, 146, 0)},
 }
@@ -214,6 +218,8 @@ def _card_background(path: str | None, mode: str, fallback: tuple[int, int, int]
     if mode == "light":
         return Image.new("RGBA", (CARD_W, CARD_H), (255, 255, 255, 236))
     base = Image.new("RGBA", (CARD_W, CARD_H), (*fallback, 228))
+    if mode == "flat":
+        return Image.new("RGBA", (CARD_W, CARD_H), (*fallback, 235))
     if not path:
         return base
     try:
@@ -639,13 +645,14 @@ def _background(b50: B50, size: tuple[int, int], theme: dict, st: dict) -> Image
         base.alpha_composite(_stripes(size, (255, 255, 255, 60)))
         return base
 
-    if st["bg"] == "collage":
+    if st["bg"] in ("collage", "collage_dim"):
         top = next((e.jacket_path for e in b50.old + b50.new if e.jacket_path), None)
         if top:
             with Image.open(top) as im:
                 art = ImageOps.fit(im.convert("RGB"), size, Image.LANCZOS)
-            art = art.filter(ImageFilter.GaussianBlur(6))
-            art = Image.blend(art, Image.new("RGB", size, theme["bottom"]), 0.5).convert("RGBA")
+            dim = st["bg"] == "collage_dim"
+            art = art.filter(ImageFilter.GaussianBlur(24 if dim else 6))
+            art = Image.blend(art, Image.new("RGB", size, theme["bottom"]), 0.78 if dim else 0.5).convert("RGBA")
             shade = _vertical_gradient(size, (0, 0, 0), theme["bottom"]).convert("RGBA")
             shade.putalpha(Image.linear_gradient("L").resize(size).point(lambda v: 60 + v * 150 // 255))
             art.alpha_composite(shade)

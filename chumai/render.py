@@ -383,18 +383,38 @@ def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dic
     old_slots, new_slots = SLOTS[b50.game]
 
     _draw_logo(canvas, b50.game, width, theme)
-    draw.text((MARGIN, 38), f"BEST {old_slots + new_slots}",
-              font=num(20, "SemiBold"), fill=theme["accent"])
+    # player card: translucent panel with an accent edge, name, and four stat tiles
+    cw, ch = 560, 136  # same height as the rating plate
+    cx, cy = MARGIN, 40
+    panel = Image.new("RGBA", (cw, ch), (12, 10, 22, 200))
+    edge = _gradient_fill((6, ch), [theme["accent"], theme["glow2"]])
+    panel.paste(edge, (0, 0))
+    card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    card.paste(panel, (0, 0), _rounded_mask((cw, ch), 18))
+    canvas.alpha_composite(card, (cx, cy))
+
+    draw.text((cx + 26, cy + 12), f"PLAYER  ·  BEST {old_slots + new_slots}", font=num(17, "SemiBold"),
+              fill=theme["accent"])
     # Official sites use full-width letters for names (ＡＬＶ１Ｎ); show them normally.
     name = unicodedata.normalize("NFKC", b50.username)
-    draw.text((MARGIN - 2, 62), _fit(draw, name, cjk(52), width - 520), font=cjk(52), fill=st["text"])
+    draw.text((cx + 24, cy + 28), _fit(draw, name, cjk(34), cw - 48), font=cjk(34), fill=st["text"])
 
     fmt = (lambda v: f"{float(v):.2f}") if b50.game == "chunithm" else (lambda v: str(int(v)))
-    x = MARGIN
-    x = _stat(draw, x, 150, f"BEST {old_slots} TOTAL", fmt(b50.old_sum), st)
-    x = _stat(draw, x, 150, f"NEW {new_slots} TOTAL", fmt(b50.new_sum), st)
-    x = _stat(draw, x, 150, f"BEST {old_slots} AVG", b50.average_text(b50.old), st)
-    x = _stat(draw, x, 150, f"NEW {new_slots} AVG", b50.average_text(b50.new), st)
+    stats = [
+        (f"BEST {old_slots}", fmt(b50.old_sum)),
+        (f"NEW {new_slots}", fmt(b50.new_sum)),
+        (f"B{old_slots} AVG", b50.average_text(b50.old)),
+        (f"N{new_slots} AVG", b50.average_text(b50.new)),
+    ]
+    tw, th, gap = (cw - 48 - 3 * 8) // 4, 48, 8
+    for i, (label, value) in enumerate(stats):
+        tx, ty = cx + 24 + i * (tw + gap), cy + ch - th - 14
+        tile = Image.new("RGBA", (tw, th), (255, 255, 255, 18))
+        t = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+        t.paste(tile, (0, 0), _rounded_mask((tw, th), 10))
+        canvas.alpha_composite(t, (tx, ty))
+        draw.text((tx + 12, ty + 5), label, font=num(13, "SemiBold"), fill=st["faint"])
+        draw.text((tx + 12, ty + th - 4), value, font=num(24), fill=st["text"], anchor="ld")
 
     rating = b50.official_rating or b50.total_text()
     _draw_plate(canvas, b50.game, rating, width, st)

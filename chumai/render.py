@@ -19,7 +19,7 @@ COLS = 5
 CARD_W, CARD_H = 372, 132
 GAP_X, GAP_Y = 14, 14
 MARGIN = 40
-HEADER_H = 236
+HEADER_H = 250
 SECTION_H = 64
 FOOTER_H = 56
 JACKET = 108
@@ -426,7 +426,7 @@ def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> N
         shade = Image.new("RGBA", (cw, ch), (8, 6, 16, 0))
         v = Image.linear_gradient("L").resize((cw, ch))  # 0 top -> 255 bottom
         h = Image.linear_gradient("L").rotate(90).resize((cw, ch))  # 255 left -> 0 right
-        shade.putalpha(Image.blend(v, h, 0.5).point(lambda a: 10 + a * 120 // 255))
+        shade.putalpha(v.point(lambda a: max(0, a - 90) * 150 // 165))
         bg.alpha_composite(shade)
     else:
         bg = Image.new("RGBA", (cw, ch), (12, 10, 22, 200))
@@ -457,28 +457,34 @@ def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> N
     left = cx + 16
     inner_w = right - left
 
-    # title bar across the top
+    # title: a centered plate with a rarity-colored rim, like the in-game title
     colors = TITLE_COLORS.get((b50.title_rarity or "normal").lower(), TITLE_COLORS["normal"])
-    bar = _gradient_fill((inner_w, 30), colors)
-    bar.putalpha(_rounded_mask((inner_w, 30), 8))
-    canvas.alpha_composite(bar, (left, cy + 12))
     title = b50.title or f"BEST {old_slots + new_slots}"
-    draw.text((left + inner_w // 2, cy + 27), _fit(draw, title, cjk(16), inner_w - 20), font=cjk(16),
-              fill=(24, 22, 34), anchor="mm")
+    tf = cjk(17)
+    title = _fit(draw, title, tf, inner_w - 40)
+    tw_ = min(inner_w, int(draw.textlength(title, font=tf)) + 56)
+    tx_, ty_ = left + (inner_w - tw_) // 2, cy + 14
+    rim = _gradient_fill((tw_, 32), colors)
+    rim.putalpha(_rounded_mask((tw_, 32), 16))
+    canvas.alpha_composite(rim, (tx_, ty_))
+    core = Image.new("RGBA", (tw_ - 4, 28), (0, 0, 0, 0))
+    core.paste(Image.new("RGBA", core.size, (14, 12, 24, 215)), (0, 0), _rounded_mask(core.size, 14))
+    canvas.alpha_composite(core, (tx_ + 2, ty_ + 2))
+    draw.text((tx_ + tw_ // 2, ty_ + 16), title, font=tf, fill=(255, 255, 255), anchor="mm")
 
-    # level + name
+    # level (small) + name (big) along the bottom
     name = unicodedata.normalize("NFKC", b50.username)  # official sites use full-width letters
-    nx = left + 4
+    base = cy + ch - 20
+    nx = left + 6
     if b50.level:
-        draw.text((nx, cy + 76), "Lv.", font=num(18, "SemiBold"), fill=st["muted"], anchor="ls")
-        nx += draw.textlength("Lv.", font=num(18, "SemiBold")) + 4
-        draw.text((nx, cy + 78), b50.level, font=num(34), fill=st["text"], anchor="ls",
+        lv = f"Lv.{b50.level}"
+        draw.text((nx, base), lv, font=num(24, "SemiBold"), fill=(235, 235, 245), anchor="ls",
                   stroke_width=2, stroke_fill=(10, 8, 18))
-        nx += draw.textlength(b50.level, font=num(34)) + 14
-    draw.text((nx, cy + 78), _fit(draw, name, cjk(30), right - nx), font=cjk(30), fill=st["text"], anchor="ls",
-              stroke_width=2, stroke_fill=(10, 8, 18))
+        nx += draw.textlength(lv, font=num(24, "SemiBold")) + 16
+    draw.text((nx, base + 2), _fit(draw, name, cjk(40), right - nx), font=cjk(40), fill=(255, 255, 255),
+              anchor="ls", stroke_width=3, stroke_fill=(10, 8, 18))
 
-    # compact stats row
+    # stats as a row of chips under the card
     fmt = (lambda v: f"{float(v):.2f}") if b50.game == "chunithm" else (lambda v: str(int(v)))
     stats = [
         (f"BEST {old_slots}", fmt(b50.old_sum)),
@@ -486,15 +492,17 @@ def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> N
         (f"B{old_slots} AVG", b50.average_text(b50.old)),
         (f"N{new_slots} AVG", b50.average_text(b50.new)),
     ]
-    gap = 6
-    tw, th = (inner_w - 3 * gap) // 4, 38
-    for i, (label, value) in enumerate(stats):
-        sx, sy = left + i * (tw + gap), cy + ch - th - 10
-        tile = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
-        tile.paste(Image.new("RGBA", (tw, th), (10, 8, 18, 160)), (0, 0), _rounded_mask((tw, th), 8))
-        canvas.alpha_composite(tile, (sx, sy))
-        draw.text((sx + 8, sy + th // 2), label, font=num(12, "SemiBold"), fill=st["faint"], anchor="lm")
-        draw.text((sx + tw - 8, sy + th // 2 + 1), value, font=num(21), fill=st["text"], anchor="rm")
+    sx, sy = cx, cy + ch + 10
+    for label, value in stats:
+        lw = draw.textlength(label, font=num(15, "SemiBold"))
+        vw = draw.textlength(value, font=num(22))
+        w = int(lw + vw + 30)
+        chip = Image.new("RGBA", (w, 34), (0, 0, 0, 0))
+        chip.paste(Image.new("RGBA", (w, 34), (10, 8, 18, 150)), (0, 0), _rounded_mask((w, 34), 17))
+        canvas.alpha_composite(chip, (sx, sy))
+        draw.text((sx + 12, sy + 17), label, font=num(15, "SemiBold"), fill=st["faint"], anchor="lm")
+        draw.text((sx + w - 12, sy + 18), value, font=num(22), fill=st["text"], anchor="rm")
+        sx += w + 8
 
 
 def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dict) -> None:

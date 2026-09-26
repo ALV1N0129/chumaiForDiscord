@@ -10,7 +10,6 @@ from typing import Literal
 
 import discord
 from discord import app_commands
-
 from discord.ext import tasks
 
 from . import net_parsers, rating

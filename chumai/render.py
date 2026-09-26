@@ -9,7 +9,7 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
 
 from .b50 import B50, SLOTS, Entry
 
@@ -56,7 +56,7 @@ STYLES = {
     "light": {"bg": "light", "card": "light", "text": (28, 28, 40), "muted": (92, 96, 116),
               "faint": (140, 144, 162), "rank": (214, 146, 0)},
 }
-DEFAULT_STYLE = "collage"
+DEFAULT_STYLE = "version"
 
 DIFFS = {
     "basic": ("BAS", (46, 180, 80)),
@@ -625,9 +625,14 @@ def _background(b50: B50, size: tuple[int, int], theme: dict, st: dict) -> Image
             path = ASSETS / "backgrounds" / f"{b50.game}.{ext}"
             if path.is_file():
                 with Image.open(path) as im:
-                    art = ImageOps.fit(im.convert("RGB"), size, Image.LANCZOS, centering=(0.5, 0.0))
-                art = art.filter(ImageFilter.GaussianBlur(3))
-                art = Image.blend(art, Image.new("RGB", size, theme["bottom"]), 0.45).convert("RGBA")
+                    src = im.convert("RGB")
+                # small images get blurred more (hides upscaling artifacts), bright ones darkened more
+                scale = max(w / src.width, h / src.height)
+                art = ImageOps.fit(src, size, Image.LANCZOS, centering=(0.5, 0.0))
+                art = art.filter(ImageFilter.GaussianBlur(3 if scale < 2.5 else scale * 2))
+                lum = sum(ImageStat.Stat(src.convert("L")).mean) / 255
+                dark = min(0.72, 0.45 + max(0.0, lum - 0.35) * 0.8)
+                art = Image.blend(art, Image.new("RGB", size, theme["bottom"]), dark).convert("RGBA")
                 shade = Image.new("RGBA", size, (*theme["bottom"], 0))
                 shade.putalpha(Image.linear_gradient("L").resize(size).point(lambda v: v * 120 // 255))
                 art.alpha_composite(shade)

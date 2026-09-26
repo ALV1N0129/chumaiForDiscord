@@ -25,6 +25,7 @@ class Config:
     db_path: str
     token_key: str | None
     songdb_dir: str
+    jacket_dir: str
     new_versions: dict[str, list[str]]
 
     @classmethod
@@ -40,6 +41,7 @@ class Config:
             db_path=os.environ.get("DB_PATH", "data/chumai.db"),
             token_key=os.environ.get("TOKEN_ENCRYPTION_KEY") or None,
             songdb_dir=os.environ.get("SONGDB_DIR", "data/songdb"),
+            jacket_dir=os.environ.get("JACKET_DIR", "data/jackets"),
             new_versions={
                 game: _split(os.environ.get(f"{game.upper()}_NEW_VERSIONS", default))
                 for game, default in DEFAULT_NEW_VERSIONS.items()

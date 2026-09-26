@@ -1,21 +1,21 @@
 from chumai import render
 
 
-def test_script_specific_fallback(tmp_path, monkeypatch):
-    ja, ko = tmp_path / "ja.ttc", tmp_path / "ko.ttf"
-    ja.touch()
-    ko.touch()
+def test_font_path_override(tmp_path, monkeypatch):
+    font = tmp_path / "custom.otf"
+    font.touch()
+    monkeypatch.setenv("FONT_PATH", str(font))
+    assert render._cjk_font_file() == str(font)
+
+
+def test_system_fallback(tmp_path, monkeypatch):
+    font = tmp_path / "YuGothB.ttc"
+    font.touch()
     monkeypatch.delenv("FONT_PATH", raising=False)
-    monkeypatch.setattr(render, "FONT_CANDIDATES", [])
-    monkeypatch.setattr(render, "JA_FONTS", [str(ja)])
-    monkeypatch.setattr(render, "KO_FONTS", [str(ko)])
-    assert render._find_font_file("ja") == str(ja)
-    assert render._find_font_file("ko") == str(ko)
+    monkeypatch.setattr(render, "ASSETS", tmp_path / "no-assets")
+    monkeypatch.setattr(render, "CJK_BOLD", ["/nonexistent.ttc", str(font)])
+    assert render._cjk_font_file() == str(font)
 
 
-def test_cjk_font_preferred_for_both(tmp_path, monkeypatch):
-    cjk = tmp_path / "cjk.otf"
-    cjk.touch()
-    monkeypatch.setenv("FONT_PATH", str(cjk))
-    monkeypatch.setattr(render, "JA_FONTS", ["/nonexistent"])
-    assert render._find_font_file("ja") == render._find_font_file("ko") == str(cjk)
+def test_bundled_display_font_loads():
+    assert render.num(20).getname()[0] == "Barlow Condensed"

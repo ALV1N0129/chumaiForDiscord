@@ -20,6 +20,7 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 - 공식 사이트는 보면 상수를 보여주지 않으므로, 상수는 공개된 곡 데이터 파일
   ([Tachi](https://github.com/TNG-dev/Tachi)의 seeds)을 GitHub에서 내려받아 사용합니다.
   계정이나 로그인은 필요 없고, 하루에 한 번 갱신되며 `SONGDB_DIR`에 캐시됩니다.
+- 곡 자켓은 SEGA 공식 곡 목록(`music.json`, `maimai_songs.json`)에서 찾아 내려받고 `JACKET_DIR`에 캐시합니다.
 - 국제판(SEGA ID) 전용입니다. 일본판은 로그인 방식이 달라 지원하지 않습니다.
 
 > Discord 입력창(Modal)은 비밀번호 가리기(`***`)를 지원하지 않아서 입력하는 동안 본인 화면에는 비밀번호가 보입니다.
@@ -57,13 +58,14 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 
 ### 폰트
 
-곡 제목에 일본어/한국어가 많아서 CJK 폰트가 필요합니다. 다음 순서로 자동 탐색합니다.
+숫자와 영문 라벨은 함께 들어 있는 Barlow Condensed(SIL OFL, `chumai/assets/display/`)를 씁니다.
+곡 제목은 일본어 폰트가 필요하며 다음 순서로 찾습니다.
 
 1. `FONT_PATH` 환경변수
 2. `chumai/assets/fonts/` 폴더 안의 `.ttf/.otf/.ttc` 파일
-3. 시스템 폰트 (Noto Sans CJK, 나눔고딕, 맑은 고딕 등)
+3. 시스템 폰트 (Noto Sans CJK, 히라기노, Windows의 Yu Gothic/메이리오)
 
-Linux라면 `sudo apt install fonts-noto-cjk` 한 줄이면 됩니다. Docker 이미지에는 이미 포함되어 있습니다.
+Windows와 Mac은 따로 설치할 필요가 없고, Linux는 `sudo apt install fonts-noto-cjk`로 설치하면 됩니다.
 
 ### 신곡 기준 버전
 
@@ -86,6 +88,8 @@ chumai/
   rating.py   곡별 레이팅 공식 (maimai / CHUNITHM)
   b50.py      구곡/신곡 분리 및 B50 선정
   render.py   B50 이미지 생성 (Pillow)
+  jackets.py  곡 자켓 찾기·캐시
+  tls.py      인증서 체인이 불완전한 사이트 대응
   storage.py  로그인 토큰 저장 (SQLite)
 ```
 

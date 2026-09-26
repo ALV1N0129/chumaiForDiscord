@@ -28,6 +28,9 @@ class Entry:
     lamp: str | None
     rating: Fraction
     is_new: bool
+    # chunithm: music id; maimai: (title, genre). Used to find the jacket.
+    song_key: object = None
+    jacket_path: str | None = None
 
     @property
     def score_text(self) -> str:
@@ -88,6 +91,7 @@ def make_entry(
     score: float,
     lamp: str | None,
     is_new: bool,
+    song_key: object = None,
 ) -> Entry:
     if game == "maimai":
         score = float(score)
@@ -108,6 +112,7 @@ def make_entry(
         lamp=lamp,
         rating=r,
         is_new=is_new,
+        song_key=song_key,
     )
 
 
@@ -140,7 +145,7 @@ def b50_from_chunithm_net(
             info = songdb.chunithm_chart(r.idx, r.difficulty)
             level = info.level if info else "?"
             const = info.level_const if info else 0.0
-            out.append(make_entry("chunithm", r.title, r.difficulty, level, const, r.score, None, is_new))
+            out.append(make_entry("chunithm", r.title, r.difficulty, level, const, r.score, None, is_new, r.idx))
         return sorted(out, key=_sort_key, reverse=True)
 
     return B50(
@@ -168,7 +173,9 @@ def b50_from_maimai_net(
         else:
             # Unknown chart (probably brand new): estimate from the displayed level.
             const, level, is_new = level_to_min_const(r.level, "maimai"), r.level, True
-        entries.append(make_entry("maimai", r.title, r.difficulty, level, const, r.achievement, r.lamp, is_new))
+        entries.append(
+            make_entry("maimai", r.title, r.difficulty, level, const, r.achievement, r.lamp, is_new, (r.title, r.genre))
+        )
     return select_b50(
         "maimai", player.name, entries, official_rating=player.rating, source="maimai DX NET"
     )

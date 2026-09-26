@@ -14,6 +14,7 @@ from discord.ext import tasks
 from . import net_parsers, rating
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .config import Config
+from .jackets import JacketStore
 from .render import render_b50
 from .segaid import LoginFailed, NetClient, SegaError, login
 from .songdb import SongDB
@@ -31,10 +32,12 @@ class ChumaiBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
         self.links = LinkStore(config.db_path, config.token_key)
         self.songdb = SongDB()
+        self.jackets = JacketStore(config.jacket_dir)
         register_commands(self)
 
     async def setup_hook(self) -> None:
         await self.songdb.load_or_update(self.config.songdb_dir)
+        await self.jackets.load_or_update()
         self.refresh_songdb.start()
         if self.config.guild_id:
             guild = discord.Object(id=self.config.guild_id)
@@ -46,6 +49,7 @@ class ChumaiBot(discord.Client):
     @tasks.loop(hours=24)
     async def refresh_songdb(self) -> None:
         await self.songdb.load_or_update(self.config.songdb_dir)
+        await self.jackets.load_or_update()
 
     @refresh_songdb.before_loop
     async def _skip_first_refresh(self) -> None:
@@ -132,16 +136,15 @@ class SegaLoginModal(discord.ui.Modal, title="SEGA ID 로그인 (국제판)"):
         try:
             clal = await login(self.sega_id.value, self.password.value, self.otp.value or None)
         except LoginFailed as e:
-            await interaction.followup.send(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(str(e), ephemeral=True)
             return
         except Exception:
             log.exception("SEGA ID login failed")
-            await interaction.followup.send("❌ SEGA 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.", ephemeral=True)
+            await interaction.followup.send("SEGA 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.", ephemeral=True)
             return
         self.bot.links.set_sega_token(interaction.user.id, clal)
         await interaction.followup.send(
-            "✅ 로그인했어요! 이제 `/b50` 으로 공식 사이트 기록을 볼 수 있어요.\n"
-            "비밀번호는 저장하지 않고, 로그인 유지용 토큰만 저장해요. `/logout` 으로 언제든 삭제할 수 있어요.",
+            "로그인 완료. 비밀번호는 저장하지 않으며, `/logout` 으로 로그인 정보를 지울 수 있어요.",
             ephemeral=True,
         )
 
@@ -175,6 +178,17 @@ async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str) -> B5
         return "공식 사이트에서 데이터를 가져오지 못했어요. 점검 중이거나 사이트 구조가 바뀌었을 수 있어요."
 
 
+async def attach_jackets(bot: ChumaiBot, result: B50) -> None:
+    entries = result.old + result.new
+    try:
+        paths = await bot.jackets.fetch(result.game, [e.song_key for e in entries])
+    except Exception:
+        log.exception("failed to fetch jackets")
+        return
+    for i, path in paths.items():
+        entries[i].jacket_path = str(path)
+
+
 async def send_b50(interaction: discord.Interaction, result: B50 | str, game: str) -> None:
     if isinstance(result, str):
         await interaction.followup.send(result)
@@ -183,17 +197,9 @@ async def send_b50(interaction: discord.Interaction, result: B50 | str, game: st
         await interaction.followup.send(f"**{result.username}** 의 {game} 기록이 없어요.")
         return
 
+    await attach_jackets(interaction.client, result)
     png = await asyncio.to_thread(render_b50, result)
-    file = discord.File(io.BytesIO(png), filename=f"b50_{game}.png")
-    rating_text = result.official_rating or result.total_text()
-    embed = discord.Embed(
-        title=f"{result.username} · {'maimai DX' if game == 'maimai' else 'CHUNITHM'} B50",
-        description=f"레이팅 **{rating_text}**",
-        color=0xF5C542 if game == "maimai" else 0xE0457B,
-    )
-    embed.set_image(url=f"attachment://{file.filename}")
-    embed.set_footer(text=f"데이터: {result.source}")
-    await interaction.followup.send(embed=embed, file=file)
+    await interaction.followup.send(file=discord.File(io.BytesIO(png), filename=f"b50_{game}.png"))
 
 
 def main() -> None:

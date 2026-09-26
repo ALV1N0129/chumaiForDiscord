@@ -12,7 +12,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import net_parsers, rating, render
+from . import net_parsers, rating, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .config import Config
 from .jackets import JacketStore
@@ -43,12 +43,23 @@ class ChumaiBot(discord.Client):
         render.LOGO_DIR = Path(self.config.logo_dir)
         await download_logos(self.config.logo_dir, self.config.logo_urls)
         self.refresh_songdb.start()
+        if updater.enabled():
+            self.check_update.start()
         if self.config.guild_id:
             guild = discord.Object(id=self.config.guild_id)
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
         else:
             await self.tree.sync()
+
+    restart_requested = False
+
+    @tasks.loop(minutes=2)
+    async def check_update(self) -> None:
+        if await updater.pull_if_updated():
+            log.info("new version pulled; restarting")
+            self.restart_requested = True
+            await self.close()
 
     @tasks.loop(hours=24)
     async def refresh_songdb(self) -> None:
@@ -61,6 +72,7 @@ class ChumaiBot(discord.Client):
 
     async def close(self) -> None:
         self.refresh_songdb.cancel()
+        self.check_update.cancel()
         self.links.close()
         await super().close()
 
@@ -211,3 +223,5 @@ def main() -> None:
     config = Config.from_env()
     bot = ChumaiBot(config)
     bot.run(config.discord_token, log_handler=None)
+    if bot.restart_requested:
+        raise SystemExit(updater.RESTART_EXIT_CODE)

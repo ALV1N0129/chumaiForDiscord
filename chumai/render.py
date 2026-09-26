@@ -26,6 +26,7 @@ JACKET = 108
 RADIUS = 14
 
 WHITE = (255, 255, 255)
+MAX_RATING = (255, 222, 110)  # rating number when the chart's max rating is reached
 MUTED = (178, 184, 204)
 FAINT = (120, 126, 148)
 
@@ -218,11 +219,11 @@ def _card_background(path: str | None, mode: str, fallback: tuple[int, int, int]
             art = ImageOps.fit(im.convert("RGB"), (CARD_W, CARD_W), Image.LANCZOS)
     except Exception:
         return base
-    art = art.crop((0, (CARD_W - CARD_H) // 2, CARD_W, (CARD_W + CARD_H) // 2)).filter(ImageFilter.GaussianBlur(3))
-    art = Image.blend(art, Image.new("RGB", art.size, (12, 12, 20)), 0.45).convert("RGBA")
+    art = art.crop((0, (CARD_W - CARD_H) // 2, CARD_W, (CARD_W + CARD_H) // 2))
+    art = Image.blend(art, Image.new("RGB", art.size, (12, 12, 20)), 0.35).convert("RGBA")
     fade = Image.linear_gradient("L").rotate(90).resize((CARD_W, CARD_H))  # 255 at left -> 0 at right
     fade = fade.point(lambda v: 255 - v)  # 0 at left -> 255 at right
-    fade = fade.point(lambda v: int(min(255, max(0, (v - 70) * 1.2))))
+    fade = fade.point(lambda v: int(min(255, max(0, (v - 40) * 1.3))))
     art.putalpha(fade)
     return Image.alpha_composite(base, art)
 
@@ -287,7 +288,9 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
         draw.rounded_rectangle((rx, y + 89, rx + w, y + 109), radius=5, outline=lamp_color, width=2)
         draw.text((rx + w / 2, y + 99), e.lamp, font=lf, fill=lamp_color, anchor="mm")
 
-    draw.text((right, y + CARD_H - 10), e.rating_text, font=num(34), fill=st["text"], anchor="rd")
+    maxed = e.score >= (100.5 if e.game == "maimai" else 1_009_000)
+    draw.text((right, y + CARD_H - 10), e.rating_text, font=num(34),
+              fill=MAX_RATING if maxed else st["text"], anchor="rd")
 
 
 # ----------------------------------------------------------------- header
@@ -450,8 +453,8 @@ def _background(b50: B50, size: tuple[int, int], theme: dict, st: dict) -> Image
         if top:
             with Image.open(top) as im:
                 art = ImageOps.fit(im.convert("RGB"), size, Image.LANCZOS)
-            art = art.filter(ImageFilter.GaussianBlur(28))
-            art = Image.blend(art, Image.new("RGB", size, theme["bottom"]), 0.6).convert("RGBA")
+            art = art.filter(ImageFilter.GaussianBlur(6))
+            art = Image.blend(art, Image.new("RGB", size, theme["bottom"]), 0.5).convert("RGBA")
             shade = _vertical_gradient(size, (0, 0, 0), theme["bottom"]).convert("RGBA")
             shade.putalpha(Image.linear_gradient("L").resize(size).point(lambda v: 60 + v * 150 // 255))
             art.alpha_composite(shade)

@@ -394,19 +394,82 @@ def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dic
     x = _stat(draw, x, 150, f"BEST {old_slots} AVG", b50.average_text(b50.old), st)
     x = _stat(draw, x, 150, f"NEW {new_slots} AVG", b50.average_text(b50.new), st)
 
-    # rating plate
     rating = b50.official_rating or b50.total_text()
-    pw, ph = 330, 128
-    px, py = width - MARGIN - pw, 44
-    colors = _plate_colors(b50.game, rating)
-    plate = _horizontal_gradient((pw, ph), colors if len(colors) > 1 else colors * 2)
-    canvas.paste(plate, (px, py), _rounded_mask((pw, ph), 18))
-    draw.text((px + 22, py + 14), "RATING", font=num(20, "SemiBold"), fill=(20, 20, 30))
-    draw.text((px + pw - 22, py + ph - 10), rating, font=num(76), fill=(255, 255, 255), anchor="rd",
-              stroke_width=3, stroke_fill=(20, 20, 30))
+    _draw_plate(canvas, b50.game, rating, width, st)
     if b50.official_rating and b50.official_rating != b50.total_text():
-        draw.text((px + pw, py + ph + 10), f"CALCULATED {b50.total_text()}", font=num(16, "SemiBold"),
+        draw.text((width - MARGIN, 190), f"CALCULATED {b50.total_text()}", font=num(16, "SemiBold"),
                   fill=st["faint"], anchor="ra")
+
+
+TIER_NAMES = {
+    "maimai": ["RAINBOW", "PLATINUM", "GOLD", "SILVER", "BRONZE", "PURPLE", "RED", "YELLOW", "GREEN", "BLUE", "WHITE"],
+    "chunithm": ["RAINBOW", "PLATINUM", "GOLD", "SILVER", "BRONZE", "PURPLE", "RED", "ORANGE", "GREEN"],
+}
+PLATE_STYLE = os.environ.get("PLATE_STYLE", "glass")
+
+
+def _tier_name(game: str, value: str) -> str:
+    try:
+        v = float(value)
+    except ValueError:
+        return ""
+    for (threshold, _), name in zip(PLATES[game], TIER_NAMES[game]):
+        if v >= threshold:
+            return name
+    return TIER_NAMES[game][-1]
+
+
+def _gradient_fill(size: tuple[int, int], colors) -> Image.Image:
+    return _horizontal_gradient(size, colors if len(colors) > 1 else colors * 2).convert("RGBA")
+
+
+def _draw_plate(canvas: Image.Image, game: str, rating: str, width: int, st: dict) -> None:
+    colors = _plate_colors(game, rating)
+    tier = _tier_name(game, rating)
+    draw = ImageDraw.Draw(canvas)
+    right = width - MARGIN
+
+    if PLATE_STYLE == "glass":
+        # dark translucent panel, tier-colored outline, gradient number
+        pw, ph = 340, 136
+        px, py = right - pw, 40
+        panel = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
+        border = _gradient_fill((pw, ph), colors)
+        border.putalpha(_rounded_mask((pw, ph), 20))
+        panel.alpha_composite(border)
+        inner = Image.new("RGBA", (pw - 6, ph - 6), (14, 12, 24, 225))
+        inner.putalpha(_rounded_mask((pw - 6, ph - 6), 17).point(lambda v: v * 225 // 255))
+        panel.alpha_composite(inner, (3, 3))
+        canvas.alpha_composite(panel, (px, py))
+        draw.text((px + 22, py + 18), "RATING", font=num(18, "SemiBold"), fill=st["muted"])
+        draw.text((px + pw - 22, py + 18), tier, font=num(18, "SemiBold"), fill=st["muted"], anchor="ra")
+        number = _gradient_text(rating, num(84), [tuple(min(255, c + 40) for c in col) for col in colors])
+        canvas.alpha_composite(number, (px + pw - 18 - number.width, py + ph - 14 - number.height))
+
+    elif PLATE_STYLE == "bare":
+        # no panel: large gradient number with a thin tier bar under it
+        number = _gradient_text(rating, num(104), [tuple(min(255, c + 40) for c in col) for col in colors])
+        nx, ny = right - number.width + 8, 62
+        canvas.alpha_composite(number, (nx, ny))
+        draw.text((right, 34), f"RATING  ·  {tier}", font=num(18, "SemiBold"), fill=st["muted"], anchor="ra")
+        bar = _gradient_fill((number.width - 16, 5), colors)
+        bar.putalpha(_rounded_mask(bar.size, 2))
+        canvas.alpha_composite(bar, (right - bar.width, ny + number.height + 2))
+
+    else:  # "stripe": dark panel with a tier-colored stripe on the left, white number
+        pw, ph = 340, 132
+        px, py = right - pw, 42
+        panel = Image.new("RGBA", (pw, ph), (12, 10, 22, 215))
+        stripe = _gradient_fill((14, ph), list(reversed(colors)))
+        panel.paste(stripe, (0, 0))
+        mask = _rounded_mask((pw, ph), 16)
+        out = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
+        out.paste(panel, (0, 0), mask)
+        canvas.alpha_composite(out, (px, py))
+        draw.text((px + 32, py + 18), "RATING", font=num(18, "SemiBold"), fill=st["muted"])
+        tier_img = _gradient_text(tier, num(18, "SemiBold"), [tuple(min(255, c + 40) for c in col) for col in colors])
+        canvas.alpha_composite(tier_img, (px + pw - 12 - tier_img.width, py + 10))
+        draw.text((px + pw - 20, py + ph - 12), rating, font=num(80), fill=(255, 255, 255), anchor="rd")
 
 
 def _draw_section(canvas: Image.Image, y: int, title: str, sub: str, width: int, theme: dict, st: dict) -> int:

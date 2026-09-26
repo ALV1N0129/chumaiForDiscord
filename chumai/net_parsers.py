@@ -47,6 +47,7 @@ class PlayerInfo:
     title: str | None = None  # 칭호
     title_rarity: str | None = None  # normal, bronze, silver, gold, platina, rainbow, ...
     plate_url: str | None = None  # nameplate
+    level: str | None = None
 
 
 def _style_url(style: str) -> str | None:
@@ -73,6 +74,7 @@ def parse_chunithm_player(html: str | bytes) -> PlayerInfo:
         part = str(img.get("src", "")).rsplit("_", 1)[-1].split(".")[0]
         digits += "." if part == "comma" else part[-1:]
     info = PlayerInfo(name=name, rating=digits or None)
+    info.level = _text(soup.select_one(".player_lv")) or None
     chara = soup.select_one(".player_chara img")
     if chara is not None and chara.get("src"):
         info.icon_url = str(chara["src"])

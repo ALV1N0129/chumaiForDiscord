@@ -58,6 +58,7 @@ class B50:
     title_rarity: str | None = None
     icon: bytes | None = None  # image data
     plate: bytes | None = None
+    level: str | None = None
 
     @property
     def old_sum(self) -> Fraction:
@@ -161,6 +162,7 @@ def b50_from_chunithm_net(
         source="CHUNITHM-NET",
         title=player.title,
         title_rarity=player.title_rarity,
+        level=player.level,
     )
 
 

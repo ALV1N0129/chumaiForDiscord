@@ -256,7 +256,12 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
 
     # jacket with a difficulty-colored frame and a level tag along the bottom
     jx, jy = x + 12, y + 12
-    draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=color)
+    ultima = label == "ULT"
+    if ultima:  # in-game ULTIMA: black with a red rim
+        draw.rounded_rectangle((jx - 5, jy - 5, jx + JACKET + 4, jy + JACKET + 4), radius=11, fill=(210, 20, 50))
+        draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=(12, 12, 14))
+    else:
+        draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=color)
     jacket = _load_jacket(e.jacket_path) if e.jacket_path else None
     if jacket is None:
         jacket = Image.new("RGB", (JACKET, JACKET), (24, 24, 32))
@@ -264,10 +269,10 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
                                     fill=FAINT, anchor="mm")
     canvas.paste(jacket, (jx, jy), _rounded_mask((JACKET, JACKET), 7))
     tag_h = 24
-    draw.rectangle((jx, jy + JACKET - tag_h, jx + JACKET - 1, jy + JACKET - 1), fill=color)
+    draw.rectangle((jx, jy + JACKET - tag_h, jx + JACKET - 1, jy + JACKET - 1), fill=(12, 12, 14) if ultima else color)
     const = f"{e.level_const:.1f}" if e.level_const else e.level
-    # light tags (Re:MASTER) need dark text
-    tag_text = (60, 24, 96) if sum(color) > 560 else WHITE
+    # light tags (Re:MASTER) need dark text; ULTIMA uses red on black
+    tag_text = (255, 60, 80) if ultima else (60, 24, 96) if sum(color) > 560 else WHITE
     draw.text((jx + 6, jy + JACKET - tag_h / 2), label, font=num(17), fill=tag_text, anchor="lm")
     draw.text((jx + JACKET - 6, jy + JACKET - tag_h / 2), const, font=num(17), fill=tag_text, anchor="rm")
     if is_dx:

@@ -54,24 +54,33 @@ RANK_COLORS = {
 
 GAME_TITLES = {"maimai": "maimai DX", "chunithm": "CHUNITHM"}
 
+# Fonts covering both Japanese (song titles) and Korean (labels).
 FONT_CANDIDATES = [
     str(Path(__file__).parent / "assets" / "fonts"),
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+]
+# Otherwise fall back to one system font per script (e.g. on Windows, where
+# Malgun Gothic lacks many kanji and Yu Gothic/Meiryo lack Hangul).
+JA_FONTS = [
+    "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+    "C:/Windows/Fonts/YuGothB.ttc",
+    "C:/Windows/Fonts/meiryob.ttc",
+    "C:/Windows/Fonts/meiryo.ttc",
+    "C:/Windows/Fonts/msgothic.ttc",
+]
+KO_FONTS = [
     "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
     "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-    "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
     "/System/Library/Fonts/AppleSDGothicNeo.ttc",
     "C:/Windows/Fonts/malgunbd.ttf",
     "C:/Windows/Fonts/malgun.ttf",
-    "C:/Windows/Fonts/meiryo.ttc",
 ]
 
 
-def _find_font_file() -> str | None:
-    candidates = [os.environ.get("FONT_PATH", "")] + FONT_CANDIDATES
+def _first_existing(candidates: list[str]) -> str | None:
     for c in candidates:
         if not c:
             continue
@@ -85,9 +94,18 @@ def _find_font_file() -> str | None:
     return None
 
 
+def _find_font_file(script: str) -> str | None:
+    both = _first_existing([os.environ.get("FONT_PATH", ""), *FONT_CANDIDATES])
+    if both:
+        return both
+    primary, secondary = (JA_FONTS, KO_FONTS) if script == "ja" else (KO_FONTS, JA_FONTS)
+    return _first_existing(primary) or _first_existing(secondary)
+
+
 @lru_cache(maxsize=None)
-def font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    path = _find_font_file()
+def font(size: int, script: str = "ja") -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """`script="ja"` for song titles / player names, `"ko"` for Korean labels."""
+    path = _find_font_file(script)
     if path:
         return ImageFont.truetype(path, size)
     return ImageFont.load_default(size)
@@ -129,7 +147,7 @@ def _draw_card(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, idx:
 
 
 def _draw_section(img, draw, y: int, title: str, entries: list[Entry], slots: int) -> int:
-    draw.text((MARGIN, y + 12), title, font=font(22), fill=TEXT)
+    draw.text((MARGIN, y + 12), title, font=font(22, "ko"), fill=TEXT)
     y += SECTION_H
     rows = max(1, -(-slots // COLS))
     for i, e in enumerate(entries):
@@ -153,14 +171,14 @@ def render_b50(b50: B50) -> bytes:
     shown = b50.official_rating or b50.total_text()
     draw.text((width - MARGIN, 56), shown, font=font(56), fill=(255, 215, 90), anchor="ra")
     if b50.official_rating and b50.official_rating != b50.total_text():
-        draw.text((width - MARGIN, 124), f"계산값 {b50.total_text()}", font=font(15), fill=SUBTEXT, anchor="ra")
+        draw.text((width - MARGIN, 124), f"계산값 {b50.total_text()}", font=font(15, "ko"), fill=SUBTEXT, anchor="ra")
 
     fmt = (lambda v: f"{float(v):.2f}") if b50.game == "chunithm" else (lambda v: str(int(v)))
     summary = (
         f"구곡 합계 {fmt(b50.old_sum)} (평균 {b50.average_text(b50.old)})    "
         f"신곡 합계 {fmt(b50.new_sum)} (평균 {b50.average_text(b50.new)})"
     )
-    draw.text((MARGIN, 112), summary, font=font(17), fill=SUBTEXT)
+    draw.text((MARGIN, 112), summary, font=font(17, "ko"), fill=SUBTEXT)
 
     y = HEADER_H
     y = _draw_section(img, draw, y, f"BEST {old_slots}  ·  구곡", b50.old, old_slots)

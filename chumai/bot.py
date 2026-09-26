@@ -165,6 +165,16 @@ class SegaLoginModal(discord.ui.Modal, title="SEGA ID 로그인 (국제판)"):
         )
 
 
+async def _fetch_image(net: NetClient, url: str | None) -> bytes | None:
+    if not url:
+        return None
+    try:
+        return await net.get_bytes(url)
+    except Exception:
+        log.warning("could not load profile image %s", url, exc_info=True)
+        return None
+
+
 async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str) -> B50 | str:
     try:
         async with NetClient(game, token) as net:
@@ -176,6 +186,12 @@ async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str) -> B5
                 new = net_parsers.parse_chunithm_rating_list(
                     await net.get("/mobile/home/playerData/ratingDetailRecent/")
                 )
+                try:
+                    player.plate_url = net_parsers.parse_chunithm_nameplate(
+                        await net.get("/mobile/collection/customise/")
+                    )
+                except Exception:
+                    log.warning("could not load CHUNITHM nameplate", exc_info=True)
                 result = b50_from_chunithm_net(player, best, new, bot.songdb)
             else:
                 player = net_parsers.parse_maimai_player(await net.get("/maimai-mobile/home/"))
@@ -184,6 +200,8 @@ async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str) -> B5
                     html = await net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={diff}")
                     records += net_parsers.parse_maimai_scores(html, diff)
                 result = b50_from_maimai_net(player, records, bot.songdb, bot.config.new_versions[game])
+            result.icon = await _fetch_image(net, player.icon_url)
+            result.plate = await _fetch_image(net, player.plate_url)
         if net.clal != token:
             bot.links.set_sega_token(discord_id, net.clal)
         return result

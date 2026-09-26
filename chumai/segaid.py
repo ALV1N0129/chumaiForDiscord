@@ -163,6 +163,14 @@ class NetClient:
             raise SegaError(f"{self.site.base.host} 에 접속하지 못했어요: {msg}")
         self._authed = True
 
+    async def get_bytes(self, url: str) -> bytes:
+        """Download an image or other file (absolute URL) with this session's cookies."""
+        assert self._session is not None
+        resp, body = await _request(self._session, "GET", URL(url))
+        if resp.status != 200:
+            raise SegaError(f"HTTP {resp.status} for {url}")
+        return body
+
     async def get(self, path_and_query: str) -> bytes:
         assert self._session is not None
         target = self.site.base.join(URL(path_and_query))

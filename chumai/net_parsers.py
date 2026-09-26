@@ -43,6 +43,15 @@ class MaimaiRecord:
 class PlayerInfo:
     name: str
     rating: str | None
+    icon_url: str | None = None  # CHUNITHM character / maimai icon
+    title: str | None = None  # 칭호
+    title_rarity: str | None = None  # normal, bronze, silver, gold, platina, rainbow, ...
+    plate_url: str | None = None  # nameplate
+
+
+def _style_url(style: str) -> str | None:
+    m = re.search(r"url\(['\"]?([^'\")]+)", style or "")
+    return m.group(1) if m else None
 
 
 def _soup(html: str | bytes) -> BeautifulSoup:
@@ -63,7 +72,24 @@ def parse_chunithm_player(html: str | bytes) -> PlayerInfo:
     for img in soup.select(".player_rating_num_block img"):
         part = str(img.get("src", "")).rsplit("_", 1)[-1].split(".")[0]
         digits += "." if part == "comma" else part[-1:]
-    return PlayerInfo(name=name, rating=digits or None)
+    info = PlayerInfo(name=name, rating=digits or None)
+    chara = soup.select_one(".player_chara img")
+    if chara is not None and chara.get("src"):
+        info.icon_url = str(chara["src"])
+    for honor in soup.select(".player_honor_short"):
+        bg = _style_url(str(honor.get("style", ""))) or ""
+        text = _text(honor.select_one(".player_honor_text span"))
+        if text and "honor_bg_" in bg:
+            info.title = text
+            info.title_rarity = bg.rsplit("honor_bg_", 1)[1].split(".")[0]
+            break
+    return info
+
+
+def parse_chunithm_nameplate(html: str | bytes) -> str | None:
+    """Nameplate image URL from /mobile/collection/customise/."""
+    img = _soup(html).select_one(".nameplate_now img")
+    return str(img["src"]) if img is not None and img.get("src") else None
 
 
 def parse_chunithm_rating_list(html: str | bytes) -> list[ChunithmRecord]:
@@ -98,7 +124,21 @@ def parse_chunithm_rating_list(html: str | bytes) -> list[ChunithmRecord]:
 def parse_maimai_player(html: str | bytes) -> PlayerInfo:
     soup = _soup(html)
     rating = _text(soup.select_one(".rating_block")) or None
-    return PlayerInfo(name=_text(soup.select_one(".name_block")), rating=rating)
+    info = PlayerInfo(name=_text(soup.select_one(".name_block")), rating=rating)
+    for img in soup.select("img"):
+        src = str(img.get("src", ""))
+        if "/img/Icon/" in src and info.icon_url is None:
+            info.icon_url = src
+        elif "/img/NamePlate/" in src and info.plate_url is None:
+            info.plate_url = src
+    trophy = soup.select_one("[class*=trophy_]")
+    if trophy is not None:
+        text = _text(trophy.select_one("span") or trophy)
+        rarity = next((c[7:] for c in trophy.get("class", []) if c.startswith("trophy_") and c != "trophy_block"),
+                      None)
+        if text:
+            info.title, info.title_rarity = text, (rarity or "normal").lower()
+    return info
 
 
 def _maimai_is_std(row: Tag) -> bool:

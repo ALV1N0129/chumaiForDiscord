@@ -378,26 +378,82 @@ def _draw_logo(canvas: Image.Image, game: str, width: int, theme: dict) -> None:
     canvas.alpha_composite(logo, ((width - logo.width) // 2, 10 + (LOGO_BOX[1] - logo.height) // 2))
 
 
-def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dict) -> None:
-    draw = ImageDraw.Draw(canvas)
+TITLE_COLORS = {
+    "normal": [(232, 232, 236)],
+    "copper": [(214, 140, 90)],
+    "bronze": [(214, 140, 90)],
+    "silver": [(200, 208, 222)],
+    "gold": [(250, 206, 70)],
+    "platina": [(226, 238, 250), (190, 210, 235)],
+    "platinum": [(226, 238, 250), (190, 210, 235)],
+    "rainbow": RAINBOW,
+    "staff": RAINBOW,
+}
+
+
+def _open_image(data: bytes | None) -> Image.Image | None:
+    if not data:
+        return None
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            return im.convert("RGBA")
+    except Exception:
+        return None
+
+
+def _title_badge(text: str, rarity: str | None, max_w: int) -> Image.Image:
+    colors = TITLE_COLORS.get((rarity or "normal").lower(), TITLE_COLORS["normal"])
+    f = cjk(15)
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    text = _fit(probe, text, f, max_w - 24)
+    w, h = int(probe.textlength(text, font=f)) + 24, 26
+    badge = _gradient_fill((w, h), colors)
+    badge.putalpha(_rounded_mask((w, h), 13))
+    ImageDraw.Draw(badge).text((w // 2, h // 2), text, font=f, fill=(24, 22, 34), anchor="mm")
+    return badge
+
+
+def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> None:
     old_slots, new_slots = SLOTS[b50.game]
-
-    _draw_logo(canvas, b50.game, width, theme)
-    # player card: translucent panel with an accent edge, name, and four stat tiles
-    cw, ch = 560, 136  # same height as the rating plate
+    cw, ch = 640, 136  # same height as the rating plate
     cx, cy = MARGIN, 40
-    panel = Image.new("RGBA", (cw, ch), (12, 10, 22, 200))
-    edge = _gradient_fill((6, ch), [theme["accent"], theme["glow2"]])
-    panel.paste(edge, (0, 0))
-    card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
-    card.paste(panel, (0, 0), _rounded_mask((cw, ch), 18))
-    canvas.alpha_composite(card, (cx, cy))
 
-    draw.text((cx + 26, cy + 12), f"PLAYER  ·  BEST {old_slots + new_slots}", font=num(17, "SemiBold"),
-              fill=theme["accent"])
+    plate = _open_image(b50.plate)
+    if plate is not None:
+        bg = ImageOps.fit(plate.convert("RGB"), (cw, ch), Image.LANCZOS)
+        bg = Image.blend(bg, Image.new("RGB", (cw, ch), (10, 8, 18)), 0.5).convert("RGBA")
+    else:
+        bg = Image.new("RGBA", (cw, ch), (12, 10, 22, 200))
+    bg.paste(_gradient_fill((6, ch), [theme["accent"], theme["glow2"]]), (0, 0))
+    card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    card.paste(bg, (0, 0), _rounded_mask((cw, ch), 18))
+    canvas.alpha_composite(card, (cx, cy))
+    draw = ImageDraw.Draw(canvas)
+
+    tx = cx + 24
+    icon = _open_image(b50.icon)
+    if icon is not None:
+        size = ch - 28
+        icon = ImageOps.fit(icon, (size, size), Image.LANCZOS)
+        frame = Image.new("RGBA", (size + 4, size + 4), (0, 0, 0, 0))
+        ImageDraw.Draw(frame).rounded_rectangle((0, 0, size + 3, size + 3), radius=14, fill=(255, 255, 255, 230))
+        canvas.alpha_composite(frame, (cx + 16, cy + 12))
+        mask = _rounded_mask((size, size), 12)
+        framed = Image.new("RGBA", (size, size), (20, 18, 30, 255))
+        framed.alpha_composite(icon)
+        out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        out.paste(framed, (0, 0), mask)
+        canvas.alpha_composite(out, (cx + 18, cy + 14))
+        tx = cx + 18 + size + 18
+
+    inner_w = cx + cw - 16 - tx
+    if b50.title:
+        canvas.alpha_composite(_title_badge(b50.title, b50.title_rarity, inner_w), (tx, cy + 12))
+    else:
+        draw.text((tx, cy + 14), f"BEST {old_slots + new_slots}", font=num(17, "SemiBold"), fill=theme["accent"])
     # Official sites use full-width letters for names (ＡＬＶ１Ｎ); show them normally.
     name = unicodedata.normalize("NFKC", b50.username)
-    draw.text((cx + 24, cy + 28), _fit(draw, name, cjk(34), cw - 48), font=cjk(34), fill=st["text"])
+    draw.text((tx, cy + 40), _fit(draw, name, cjk(30), inner_w), font=cjk(30), fill=st["text"])
 
     fmt = (lambda v: f"{float(v):.2f}") if b50.game == "chunithm" else (lambda v: str(int(v)))
     stats = [
@@ -406,15 +462,23 @@ def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dic
         (f"B{old_slots} AVG", b50.average_text(b50.old)),
         (f"N{new_slots} AVG", b50.average_text(b50.new)),
     ]
-    tw, th, gap = (cw - 48 - 3 * 8) // 4, 48, 8
+    gap = 6
+    tw, th = (inner_w - 3 * gap) // 4, 44
     for i, (label, value) in enumerate(stats):
-        tx, ty = cx + 24 + i * (tw + gap), cy + ch - th - 14
-        tile = Image.new("RGBA", (tw, th), (255, 255, 255, 18))
-        t = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
-        t.paste(tile, (0, 0), _rounded_mask((tw, th), 10))
-        canvas.alpha_composite(t, (tx, ty))
-        draw.text((tx + 12, ty + 5), label, font=num(13, "SemiBold"), fill=st["faint"])
-        draw.text((tx + 12, ty + th - 4), value, font=num(24), fill=st["text"], anchor="ld")
+        sx, sy = tx + i * (tw + gap), cy + ch - th - 12
+        tile = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+        tile.paste(Image.new("RGBA", (tw, th), (10, 8, 18, 150)), (0, 0), _rounded_mask((tw, th), 9))
+        canvas.alpha_composite(tile, (sx, sy))
+        draw.text((sx + 10, sy + 4), label, font=num(12, "SemiBold"), fill=st["faint"])
+        draw.text((sx + 10, sy + th - 3), value, font=num(22), fill=st["text"], anchor="ld")
+
+
+def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dict) -> None:
+    draw = ImageDraw.Draw(canvas)
+    old_slots, new_slots = SLOTS[b50.game]
+
+    _draw_logo(canvas, b50.game, width, theme)
+    _draw_player_card(canvas, b50, theme, st)
 
     rating = b50.official_rating or b50.total_text()
     _draw_plate(canvas, b50.game, rating, width, st)

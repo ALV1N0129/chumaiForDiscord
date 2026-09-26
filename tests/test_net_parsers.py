@@ -46,3 +46,23 @@ def test_maimai_player():
     html = '<div class="name_block f_l f_16">ＡＬＶ１Ｎ</div><div class="rating_block">14561</div>'
     player = net_parsers.parse_maimai_player(html)
     assert player.rating == "14561" and player.name == "ＡＬＶ１Ｎ"
+
+
+def test_chunithm_profile_parts():
+    player = net_parsers.parse_chunithm_player(_read("chunithm_net/player_data.html"))
+    assert player.icon_url.endswith("2c20c7ac326c1a9d.png")
+    assert (player.title, player.title_rarity) == ("ネコぱら", "silver")
+    plate = net_parsers.parse_chunithm_nameplate(_read("chunithm_net/collection_customise.html"))
+    assert plate and plate.endswith(".png")
+
+
+def test_maimai_profile_parts():
+    html = (
+        '<img src="https://maimaidx-eng.com/maimai-mobile/img/Icon/abc.png" class="w_112 f_l">'
+        '<div class="name_block">X</div><div class="rating_block">1</div>'
+        '<div class="trophy_block trophy_Gold p_3"><div class="trophy_inner_block"><span>称号</span></div></div>'
+        '<img src="https://maimaidx-eng.com/maimai-mobile/img/NamePlate/p.png">'
+    )
+    p = net_parsers.parse_maimai_player(html)
+    assert p.icon_url.endswith("/Icon/abc.png") and p.plate_url.endswith("/NamePlate/p.png")
+    assert (p.title, p.title_rarity) == ("称号", "gold")

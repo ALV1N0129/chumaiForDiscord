@@ -54,6 +54,10 @@ class B50:
     # Rating shown on the official site, when the data came from there.
     official_rating: str | None = None
     source: str = ""
+    title: str | None = None
+    title_rarity: str | None = None
+    icon: bytes | None = None  # image data
+    plate: bytes | None = None
 
     @property
     def old_sum(self) -> Fraction:
@@ -155,6 +159,8 @@ def b50_from_chunithm_net(
         new=convert(new, True),
         official_rating=player.rating,
         source="CHUNITHM-NET",
+        title=player.title,
+        title_rarity=player.title_rarity,
     )
 
 
@@ -177,5 +183,6 @@ def b50_from_maimai_net(
             make_entry("maimai", r.title, r.difficulty, level, const, r.achievement, r.lamp, is_new, (r.title, r.genre))
         )
     return select_b50(
-        "maimai", player.name, entries, official_rating=player.rating, source="maimai DX NET"
+        "maimai", player.name, entries, official_rating=player.rating, source="maimai DX NET",
+        title=player.title, title_rarity=player.title_rarity
     )

@@ -25,6 +25,8 @@ class Config:
     tachi_base_url: str
     tachi_api_key: str | None
     db_path: str
+    token_key: str | None
+    songdb_dir: str
     new_versions: dict[str, list[str]]
 
     @classmethod
@@ -40,6 +42,8 @@ class Config:
             tachi_base_url=os.environ.get("TACHI_BASE_URL", "https://kamai.tachi.ac/api/v1"),
             tachi_api_key=os.environ.get("TACHI_API_KEY") or None,
             db_path=os.environ.get("DB_PATH", "data/chumai.db"),
+            token_key=os.environ.get("TOKEN_ENCRYPTION_KEY") or None,
+            songdb_dir=os.environ.get("SONGDB_DIR", "data/songdb"),
             new_versions={
                 game: _split(os.environ.get(f"{game.upper()}_NEW_VERSIONS", default))
                 for game, default in DEFAULT_NEW_VERSIONS.items()

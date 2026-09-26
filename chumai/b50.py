@@ -7,6 +7,8 @@ from fractions import Fraction
 from typing import Iterable
 
 from . import rating
+from .net_parsers import ChunithmRecord, MaimaiRecord, PlayerInfo
+from .songdb import SongDB, level_to_min_const
 from .tachi import PBBundle
 
 # (old-song slots, new-song slots)
@@ -57,6 +59,9 @@ class B50:
     username: str
     old: list[Entry]
     new: list[Entry]
+    # Rating shown on the official site, when the data came from there.
+    official_rating: str | None = None
+    source: str = "Kamaitachi"
 
     @property
     def old_sum(self) -> Fraction:
@@ -94,52 +99,126 @@ def _pick_lamp(score_data: dict) -> str | None:
     return None
 
 
+def make_entry(
+    game: str,
+    title: str,
+    difficulty: str,
+    level: str,
+    level_const: float,
+    score: float,
+    lamp: str | None,
+    is_new: bool,
+) -> Entry:
+    if game == "maimai":
+        score = float(score)
+        r = Fraction(rating.maimai_rating(level_const, score))
+        rank = rating.maimai_rank(score)
+    else:
+        score = int(score)
+        r = rating.chunithm_rating(level_const, score)
+        rank = rating.chunithm_rank(score)
+    return Entry(
+        game=game,
+        title=title,
+        difficulty=difficulty,
+        level=level,
+        level_const=level_const,
+        score=score,
+        rank=rank,
+        lamp=lamp,
+        rating=r,
+        is_new=is_new,
+    )
+
+
+def _is_new(display_version: str, new_versions: Iterable[str]) -> bool:
+    return display_version.strip().lower() in {v.strip().lower() for v in new_versions if v.strip()}
+
+
 def build_entries(game: str, bundle: PBBundle, new_versions: Iterable[str]) -> list[Entry]:
-    new_set = {v.strip().lower() for v in new_versions if v.strip()}
+    new_versions = list(new_versions)
     entries: list[Entry] = []
     for pb in bundle.pbs:
         chart = bundle.charts.get(pb.chart_id)
         if chart is None:
             continue
         song = bundle.songs.get(chart.song_id)
-        title = song.title if song else "?"
-
-        if game == "maimai":
-            percent = pb.score_data.get("percent")
-            if percent is None:
-                continue
-            score: float = float(percent)
-            r = Fraction(rating.maimai_rating(chart.level_const, score))
-            rank = rating.maimai_rank(score)
-        else:
-            raw = pb.score_data.get("score")
-            if raw is None:
-                continue
-            score = int(raw)
-            r = rating.chunithm_rating(chart.level_const, score)
-            rank = rating.chunithm_rank(score)
-
+        raw = pb.score_data.get("percent" if game == "maimai" else "score")
+        if raw is None:
+            continue
         entries.append(
-            Entry(
-                game=game,
-                title=title,
-                difficulty=chart.difficulty,
-                level=chart.level,
-                level_const=chart.level_const,
-                score=score,
-                rank=rank,
-                lamp=_pick_lamp(pb.score_data),
-                rating=r,
-                is_new=chart.display_version.strip().lower() in new_set,
+            make_entry(
+                game,
+                song.title if song else "?",
+                chart.difficulty,
+                chart.level,
+                chart.level_const,
+                raw,
+                _pick_lamp(pb.score_data),
+                _is_new(chart.display_version, new_versions),
             )
         )
     return entries
 
 
-def build_b50(game: str, bundle: PBBundle, new_versions: Iterable[str]) -> B50:
-    entries = build_entries(game, bundle, new_versions)
-    key = lambda e: (e.rating, e.level_const, e.score)  # noqa: E731
+def _sort_key(e: Entry):
+    return (e.rating, e.level_const, e.score)
+
+
+def select_b50(game: str, username: str, entries: list[Entry], **kwargs) -> B50:
     old_slots, new_slots = SLOTS[game]
-    old = sorted((e for e in entries if not e.is_new), key=key, reverse=True)[:old_slots]
-    new = sorted((e for e in entries if e.is_new), key=key, reverse=True)[:new_slots]
-    return B50(game=game, username=bundle.username, old=old, new=new)
+    old = sorted((e for e in entries if not e.is_new), key=_sort_key, reverse=True)[:old_slots]
+    new = sorted((e for e in entries if e.is_new), key=_sort_key, reverse=True)[:new_slots]
+    return B50(game=game, username=username, old=old, new=new, **kwargs)
+
+
+def build_b50(game: str, bundle: PBBundle, new_versions: Iterable[str]) -> B50:
+    return select_b50(game, bundle.username, build_entries(game, bundle, new_versions))
+
+
+def b50_from_chunithm_net(
+    player: PlayerInfo,
+    best: list[ChunithmRecord],
+    new: list[ChunithmRecord],
+    songdb: SongDB,
+) -> B50:
+    """CHUNITHM-NET already lists the exact Best 30 / New 20; we only add constants."""
+
+    def convert(records: list[ChunithmRecord], is_new: bool) -> list[Entry]:
+        out = []
+        for r in records:
+            info = songdb.chunithm_chart(r.idx, r.difficulty)
+            level = info.level if info else "?"
+            const = info.level_const if info else 0.0
+            out.append(make_entry("chunithm", r.title, r.difficulty, level, const, r.score, None, is_new))
+        return sorted(out, key=_sort_key, reverse=True)
+
+    return B50(
+        game="chunithm",
+        username=player.name,
+        old=convert(best, False),
+        new=convert(new, True),
+        official_rating=player.rating,
+        source="CHUNITHM-NET",
+    )
+
+
+def b50_from_maimai_net(
+    player: PlayerInfo,
+    records: list[MaimaiRecord],
+    songdb: SongDB,
+    new_versions: Iterable[str],
+) -> B50:
+    new_versions = list(new_versions)
+    entries = []
+    for r in records:
+        info = songdb.maimai_chart(r.title, r.difficulty, r.genre)
+        if info is not None:
+            const, level, is_new = info.level_const, info.level, _is_new(info.display_version, new_versions)
+        else:
+            # Unknown chart (probably brand new): estimate from the displayed level.
+            const, level, is_new = level_to_min_const(r.level, "maimai"), r.level, True
+        entries.append(make_entry("maimai", r.title, r.difficulty, level, const, r.achievement, r.lamp, is_new))
+    return select_b50(
+        "maimai", player.name, entries, official_rating=player.rating, source="maimai DX NET"
+    )

@@ -116,7 +116,8 @@ def _draw_card(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, idx:
     draw.text((px, y + 8), _fit(draw, e.title, font(17), CARD_W - 30), font=font(17), fill=TEXT)
 
     dx = " DX" if e.difficulty.lower().startswith("dx ") else ""
-    diff_label = f"{DIFF_SHORT.get(key, e.difficulty)}{dx} {e.level} ({e.level_const:.1f})"
+    const = f"{e.level_const:.1f}" if e.level_const else "?"
+    diff_label = f"{DIFF_SHORT.get(key, e.difficulty)}{dx} {e.level} ({const})"
     draw.text((px, y + 34), diff_label, font=font(14), fill=color)
     draw.text((x + CARD_W - 12, y + 34), f"#{idx}", font=font(14), fill=SUBTEXT, anchor="ra")
 
@@ -149,7 +150,10 @@ def render_b50(b50: B50) -> bytes:
     draw.text((MARGIN, 22), f"{GAME_TITLES[b50.game]}  BEST 50", font=font(22), fill=SUBTEXT)
     draw.text((MARGIN, 52), b50.username, font=font(40), fill=TEXT)
     draw.text((width - MARGIN, 30), "RATING", font=font(20), fill=SUBTEXT, anchor="ra")
-    draw.text((width - MARGIN, 56), b50.total_text(), font=font(56), fill=(255, 215, 90), anchor="ra")
+    shown = b50.official_rating or b50.total_text()
+    draw.text((width - MARGIN, 56), shown, font=font(56), fill=(255, 215, 90), anchor="ra")
+    if b50.official_rating and b50.official_rating != b50.total_text():
+        draw.text((width - MARGIN, 124), f"계산값 {b50.total_text()}", font=font(15), fill=SUBTEXT, anchor="ra")
 
     fmt = (lambda v: f"{float(v):.2f}") if b50.game == "chunithm" else (lambda v: str(int(v)))
     summary = (

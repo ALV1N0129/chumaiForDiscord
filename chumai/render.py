@@ -51,10 +51,12 @@ STYLES = {
                "faint": (150, 154, 172), "rank": (255, 206, 84)},
     "chara": {"bg": "chara", "card": "jacket", "text": (255, 255, 255), "muted": (190, 194, 210),
               "faint": (150, 154, 172), "rank": (255, 206, 84)},
+    "version": {"bg": "version", "card": "jacket", "text": (255, 255, 255), "muted": (190, 194, 210),
+                "faint": (150, 154, 172), "rank": (255, 206, 84)},
     "light": {"bg": "light", "card": "light", "text": (28, 28, 40), "muted": (92, 96, 116),
               "faint": (140, 144, 162), "rank": (214, 146, 0)},
 }
-DEFAULT_STYLE = "collage"
+DEFAULT_STYLE = "version"
 
 DIFFS = {
     "basic": ("BAS", (46, 180, 80)),
@@ -616,6 +618,20 @@ def _background(b50: B50, size: tuple[int, int], theme: dict, st: dict) -> Image
         base.alpha_composite(_radial_glows(size, glows, 160))
         base.alpha_composite(_stripes(size, (255, 255, 255, 60)))
         return base
+
+    if st["bg"] == "version":
+        # current version's key art: assets/backgrounds/<game>.(webp|png|jpg)
+        for ext in ("webp", "png", "jpg"):
+            path = ASSETS / "backgrounds" / f"{b50.game}.{ext}"
+            if path.is_file():
+                with Image.open(path) as im:
+                    art = ImageOps.fit(im.convert("RGB"), size, Image.LANCZOS, centering=(0.5, 0.0))
+                art = art.filter(ImageFilter.GaussianBlur(3))
+                art = Image.blend(art, Image.new("RGB", size, theme["bottom"]), 0.45).convert("RGBA")
+                shade = Image.new("RGBA", size, (*theme["bottom"], 0))
+                shade.putalpha(Image.linear_gradient("L").resize(size).point(lambda v: v * 120 // 255))
+                art.alpha_composite(shade)
+                return art
 
     if st["bg"] == "mosaic":
         paths = [e.jacket_path for e in b50.old + b50.new if e.jacket_path]

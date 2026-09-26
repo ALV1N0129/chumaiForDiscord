@@ -420,75 +420,38 @@ def _title_badge(text: str, rarity: str | None, max_w: int) -> Image.Image:
 
 
 def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> None:
-    """Laid out like the official profile card: title bar, level + name, character on the right."""
+    """Simple plate: the player's icon and name."""
     old_slots, new_slots = SLOTS[b50.game]
-    cw, ch = 640, 136  # same height as the rating plate
+    cw, ch = 560, 136  # same height as the rating plate
     cx, cy = MARGIN, 40
 
-    plate = _open_image(b50.plate)
-    if plate is not None:
-        # keep the nameplate's own colors; darken only toward the bottom-left where text sits
-        bg = ImageOps.fit(plate.convert("RGB"), (cw, ch), Image.LANCZOS).convert("RGBA")
-        shade = Image.new("RGBA", (cw, ch), (8, 6, 16, 0))
-        v = Image.linear_gradient("L").resize((cw, ch))  # 0 top -> 255 bottom
-        h = Image.linear_gradient("L").rotate(90).resize((cw, ch))  # 255 left -> 0 right
-        shade.putalpha(v.point(lambda a: max(0, a - 90) * 150 // 165))
-        bg.alpha_composite(shade)
-    else:
-        bg = Image.new("RGBA", (cw, ch), (12, 10, 22, 200))
     card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
-    card.paste(bg, (0, 0), _rounded_mask((cw, ch), 18))
-    border = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
-    ImageDraw.Draw(border).rounded_rectangle((0, 0, cw - 1, ch - 1), radius=18, outline=(255, 255, 255, 70), width=2)
-    card.alpha_composite(border)
+    body = Image.new("RGBA", (cw, ch), (*theme["card"], 235))
+    body.paste(_gradient_fill((6, ch), [theme["accent"], theme["glow2"]]), (0, 0))
+    card.paste(body, (0, 0), _rounded_mask((cw, ch), 18))
+    ImageDraw.Draw(card).rounded_rectangle((0, 0, cw - 1, ch - 1), radius=18, outline=(255, 255, 255, 40), width=2)
     canvas.alpha_composite(card, (cx, cy))
     draw = ImageDraw.Draw(canvas)
 
-    # character / icon on the right
-    right = cx + cw - 12
+    tx = cx + 30
     icon = _open_image(b50.icon)
     if icon is not None:
-        size = ch - 24
+        size = ch - 28
         icon = ImageOps.fit(icon, (size, size), Image.LANCZOS)
-        ix, iy = right - size, cy + 12
-        ImageDraw.Draw(canvas).rounded_rectangle((ix - 2, iy - 2, ix + size + 1, iy + size + 1), radius=14,
-                                                 fill=(255, 255, 255, 230))
+        ix, iy = cx + 20, cy + 14
         framed = Image.new("RGBA", (size, size), (20, 18, 30, 255))
         framed.alpha_composite(icon)
         out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        out.paste(framed, (0, 0), _rounded_mask((size, size), 12))
+        out.paste(framed, (0, 0), _rounded_mask((size, size), 14))
         canvas.alpha_composite(out, (ix, iy))
-        right = ix - 14
+        draw.rounded_rectangle((ix - 1, iy - 1, ix + size, iy + size), radius=15, outline=(255, 255, 255, 90), width=2)
+        tx = ix + size + 24
 
-    left = cx + 16
-    inner_w = right - left
-
-    # title: a centered plate with a rarity-colored rim, like the in-game title
-    colors = TITLE_COLORS.get((b50.title_rarity or "normal").lower(), TITLE_COLORS["normal"])
-    title = b50.title or f"BEST {old_slots + new_slots}"
-    tf = cjk(17)
-    title = _fit(draw, title, tf, inner_w - 40)
-    tw_ = min(inner_w, int(draw.textlength(title, font=tf)) + 56)
-    tx_, ty_ = left + (inner_w - tw_) // 2, cy + 14
-    rim = _gradient_fill((tw_, 32), colors)
-    rim.putalpha(_rounded_mask((tw_, 32), 16))
-    canvas.alpha_composite(rim, (tx_, ty_))
-    core = Image.new("RGBA", (tw_ - 4, 28), (0, 0, 0, 0))
-    core.paste(Image.new("RGBA", core.size, (14, 12, 24, 215)), (0, 0), _rounded_mask(core.size, 14))
-    canvas.alpha_composite(core, (tx_ + 2, ty_ + 2))
-    draw.text((tx_ + tw_ // 2, ty_ + 16), title, font=tf, fill=(255, 255, 255), anchor="mm")
-
-    # level (small) + name (big) along the bottom
     name = unicodedata.normalize("NFKC", b50.username)  # official sites use full-width letters
-    base = cy + ch - 20
-    nx = left + 6
-    if b50.level:
-        lv = f"Lv.{b50.level}"
-        draw.text((nx, base), lv, font=num(24, "SemiBold"), fill=(235, 235, 245), anchor="ls",
-                  stroke_width=2, stroke_fill=(10, 8, 18))
-        nx += draw.textlength(lv, font=num(24, "SemiBold")) + 16
-    draw.text((nx, base + 2), _fit(draw, name, cjk(40), right - nx), font=cjk(40), fill=(255, 255, 255),
-              anchor="ls", stroke_width=3, stroke_fill=(10, 8, 18))
+    draw.text((tx, cy + 34), f"{GAME_NAMES[b50.game].upper()}  PLAYER", font=num(18, "SemiBold"),
+              fill=theme["accent"], anchor="ls")
+    draw.text((tx - 2, cy + 94), _fit(draw, name, cjk(46), cx + cw - 20 - tx), font=cjk(46), fill=st["text"],
+              anchor="ls")
 
     # stats as a row of chips under the card
     fmt = (lambda v: f"{float(v):.2f}") if b50.game == "chunithm" else (lambda v: str(int(v)))

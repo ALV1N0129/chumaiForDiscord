@@ -313,7 +313,7 @@ def _stat(draw: ImageDraw.ImageDraw, x: int, y: int, label: str, value: str, st:
     return int(x + max(draw.textlength(label, font=num(16, "SemiBold")), draw.textlength(value, font=num(30)))) + 36
 
 
-LOGO_BOX = (640, 120)  # max logo size, centered at the top
+LOGO_BOX = (520, 216)  # logo area, centered at the top
 LOGO_GRADIENTS = {
     "maimai": [(255, 120, 190), (255, 196, 90), (110, 214, 255)],
     "chunithm": [(255, 226, 90), (255, 150, 60), (240, 70, 120)],
@@ -351,8 +351,8 @@ def _logo_image(game: str) -> Image.Image:
             bbox = logo.getbbox()  # trim transparent margins
             if bbox:
                 logo = logo.crop(bbox)
-            logo.thumbnail(LOGO_BOX, Image.LANCZOS)
-            return logo
+            scale = min(LOGO_BOX[0] / logo.width, LOGO_BOX[1] / logo.height)  # may enlarge
+            return logo.resize((round(logo.width * scale), round(logo.height * scale)), Image.LANCZOS)
         except Exception:
             continue
     stops = LOGO_GRADIENTS[game]
@@ -373,7 +373,7 @@ def _logo_image(game: str) -> Image.Image:
 
 def _draw_logo(canvas: Image.Image, game: str, width: int, theme: dict) -> None:
     logo = _logo_image(game)
-    canvas.alpha_composite(logo, ((width - logo.width) // 2, 34 + (LOGO_BOX[1] - logo.height) // 2))
+    canvas.alpha_composite(logo, ((width - logo.width) // 2, 10 + (LOGO_BOX[1] - logo.height) // 2))
 
 
 def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dict) -> None:

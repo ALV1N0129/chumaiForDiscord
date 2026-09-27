@@ -732,3 +732,70 @@ def render_b50(b50: B50, now: datetime | None = None, style: str | None = None) 
     buf = io.BytesIO()
     canvas.convert("RGB").save(buf, format="PNG", optimize=True)
     return buf.getvalue()
+
+
+# ------------------------------------------------------------ play log card
+
+ROW_H = 132
+
+
+def render_credit(game: str, player: str, entries: list[Entry], new_flags: list[bool], date: str,
+                  icon: bytes | None = None) -> bytes:
+    """One credit (up to 4 tracks) as an image."""
+    theme = THEMES[game]
+    st = STYLES["clean"]
+    width = MARGIN * 2 + 880
+    header = 110
+    height = header + len(entries) * (ROW_H + 12) + 30
+    canvas = _vertical_gradient((width, height), theme["top"], theme["bottom"]).convert("RGBA")
+    first = next((e.jacket_path for e in entries if e.jacket_path), None)
+    if first:
+        with Image.open(first) as im:
+            art = ImageOps.fit(im.convert("RGB"), (width, height), Image.LANCZOS)
+        art = Image.blend(art.filter(ImageFilter.GaussianBlur(10)), Image.new("RGB", art.size, theme["bottom"]), 0.72)
+        canvas = art.convert("RGBA")
+    draw = ImageDraw.Draw(canvas)
+
+    x = MARGIN
+    ic = _open_image(icon)
+    if ic is not None:
+        ic = ImageOps.fit(ic, (64, 64), Image.LANCZOS)
+        out = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        out.paste(ic, (0, 0), _rounded_mask((64, 64), 12))
+        canvas.alpha_composite(out, (x, 26))
+        x += 80
+    draw.text((x, 30), f"{GAME_NAMES[game].upper()}  PLAY LOG", font=num(18, "SemiBold"), fill=theme["accent"])
+    name = unicodedata.normalize("NFKC", player)
+    draw.text((x, 52), _fit(draw, name, cjk(34), 520), font=cjk(34), fill=WHITE)
+    draw.text((width - MARGIN, 44), date, font=num(22, "SemiBold"), fill=st["muted"], anchor="ra")
+
+    y = header
+    for i, (e, is_new) in enumerate(zip(entries, new_flags)):
+        _draw_play_row(canvas, MARGIN, y, i + 1, e, is_new, theme, st)
+        y += ROW_H + 12
+
+    buf = io.BytesIO()
+    canvas.convert("RGB").save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
+def _draw_play_row(canvas: Image.Image, x: int, y: int, track: int, e: Entry, is_new: bool, theme: dict,
+                   st: dict) -> None:
+    w = 880
+    saved = CARD_W
+    # reuse the B50 card, stretched to the row width
+    globals()["CARD_W"] = w
+    try:
+        _card_background.cache_clear()
+        _draw_card(canvas, x, y, track, e, theme, st)
+    finally:
+        globals()["CARD_W"] = saved
+        _card_background.cache_clear()
+    draw = ImageDraw.Draw(canvas)
+    if is_new:
+        bw, bh = 118, 26
+        bx, by = x + w - 14 - bw, y + 44
+        badge = _gradient_fill((bw, bh), [(255, 120, 150), (255, 200, 90)])
+        badge.putalpha(_rounded_mask((bw, bh), 13))
+        canvas.alpha_composite(badge, (bx, by))
+        draw.text((bx + bw // 2, by + bh // 2), "NEW RECORD", font=num(17), fill=(40, 20, 30), anchor="mm")

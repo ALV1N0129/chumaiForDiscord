@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -17,7 +18,8 @@ from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .config import Config
 from .jackets import JacketStore
 from .logos import download_logos
-from .render import render_b50
+from .playlog import to_entry
+from .render import render_b50, render_credit
 from .segaid import LoginFailed, NetClient, SegaError, login
 from .songdb import SongDB
 from .storage import LinkStore
@@ -25,6 +27,9 @@ from .storage import LinkStore
 log = logging.getLogger("chumai")
 
 GameChoice = Literal["maimai", "chunithm"]
+PLAYLOG_ACTIVE_INTERVAL = 5 * 60
+PLAYLOG_IDLE_INTERVAL = 15 * 60
+PLAYLOG_PATHS = {"chunithm": "/mobile/record/playlog", "maimai": "/maimai-mobile/record/"}
 
 
 class ChumaiBot(discord.Client):
@@ -45,6 +50,7 @@ class ChumaiBot(discord.Client):
         self.refresh_songdb.start()
         if updater.enabled():
             self.check_update.start()
+        self.poll_playlogs.start()
         if self.config.guild_id:
             guild = discord.Object(id=self.config.guild_id)
             self.tree.copy_global_to(guild=guild)
@@ -53,6 +59,30 @@ class ChumaiBot(discord.Client):
             await self.tree.sync()
 
     restart_requested = False
+    # (discord_id, game) -> (next check time, last time new plays were seen)
+    _playlog_schedule: dict[tuple[int, str], tuple[float, float]] = {}
+
+    @tasks.loop(minutes=1)
+    async def poll_playlogs(self) -> None:
+        now = time.time()
+        for discord_id, game, channel_id, last_key in self.links.playlogs():
+            due, active = self._playlog_schedule.get((discord_id, game), (0.0, 0.0))
+            if now < due:
+                continue
+            try:
+                found = await check_playlog(self, discord_id, game, channel_id, last_key)
+            except Exception:
+                log.exception("play log check failed for %s/%s", discord_id, game)
+                found = False
+            if found:
+                active = now
+            # 5 minutes for an hour after activity, otherwise 15 minutes
+            interval = PLAYLOG_ACTIVE_INTERVAL if now - active < 3600 else PLAYLOG_IDLE_INTERVAL
+            self._playlog_schedule[(discord_id, game)] = (time.time() + interval, active)
+
+    @poll_playlogs.before_loop
+    async def _wait_ready(self) -> None:
+        await self.wait_until_ready()
 
     @tasks.loop(minutes=2)
     async def check_update(self) -> None:
@@ -73,6 +103,7 @@ class ChumaiBot(discord.Client):
     async def close(self) -> None:
         self.refresh_songdb.cancel()
         self.check_update.cancel()
+        self.poll_playlogs.cancel()
         self.links.close()
         await super().close()
 
@@ -123,6 +154,40 @@ def register_commands(bot: ChumaiBot) -> None:
         await interaction.response.defer(thinking=True)
         result = await sega_b50(bot, game, who.id, token)
         await send_b50(interaction, result, game)
+
+    playlog = app_commands.Group(name="playlog", description="플레이 기록을 이 채널에 자동으로 올립니다")
+
+    @playlog.command(name="on", description="새로 플레이한 크레딧을 이 채널에 자동으로 올리기 시작합니다")
+    @app_commands.describe(game="게임")
+    async def playlog_on(interaction: discord.Interaction, game: GameChoice) -> None:
+        token = bot.links.get_sega_token(interaction.user.id)
+        if token is None:
+            await interaction.response.send_message("`/login` 으로 먼저 SEGA ID 로그인을 해 주세요.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            async with NetClient(game, token) as net:
+                html = await net.get(PLAYLOG_PATHS[game])
+            records = parse_playlog(game, html)
+        except SegaError as e:
+            await interaction.followup.send(str(e), ephemeral=True)
+            return
+        last_key = max((r.key for r in records), default="")
+        bot.links.set_playlog(interaction.user.id, game, interaction.channel_id, last_key)
+        bot._playlog_schedule.pop((interaction.user.id, game), None)
+        await interaction.followup.send(
+            f"이제 {'maimai DX' if game == 'maimai' else 'CHUNITHM'} 플레이 기록을 이 채널에 올릴게요. "
+            "크레딧이 끝나고 공식 사이트에 반영된 뒤 5~15분 안에 올라와요.",
+            ephemeral=True,
+        )
+
+    @playlog.command(name="off", description="플레이 기록 자동 업로드를 끕니다")
+    @app_commands.describe(game="게임")
+    async def playlog_off(interaction: discord.Interaction, game: GameChoice) -> None:
+        removed = bot.links.delete_playlog(interaction.user.id, game)
+        await interaction.response.send_message("껐어요." if removed else "켜져 있지 않아요.", ephemeral=True)
+
+    tree.add_command(playlog)
 
     @tree.command(name="calc", description="보면 상수와 점수로 단일 곡 레이팅을 계산합니다")
     @app_commands.describe(
@@ -214,6 +279,62 @@ async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str) -> B5
     except Exception:
         log.exception("failed to fetch %s data from SEGA NET", game)
         return "공식 사이트에서 데이터를 가져오지 못했어요. 점검 중이거나 사이트 구조가 바뀌었을 수 있어요."
+
+
+def parse_playlog(game: str, html: bytes):
+    if game == "chunithm":
+        return net_parsers.parse_chunithm_playlog(html)
+    return net_parsers.parse_maimai_playlog(html)
+
+
+async def _cached_image(bot: ChumaiBot, net: NetClient, game: str, url: str | None) -> str | None:
+    if not url:
+        return None
+    name = url.split("?")[0].rsplit("/", 1)[-1]
+    path = Path(bot.config.jacket_dir) / game / name
+    if not path.exists():
+        data = await _fetch_image(net, url)
+        if data is None:
+            return None
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    return str(path)
+
+
+async def check_playlog(bot: ChumaiBot, discord_id: int, game: str, channel_id: int, last_key: str) -> bool:
+    """Post credits played since last_key. Returns True if there were new plays."""
+    token = bot.links.get_sega_token(discord_id)
+    if token is None:
+        return False
+    channel = bot.get_channel(channel_id)
+    async with NetClient(game, token) as net:
+        records = parse_playlog(game, await net.get(PLAYLOG_PATHS[game]))
+        new = [r for r in records if r.key > last_key]
+        if not new:
+            return False
+        if game == "chunithm":
+            player = net_parsers.parse_chunithm_player(await net.get("/mobile/home/playerData/"))
+        else:
+            player = net_parsers.parse_maimai_player(await net.get("/maimai-mobile/home/"))
+        icon = await _fetch_image(net, player.icon_url)
+        images = []
+        for credit in net_parsers.group_credits(new):
+            entries = []
+            for r in credit:
+                e = to_entry(game, r, bot.songdb)
+                e.jacket_path = await _cached_image(bot, net, game, r.jacket_url)
+                entries.append(e)
+            png = await asyncio.to_thread(
+                render_credit, game, player.name, entries, [r.new_record for r in credit], credit[0].date, icon
+            )
+            images.append(png)
+    if net.clal != token:
+        bot.links.set_sega_token(discord_id, net.clal)
+    bot.links.update_playlog_key(discord_id, game, max(r.key for r in new))
+    if channel is not None:
+        for i, png in enumerate(images):
+            await channel.send(file=discord.File(io.BytesIO(png), filename=f"playlog_{game}_{i}.png"))
+    return True
 
 
 async def attach_jackets(bot: ChumaiBot, result: B50) -> None:

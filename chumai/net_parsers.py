@@ -198,3 +198,127 @@ def parse_error_message(html: str | bytes) -> str | None:
         if nodes:
             return " ".join(_text(n) for n in nodes if _text(n))[:300] or None
     return None
+
+
+# --------------------------------------------------------------- play logs
+
+
+@dataclass
+class PlayRecord:
+    date: str  # "YYYY/MM/DD HH:MM" (JST) — sorts correctly as a string
+    track: int
+    title: str
+    difficulty: str  # CHUNITHM: "MASTER"...; maimai: Tachi naming ("DX Master"...)
+    score: float  # CHUNITHM score / maimai achievement %
+    rank: str | None
+    lamp: str | None
+    new_record: bool
+    jacket_url: str | None
+    genre: str = ""
+
+    @property
+    def key(self) -> str:
+        return f"{self.date}#{self.track:02d}"
+
+
+def _img_name(img: Tag | None, attr: str = "src") -> str:
+    if img is None:
+        return ""
+    src = str(img.get(attr) or img.get("src") or "")
+    return src.split("?")[0].rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+
+def parse_chunithm_playlog(html: str | bytes) -> list[PlayRecord]:
+    """Parse /mobile/record/playlog (newest first)."""
+    out = []
+    for row in _soup(html).select(".frame02.w400"):
+        date = _text(row.select_one(".play_datalist_date"))
+        track_txt = _text(row.select_one(".play_track_text"))
+        score_txt = _text(row.select_one(".play_musicdata_score_text"))
+        if not date or not track_txt or not score_txt:
+            continue
+        diff = _img_name(row.select_one(".play_track_result img")).split("_")[-1]
+        icons = [_img_name(i) for i in row.select(".play_musicdata_icon img")]
+        lamp = None
+        for name, label in (("alljusticecritical", "AJC"), ("alljustice", "AJ"), ("fullcombo", "FC")):
+            if any(name in i for i in icons):
+                lamp = label
+                break
+        jacket = row.select_one(".play_jacket_img img")
+        out.append(
+            PlayRecord(
+                date=date,
+                track=int(re.sub(r"\D", "", track_txt) or 0),
+                title=_text(row.select_one(".play_musicdata_title")),
+                difficulty=CHUNITHM_DIFFS.get(diff, diff.upper()),
+                score=int(score_txt.replace(",", "")),
+                rank=None,
+                lamp=lamp,
+                new_record=row.select_one(".play_musicdata_score_img") is not None,
+                jacket_url=str(jacket.get("data-original") or jacket.get("src")) if jacket else None,
+            )
+        )
+    return out
+
+
+MAIMAI_PLAYLOG_LAMPS = {"fc": "FC", "fcplus": "FC+", "ap": "AP", "applus": "AP+"}
+
+
+def parse_maimai_playlog(html: str | bytes) -> list[PlayRecord]:
+    """Parse /maimai-mobile/record/ (newest first)."""
+    out = []
+    for row in _soup(html).select(".main_wrapper .p_10.t_l.f_0.v_b"):
+        sub = row.select_one(".playlog_top_container .sub_title")
+        spans = [s for s in sub.find_all(recursive=False)] if sub else []
+        track_txt = _text(spans[0]) if spans else ""
+        date = ""
+        for s in spans:
+            m = re.search(r"\d{4}/\d{2}/\d{2} \d{2}:\d{2}", _text(s))
+            if m:
+                date = m.group(0)
+        ach = row.select_one(".playlog_achievement_txt")
+        if not date or ach is None:
+            continue
+        try:
+            achievement = float(re.sub(r"[^\d.]", "", _text(ach)))
+        except ValueError:
+            continue
+        diff_name = _img_name(row.select_one("img.playlog_diff")).split("_")[-1].lower()
+        base = {"basic": "Basic", "advanced": "Advanced", "expert": "Expert", "master": "Master",
+                "remaster": "Re:Master"}.get(diff_name)
+        if base is None:
+            continue  # UTAGE etc.
+        kind = row.select_one(".playlog_music_kind_icon")
+        is_std = kind is not None and "_standard" in str(kind.get("src", ""))
+        title_el = row.select_one(".basic_block.break") or row.select_one(".m_5.p_5.f_13")
+        title = ""
+        if title_el is not None:
+            texts = [t.strip() for t in title_el.find_all(string=True, recursive=False) if t.strip()]
+            title = texts[-1] if texts else _text(title_el)
+        rank = _img_name(row.select_one("img.playlog_scorerank")).replace("plus", "+").upper() or None
+        stamps = [_img_name(i) for i in row.select(".playlog_result_innerblock > img")]
+        jacket = row.select_one(".music_img")
+        out.append(
+            PlayRecord(
+                date=date,
+                track=int(re.sub(r"\D", "", track_txt) or 0),
+                title=title,
+                difficulty=base if is_std else f"DX {base}",
+                score=achievement,
+                rank=rank,
+                lamp=MAIMAI_PLAYLOG_LAMPS.get(stamps[0]) if stamps else None,
+                new_record=row.select_one("img.playlog_achievement_newrecord") is not None,
+                jacket_url=str(jacket.get("src")) if jacket is not None else None,
+            )
+        )
+    return out
+
+
+def group_credits(records: list[PlayRecord]) -> list[list[PlayRecord]]:
+    """Split plays (any order) into credits, oldest first. A credit restarts at TRACK 1."""
+    credits: list[list[PlayRecord]] = []
+    for r in sorted(records, key=lambda r: r.key):
+        if not credits or r.track <= credits[-1][-1].track:
+            credits.append([])
+        credits[-1].append(r)
+    return credits

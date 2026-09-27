@@ -18,6 +18,13 @@ class LinkStore:
         self._db = sqlite3.connect(path)
         self._db.executescript(
             """
+            CREATE TABLE IF NOT EXISTS playlog_subs (
+                discord_id INTEGER NOT NULL,
+                game TEXT NOT NULL,
+                channel_id INTEGER NOT NULL,
+                last_key TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (discord_id, game)
+            );
             CREATE TABLE IF NOT EXISTS sega_tokens (
                 discord_id INTEGER PRIMARY KEY,
                 token TEXT NOT NULL,
@@ -70,6 +77,30 @@ class LinkStore:
             "SELECT public FROM sega_tokens WHERE discord_id = ?", (discord_id,)
         ).fetchone()
         return bool(row[0]) if row else False
+
+    # ---- play log subscriptions
+
+    def set_playlog(self, discord_id: int, game: str, channel_id: int, last_key: str) -> None:
+        self._db.execute(
+            "INSERT INTO playlog_subs (discord_id, game, channel_id, last_key) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(discord_id, game) DO UPDATE SET channel_id = excluded.channel_id, last_key = excluded.last_key",
+            (discord_id, game, channel_id, last_key),
+        )
+        self._db.commit()
+
+    def delete_playlog(self, discord_id: int, game: str) -> bool:
+        cur = self._db.execute("DELETE FROM playlog_subs WHERE discord_id = ? AND game = ?", (discord_id, game))
+        self._db.commit()
+        return cur.rowcount > 0
+
+    def playlogs(self) -> list[tuple[int, str, int, str]]:
+        return list(self._db.execute("SELECT discord_id, game, channel_id, last_key FROM playlog_subs"))
+
+    def update_playlog_key(self, discord_id: int, game: str, last_key: str) -> None:
+        self._db.execute(
+            "UPDATE playlog_subs SET last_key = ? WHERE discord_id = ? AND game = ?", (last_key, discord_id, game)
+        )
+        self._db.commit()
 
     def close(self) -> None:
         self._db.close()

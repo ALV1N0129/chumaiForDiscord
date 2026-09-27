@@ -66,6 +66,8 @@ class SongDB:
         self.chunithm: dict[tuple[int, str], ChartInfo] = {}
         # maimai: (normalized title, "DX Master"/"Master"/...) -> charts (several if titles collide)
         self.maimai: dict[tuple[str, str], list[ChartInfo]] = {}
+        # CHUNITHM by (normalized title, difficulty), for play logs that have no music id
+        self.chunithm_titles: dict[tuple[str, str], ChartInfo] = {}
 
     def load(self, seeds: dict[str, list[dict]]) -> None:
         for game in ("chunithm", "maimaidx"):
@@ -86,12 +88,16 @@ class SongDB:
                     for i in ids if isinstance(ids, list) else [ids]:
                         if i is not None:
                             self.chunithm[(int(i), c["difficulty"])] = info
+                    self.chunithm_titles.setdefault((normalize_title(song["title"]), c["difficulty"]), info)
                 else:
                     for t in [song["title"], *song.get("altTitles", [])]:
                         self.maimai.setdefault((normalize_title(t), c["difficulty"]), []).append(info)
 
     def chunithm_chart(self, idx: int, difficulty: str) -> ChartInfo | None:
         return self.chunithm.get((idx, difficulty))
+
+    def chunithm_chart_by_title(self, title: str, difficulty: str) -> ChartInfo | None:
+        return self.chunithm_titles.get((normalize_title(title), difficulty))
 
     def maimai_chart(self, title: str, difficulty: str, genre: str | None = None) -> ChartInfo | None:
         found = self.maimai.get((normalize_title(title), difficulty))
@@ -134,6 +140,7 @@ class SongDB:
                 return
             seeds[n] = json.loads(path.read_text(encoding="utf-8"))
         self.chunithm.clear()
+        self.chunithm_titles.clear()
         self.maimai.clear()
         self.load(seeds)
         log.info("song database loaded: %d CHUNITHM charts, %d maimai charts",

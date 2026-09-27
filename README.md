@@ -38,7 +38,15 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/logout` | 저장된 SEGA 로그인 토큰 삭제 |
 | `/privacy public:<True\|False>` | 다른 사람이 내 B50(SEGA 로그인)을 볼 수 있는지 설정 |
 | `/b50 game:<maimai\|chunithm> [member]` | B50 이미지 출력. `member`를 지정하면 다른 사람 것 (공개 설정인 경우) |
+| `/playlog on game:<maimai\|chunithm>` | 새로 플레이한 크레딧을 이 채널에 이미지로 자동 업로드 |
+| `/playlog off game:<maimai\|chunithm>` | 자동 업로드 끄기 |
 | `/calc game:<maimai\|chunithm> const:<상수> score:<점수>` | 단일 곡 레이팅 계산 (maimai는 달성률 %, CHUNITHM은 점수) |
+
+### 플레이 기록 자동 업로드
+
+`/playlog on`을 입력한 채널에, 크레딧이 끝난 뒤 그 크레딧의 곡들을 이미지 한 장으로 올립니다.
+공식 사이트의 최근 플레이 페이지를 평소엔 15분, 새 플레이가 있었던 뒤 1시간 동안은 5분마다 한 번씩 확인합니다
+(공식 사이트는 크레딧이 끝나야 기록이 반영되므로 실시간은 아닙니다).
 
 ## 실행 방법
 

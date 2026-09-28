@@ -92,6 +92,21 @@ def _get_clal(session: aiohttp.ClientSession) -> str | None:
     return None
 
 
+def _clal_from_headers(resp: aiohttp.ClientResponse) -> str | None:
+    """clal straight from the Set-Cookie headers, in case the cookie jar refused to store it."""
+    for header in resp.headers.getall("Set-Cookie", []):
+        name, _, rest = header.partition("=")
+        if name.strip() == "clal":
+            value = rest.split(";", 1)[0].strip()
+            if value:
+                return value
+    return None
+
+
+def _cookie_names(resp: aiohttp.ClientResponse) -> list[str]:
+    return [h.partition("=")[0].strip() for h in resp.headers.getall("Set-Cookie", [])]
+
+
 async def login(sega_id: str, password: str, otp: str | None = None) -> str:
     """Log in with SEGA ID and return the `clal` token."""
     site = SITES["chunithm"]
@@ -124,8 +139,21 @@ async def login(sega_id: str, password: str, otp: str | None = None) -> str:
         if not any(site.base.host in location for site in SITES.values()):
             raise LoginFailed("SEGA ID 또는 비밀번호가 올바르지 않아요.")
 
-        clal = _get_clal(s)
+        clal = _get_clal(s) or _clal_from_headers(resp)
         if not clal:
+            # some setups only get the cookie while following the redirect to the game site
+            follow, _ = await _request(s, "GET", URL(location))
+            clal = _get_clal(s) or _clal_from_headers(follow)
+            if not clal:
+                for step in follow.history:
+                    clal = _clal_from_headers(step)
+                    if clal:
+                        break
+        if not clal:
+            # names only, never values: enough to see what the gateway sent
+            log.warning("login ok but no clal: status=%s location_host=%s set-cookie=%s jar=%s",
+                        resp.status, URL(location).host, _cookie_names(resp),
+                        sorted({f"{c.key}@{c['domain'] or '?'}" for c in s.cookie_jar}))
             raise LoginFailed("로그인은 됐지만 토큰을 받지 못했어요. 잠시 후 다시 시도해 주세요.")
         return clal
 

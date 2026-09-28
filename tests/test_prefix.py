@@ -35,7 +35,7 @@ def test_prefix_commands(tmp_path, monkeypatch):
     bot = _bot(tmp_path, monkeypatch)
     r = _run(bot, "!info chuni aleph")
     assert r[-1][1]["embed"].title == "Aleph-0"
-    r = _run(bot, "!const c 14.7 14.9")
+    r = _run(bot, "!const c 14.7-14.9")
     assert "(2개)" in r[-1][1]["embed"].title
     r = _run(bot, "!reach chunithm 14.7 16.7")
     assert "1,007,500" in r[-1][0]
@@ -46,7 +46,7 @@ def test_prefix_commands(tmp_path, monkeypatch):
 def test_prefix_errors_and_special_cases(tmp_path, monkeypatch):
     bot = _bot(tmp_path, monkeypatch)
     r = _run(bot, "!random mai")
-    assert "min" in r[-1][0] and "사용법" in r[-1][0]
+    assert "level" in r[-1][0] and "사용법" in r[-1][0]
     r = _run(bot, "!reach pump 14 16")
     assert "maimai / chunithm" in r[-1][0]
     r = _run(bot, "!playlog")
@@ -61,3 +61,14 @@ def test_greedy_song_then_difficulty(tmp_path, monkeypatch):
     cmd = bot.tree.get_command("whatif")
     kw = prefix.parse_args(cmd, ["chuni", "aleph", "zero", "MAS", "1009000"], FakeMessage(""))
     assert kw == {"game": "chunithm", "song": "aleph zero", "difficulty": "MAS", "score": 1009000.0}
+
+
+def test_prefix_level_and_count(tmp_path, monkeypatch):
+    bot = _bot(tmp_path, monkeypatch)
+    cmd = bot.tree.get_command("random")
+    assert prefix.parse_args(cmd, ["chuni", "14+", "3"], FakeMessage("")) == {
+        "game": "chunithm", "level": "14+", "count": 3}
+    assert prefix.parse_args(cmd, ["chuni", "14.0-14.8"], FakeMessage("")) == {
+        "game": "chunithm", "level": "14.0-14.8"}
+    r = _run(bot, "!const chuni 14+")
+    assert "14.5~14.9" in r[-1][1]["embed"].title

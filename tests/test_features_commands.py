@@ -67,13 +67,13 @@ def test_info_const_reach_random(tmp_path, monkeypatch):
     embed = log[-1][2]["embed"]
     assert embed.title == "Aleph-0" and "14.9" in embed.fields[0].value
 
-    log = _call(bot, "const", game="chunithm", min=14.7, max=14.9)
+    log = _call(bot, "const", game="chunithm", level="14.7-14.9")
     assert "(2개)" in log[-1][2]["embed"].title
 
     log = _call(bot, "reach", game="chunithm", const=14.7, target=16.7)
     assert "1,007,500" in log[-1][1]
 
-    log = _call(bot, "random", game="chunithm", min=12.0, max=15.0, count=2)
+    log = _call(bot, "random", game="chunithm", level="12-15", count=2)
     assert log[-1][2]["embed"].description.count("\n") == 1
 
     log = _call(bot, "info", game="chunithm", song="zzzzzz no such song")
@@ -88,7 +88,7 @@ def test_guess_and_answer(tmp_path, monkeypatch):
         log = []
         i = _interaction(log)
         i.client = bot
-        await bot.tree.get_command("guess").callback(i, game="chunithm", min=None, max=None)
+        await bot.tree.get_command("guess").callback(i, game="chunithm", level=None)
         assert "이 자켓의 곡은?" in log[-1][1]
         # find which song was picked by trying every title
         for title in ["Aleph-0", "AXION", "Easy Song"]:

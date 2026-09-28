@@ -142,10 +142,9 @@ def parse_args(command: app_commands.Command, tokens: list[str], message: discor
                 raise UsageError(f"`{param.name}` 이(가) 필요해요.")
             continue
         if param.type is AppCommandOptionType.string and not param.choices:
-            reserve = sum(1 for p in rest if p.required)
+            # leave one word for every later (non-mention) parameter
+            reserve = sum(1 for p in rest if p.type is not AppCommandOptionType.user)
             take = max(1, len(tokens) - i - reserve)
-            if not rest:
-                take = len(tokens) - i
             kwargs[param.name] = " ".join(tokens[i:i + take])
             i += take
         else:

@@ -89,3 +89,21 @@ def test_guess_helpers(tmp_path):
     p = tmp_path / "j.png"
     Image.new("RGB", (300, 300), (255, 0, 0)).save(p)
     assert features._crop_hint(str(p), random.Random(0))[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_parse_level():
+    import pytest
+
+    assert tools.parse_level("14", "chunithm") == (14.0, 14.4)
+    assert tools.parse_level("14+", "chunithm") == (14.5, 14.9)
+    assert tools.parse_level("14", "maimai") == (14.0, 14.5)
+    assert tools.parse_level("14+", "maimai") == (14.6, 14.9)
+    assert tools.parse_level("13.5", "chunithm") == (13.5, 13.5)
+    assert tools.parse_level("14.0-14.8", "chunithm") == (14.0, 14.8)
+    assert tools.parse_level("13+-14", "chunithm") == (13.5, 14.4)
+    assert tools.parse_level("15-", "chunithm") == (15.0, 16.0)
+    assert tools.parse_level("-12", "chunithm") == (1.0, 12.4)
+    with pytest.raises(ValueError):
+        tools.parse_level("abc", "chunithm")
+    with pytest.raises(ValueError):
+        tools.parse_level("15-14", "chunithm")

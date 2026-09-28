@@ -36,7 +36,7 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 접두어는 `.env`의 `PREFIX`로 바꿀 수 있고, 게임은 `mai` / `chuni`로 줄여 써도 됩니다.
 접두어 명령어를 쓰려면 Discord 개발자 포털 → Bot → **Message Content Intent**를 켜야 합니다.
 
-예: `!b50 chuni`, `!b50 mai @친구`, `!info chuni aleph`, `!whatif chuni aleph-0 MAS 1009000`, `!playlog on mai`
+예: `!b50 chuni`, `!b50 mai @친구`, `!info chuni aleph`, `!whatif chuni aleph-0 MAS 1009000`, `!playlog on mai`, `!random chuni 14+ 3`, `!const mai 13.5-13.9`
 
 | 명령어 | 설명 |
 | --- | --- |
@@ -52,8 +52,8 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/recent game:` | 가장 최근 크레딧 |
 | `/info game: song:` | 곡 정보 (난이도별 레벨·상수, 아티스트, 장르, 버전, 자켓) |
 | `/jacket game: song:` | 자켓 이미지 |
-| `/const game: min: [max:]` | 상수 범위의 보면 목록 |
-| `/random game: min: [max:] [count:]` | 랜덤 선곡 |
+| `/const game: level:` | 레벨(14+)·상수(14.5)·범위(14.0-14.8)에 해당하는 보면 목록 |
+| `/random game: level: [count:]` | 레벨·상수·범위에서 랜덤 선곡 |
 | `/reach game: const: target:` | 목표 곡 레이팅에 필요한 점수 |
 | `/whatif game: song: difficulty: score:` | 그 점수를 받으면 레이팅이 어떻게 바뀌는지 |
 | `/recommend game:` | 레이팅 올리기 좋은 곡 추천 |

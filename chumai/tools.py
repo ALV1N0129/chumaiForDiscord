@@ -66,6 +66,49 @@ def reach_score(game: str, const: float, target: float) -> float | None:
     return lo
 
 
+# ----------------------------------------------------------------- levels
+
+# where the "+" levels start: CHUNITHM 14+ = 14.5~14.9, maimai 14+ = 14.6~14.9
+PLUS_FROM = {"chunithm": 5, "maimai": 6}
+LEVEL_HELP = "레벨 (14+), 상수 (14.5), 범위 (14.0-14.8, 13+-14, 15-) 중 하나"
+
+
+def _level_bounds(text: str, game: str) -> tuple[float, float]:
+    t = text.strip()
+    if not t:
+        raise ValueError("레벨이 비어 있어요.")
+    plus = PLUS_FROM[game]
+    if t.endswith("+"):
+        whole = int(t[:-1])
+        return whole + plus / 10, whole + 0.9
+    if "." in t:
+        v = round(float(t), 1)
+        return v, v
+    whole = int(t)
+    return float(whole), whole + (plus - 1) / 10
+
+
+def parse_level(text: str, game: str) -> tuple[float, float]:
+    """"14" / "14+" / "14.5" / "14.0-14.8" / "13+-14" / "15-" / "-12" -> (min const, max const)."""
+    t = text.replace(" ", "").replace("~", "-")
+    try:
+        if "-" in t:
+            lo_s, _, hi_s = t.partition("-")
+            lo = _level_bounds(lo_s, game)[0] if lo_s else 1.0
+            hi = _level_bounds(hi_s, game)[1] if hi_s else 16.0
+        else:
+            lo, hi = _level_bounds(t, game)
+    except ValueError:
+        raise ValueError(f"`{text}` 을(를) 레벨로 읽지 못했어요. {LEVEL_HELP}") from None
+    if lo > hi:
+        raise ValueError(f"범위가 거꾸로예요: {text}")
+    return lo, hi
+
+
+def describe_level(text: str, lo: float, hi: float) -> str:
+    return f"{lo:.1f}" if lo == hi else f"{text} ({lo:.1f}~{hi:.1f})"
+
+
 # ---------------------------------------------------------------- charts
 
 

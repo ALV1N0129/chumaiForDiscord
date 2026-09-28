@@ -193,11 +193,15 @@ def register(bot: ChumaiBot) -> None:
 
     # ------------------------------------------------------------ const / random
 
-    @tree.command(name="const", description="보면 상수 범위에 해당하는 보면 목록")
-    @app_commands.describe(game="게임", min="최소 상수 (예: 14.5)", max="최대 상수 (비우면 min과 같음)")
-    async def const(interaction: discord.Interaction, game: GameChoice, min: float, max: float | None = None) -> None:
-        hi = max if max is not None else min
-        charts = tools.charts_in_range(bot.songdb, game, min, hi)
+    @tree.command(name="const", description="레벨·상수·범위에 해당하는 보면 목록")
+    @app_commands.describe(game="게임", level=tools.LEVEL_HELP)
+    async def const(interaction: discord.Interaction, game: GameChoice, level: str) -> None:
+        try:
+            lo, hi = tools.parse_level(level, game)
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+        charts = tools.charts_in_range(bot.songdb, game, lo, hi)
         if not charts:
             await interaction.response.send_message("해당하는 보면이 없어요.", ephemeral=True)
             return
@@ -210,16 +214,20 @@ def register(bot: ChumaiBot) -> None:
             shown += 1
         if shown < len(lines):
             body += f"… 외 {len(lines) - shown}개"
-        rng = f"{min:.1f}" if hi == min else f"{min:.1f} ~ {hi:.1f}"
-        embed = discord.Embed(title=f"{GAME_NAMES[game]} 상수 {rng} ({len(lines)}개)", description=body,
-                              color=COLORS[game])
+        embed = discord.Embed(title=f"{GAME_NAMES[game]} {tools.describe_level(level, lo, hi)} ({len(lines)}개)",
+                              description=body, color=COLORS[game])
         await interaction.response.send_message(embed=embed)
 
-    @tree.command(name="random", description="상수 범위에서 랜덤으로 곡을 골라 줍니다")
-    @app_commands.describe(game="게임", min="최소 상수", max="최대 상수 (비우면 min과 같음)", count="곡 수 (1~4)")
-    async def random_cmd(interaction: discord.Interaction, game: GameChoice, min: float,
-                         max: float | None = None, count: app_commands.Range[int, 1, 4] = 1) -> None:
-        picks = tools.random_charts(bot.songdb, game, min, max if max is not None else min, count)
+    @tree.command(name="random", description="레벨·상수·범위에서 랜덤으로 곡을 골라 줍니다")
+    @app_commands.describe(game="게임", level=tools.LEVEL_HELP, count="곡 수 (1~4)")
+    async def random_cmd(interaction: discord.Interaction, game: GameChoice, level: str,
+                         count: app_commands.Range[int, 1, 4] = 1) -> None:
+        try:
+            lo, hi = tools.parse_level(level, game)
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+        picks = tools.random_charts(bot.songdb, game, lo, hi, count)
         if not picks:
             await interaction.response.send_message("해당하는 보면이 없어요.", ephemeral=True)
             return
@@ -310,16 +318,19 @@ def register(bot: ChumaiBot) -> None:
     # ----------------------------------------------------------------- guessing
 
     @tree.command(name="guess", description="자켓 일부를 보고 곡을 맞히는 게임을 시작합니다")
-    @app_commands.describe(game="게임", min="최소 상수 (선택)", max="최대 상수 (선택)")
-    async def guess(interaction: discord.Interaction, game: GameChoice, min: float | None = None,
-                    max: float | None = None) -> None:
+    @app_commands.describe(game="게임", level=f"문제로 낼 곡의 {tools.LEVEL_HELP} (선택)")
+    async def guess(interaction: discord.Interaction, game: GameChoice, level: str | None = None) -> None:
+        try:
+            lo, hi = tools.parse_level(level, game) if level else (1.0, 16.0)
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
         channel_id = interaction.channel_id
         current = rounds.get(channel_id)
         if current and not current.answered and time.time() - current.started < GUESS_SECONDS:
             await interaction.response.send_message("이 채널에서 이미 게임이 진행 중이에요.", ephemeral=True)
             return
         await interaction.response.defer(thinking=True)
-        lo, hi = (min or 1.0), (max or 16.0)
         pool = list({id(s): s for s, _ in tools.charts_in_range(bot.songdb, game, lo, hi)}.values())
         rng = random.Random()
         rng.shuffle(pool)

@@ -100,3 +100,30 @@ def test_check_playlog_posts_only_new_credits(tmp_path, monkeypatch):
     # nothing new the second time
     assert asyncio.run(botmod.check_playlog(fake_bot, 1, "chunithm", 99, new_key)) is False
     assert len(sent) == 2
+
+
+def test_check_playlog_without_updating_key(tmp_path, monkeypatch):
+    playlog = (FIX / "playlog.html").read_bytes()
+    FakeNet.pages = {
+        "/mobile/record/playlog": playlog,
+        "/mobile/home/playerData/": (FIX / "player_data.html").read_bytes(),
+    }
+    monkeypatch.setattr(botmod, "NetClient", FakeNet)
+    sent = []
+
+    class Channel:
+        async def send(self, file):
+            sent.append(file.filename)
+
+    links = LinkStore(tmp_path / "db.sqlite")
+    links.set_sega_token(1, "tok")
+    links.set_playlog(1, "chunithm", 99, "9999")  # already up to date
+    credits = net_parsers.group_credits(net_parsers.parse_chunithm_playlog(playlog))
+    fake_bot = SimpleNamespace(
+        links=links, songdb=SongDB(), config=SimpleNamespace(jacket_dir=str(tmp_path / "j")),
+        get_channel=lambda cid: Channel(),
+    )
+    before = credits[-2][-1].key
+    assert asyncio.run(botmod.check_playlog(fake_bot, 1, "chunithm", 99, before, update=False))
+    assert len(sent) == 1
+    assert links.playlogs()[0][3] == "9999"  # subscription untouched

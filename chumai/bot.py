@@ -187,6 +187,33 @@ def register_commands(bot: ChumaiBot) -> None:
         removed = bot.links.delete_playlog(interaction.user.id, game)
         await interaction.response.send_message("껐어요." if removed else "켜져 있지 않아요.", ephemeral=True)
 
+    @playlog.command(name="test", description="최근 크레딧 하나를 이 채널에 바로 올려 봅니다 (자동 업로드 설정은 그대로)")
+    @app_commands.describe(game="게임")
+    async def playlog_test(interaction: discord.Interaction, game: GameChoice) -> None:
+        token = bot.links.get_sega_token(interaction.user.id)
+        if token is None:
+            await interaction.response.send_message("`/login` 으로 먼저 SEGA ID 로그인을 해 주세요.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            async with NetClient(game, token) as net:
+                records = parse_playlog(game, await net.get(PLAYLOG_PATHS[game]))
+            credits = net_parsers.group_credits(records)
+            if not credits:
+                await interaction.followup.send("최근 플레이 기록이 없어요.", ephemeral=True)
+                return
+            # pretend everything up to the credit before the last one was already posted
+            before = credits[-2][-1].key if len(credits) > 1 else ""
+            await check_playlog(bot, interaction.user.id, game, interaction.channel_id, before, update=False)
+        except SegaError as e:
+            await interaction.followup.send(str(e), ephemeral=True)
+            return
+        except Exception:
+            log.exception("play log test failed")
+            await interaction.followup.send("테스트 중 오류가 났어요. 봇 창의 로그를 확인해 주세요.", ephemeral=True)
+            return
+        await interaction.followup.send("최근 크레딧을 올렸어요.", ephemeral=True)
+
     tree.add_command(playlog)
 
     @tree.command(name="calc", description="보면 상수와 점수로 단일 곡 레이팅을 계산합니다")
@@ -301,7 +328,9 @@ async def _cached_image(bot: ChumaiBot, net: NetClient, game: str, url: str | No
     return str(path)
 
 
-async def check_playlog(bot: ChumaiBot, discord_id: int, game: str, channel_id: int, last_key: str) -> bool:
+async def check_playlog(
+    bot: ChumaiBot, discord_id: int, game: str, channel_id: int, last_key: str, update: bool = True
+) -> bool:
     """Post credits played since last_key. Returns True if there were new plays."""
     token = bot.links.get_sega_token(discord_id)
     if token is None:
@@ -330,7 +359,8 @@ async def check_playlog(bot: ChumaiBot, discord_id: int, game: str, channel_id: 
             images.append(png)
     if net.clal != token:
         bot.links.set_sega_token(discord_id, net.clal)
-    bot.links.update_playlog_key(discord_id, game, max(r.key for r in new))
+    if update:
+        bot.links.update_playlog_key(discord_id, game, max(r.key for r in new))
     if channel is not None:
         for i, png in enumerate(images):
             await channel.send(file=discord.File(io.BytesIO(png), filename=f"playlog_{game}_{i}.png"))

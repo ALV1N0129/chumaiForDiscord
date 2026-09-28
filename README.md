@@ -40,6 +40,7 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/b50 game:<maimai\|chunithm> [member]` | B50 이미지 출력. `member`를 지정하면 다른 사람 것 (공개 설정인 경우) |
 | `/playlog on game:<maimai\|chunithm>` | 새로 플레이한 크레딧을 이 채널에 이미지로 자동 업로드 |
 | `/playlog off game:<maimai\|chunithm>` | 자동 업로드 끄기 |
+| `/playlog test game:<maimai\|chunithm>` | 최근 크레딧 하나를 바로 올려 보기 (확인용) |
 | `/calc game:<maimai\|chunithm> const:<상수> score:<점수>` | 단일 곡 레이팅 계산 (maimai는 달성률 %, CHUNITHM은 점수) |
 
 ### 플레이 기록 자동 업로드

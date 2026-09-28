@@ -1413,9 +1413,14 @@ def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub:
         right = row.get("right") or ""
         rw = int(draw.textlength(right, font=num(34 if big else 26))) + 20 if right else 0
         tx = x + 12 + js + 16
+        # without a note line the genre chip goes under `right`, where right_sub would be
+        genre_under = bool(right and row.get("genre") and not row.get("note") and not row.get("right_sub"))
+        under = bool(right and row.get("right_sub")) or genre_under
         if right and row.get("right_sub"):  # the small line under `right` sits beside the sub_line
             sub_font = num(17, "Medium") if row["right_sub"].isascii() else cjk(14)
             sub_w = int(draw.textlength(row["right_sub"], font=sub_font)) + 20
+        elif genre_under:
+            sub_w = int(draw.textlength(row["genre"], font=cjk(13))) + 18 + 20
         text_w = x + tile_w - tx - rw - 8
         tsize = 20 if big else 17
         draw.text((tx, y + (22 if big else 14)), _fit(draw, row["title"], cjk(tsize), text_w), font=cjk(tsize),
@@ -1428,14 +1433,21 @@ def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub:
         draw.text((tx, info_y), info, font=info_font, fill=dcolor, anchor="ls")
         if row.get("sub_line"):
             sx = tx + draw.textlength(info, font=info_font) + 12
-            sub_room = text_w + rw - max(rw, sub_w) if right and row.get("right_sub") else text_w
+            sub_room = text_w + rw - max(rw, sub_w) if under else text_w
             draw.text((sx, info_y), _fit(draw, row["sub_line"], cjk(14), max(0, sub_room - int(sx - tx))),
                       font=cjk(14), fill=MUTED, anchor="ls")
         if right:
-            if row.get("right_sub"):
+            if under:
                 draw.text((x + tile_w - 16, y + top_h / 2 - 2), right, font=num(34), fill=MAX_RATING, anchor="rs")
+            if row.get("right_sub"):
                 draw.text((x + tile_w - 16, y + top_h / 2 + 22), row["right_sub"], font=sub_font, fill=MUTED,
                           anchor="rs")
+            elif genre_under:
+                gw = sub_w - 20
+                gx, gy = x + tile_w - 16 - gw, int(y + top_h / 2 + 22 - 17)
+                _panel(canvas, (gx, gy, gx + gw, gy + 22), theme["accent"], alpha=45, radius=11, outline=False)
+                draw = ImageDraw.Draw(canvas)
+                draw.text((gx + gw // 2, gy + 11), row["genre"], font=cjk(13), fill=WHITE, anchor="mm")
             else:
                 draw.text((x + tile_w - 14, y + top_h / 2), right, font=num(34 if big else 26), fill=WHITE,
                           anchor="rm")

@@ -23,12 +23,18 @@ GAME_ALIASES = {
     "maimai": "maimai", "mai": "maimai", "m": "maimai", "마이마이": "maimai", "마이": "maimai",
     "chunithm": "chunithm", "chuni": "chunithm", "c": "chunithm", "츄니즘": "chunithm", "츄니": "chunithm",
 }
+# short names for prefix commands
+ALIASES = {"r": "random"}
 TRUE = {"true", "yes", "on", "1", "y", "켜기", "공개"}
 FALSE = {"false", "no", "off", "0", "n", "끄기", "비공개"}
 
 
 class UsageError(Exception):
     pass
+
+
+def _reply_kwargs(**kw: Any) -> dict[str, Any]:
+    return {k: v for k, v in kw.items() if v is not None and v != []}
 
 
 class _Response:
@@ -39,10 +45,10 @@ class _Response:
     def is_done(self) -> bool:
         return self._done
 
-    async def send_message(self, content: str | None = None, *, embed=None, file=None, view=None,
-                           ephemeral: bool = False, **_: Any) -> None:
+    async def send_message(self, content: str | None = None, *, embed=None, file=None, view=None, embeds=None,
+                           files=None, ephemeral: bool = False, **_: Any) -> None:
         self._done = True
-        kwargs = {k: v for k, v in (("embed", embed), ("file", file), ("view", view)) if v is not None}
+        kwargs = _reply_kwargs(embed=embed, file=file, view=view, embeds=embeds, files=files)
         await self._message.reply(content, mention_author=False, **kwargs)
 
     async def defer(self, **_: Any) -> None:
@@ -60,9 +66,9 @@ class _Followup:
     def __init__(self, message: discord.Message):
         self._message = message
 
-    async def send(self, content: str | None = None, *, embed=None, file=None, view=None,
-                   ephemeral: bool = False, **_: Any) -> None:
-        kwargs = {k: v for k, v in (("embed", embed), ("file", file), ("view", view)) if v is not None}
+    async def send(self, content: str | None = None, *, embed=None, file=None, view=None, embeds=None,
+                   files=None, ephemeral: bool = False, **_: Any) -> None:
+        kwargs = _reply_kwargs(embed=embed, file=file, view=view, embeds=embeds, files=files)
         await self._message.reply(content, mention_author=False, **kwargs)
 
 
@@ -188,6 +194,7 @@ async def handle(bot: ChumaiBot, message: discord.Message, prefix: str) -> None:
     if not tokens:
         return
     name = tokens.pop(0).lower()
+    name = ALIASES.get(name, name)
     command = bot.tree.get_command(name)
     if command is None:
         return

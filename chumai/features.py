@@ -30,6 +30,28 @@ GAME_NAMES = {"maimai": "maimai DX", "chunithm": "CHUNITHM"}
 COLORS = {"maimai": 0xF5C542, "chunithm": 0xE0457B}
 
 
+DIFF_COLORS = {
+    "basic": 0x22BB5B, "advanced": 0xFE8C00, "expert": 0xFE0048, "master": 0x8A2BE2,
+    "ultima": 0x131313, "re:master": 0xDCADFF,
+}
+DIFF_NAMES = {
+    "basic": "BASIC", "advanced": "ADVANCED", "expert": "EXPERT", "master": "MASTER",
+    "ultima": "ULTIMA", "re:master": "Re:MASTER",
+}
+
+
+def chart_embed(game: str, song: CatalogSong, chart) -> discord.Embed:
+    """One chart as a card: title, artist, genre and difficulty/level (constant)."""
+    d = chart.difficulty.lower()
+    is_dx = d.startswith("dx ")
+    key = d[3:] if is_dx else d
+    name = ("DX " if is_dx else "") + DIFF_NAMES.get(key, chart.difficulty)
+    embed = discord.Embed(title=song.title, description=song.artist or None, color=DIFF_COLORS.get(key, COLORS[game]))
+    embed.add_field(name="Category", value=song.genre or "-")
+    embed.add_field(name=name, value=f"{chart.level} ({chart.level_const:.1f})")
+    return embed
+
+
 def _song_line(game: str, song: CatalogSong, chart) -> str:
     return f"**{song.title}** — {tools.short(chart.difficulty)} {chart.level} ({chart.level_const:.1f})"
 
@@ -218,10 +240,10 @@ def register(bot: ChumaiBot) -> None:
                               description=body, color=COLORS[game])
         await interaction.response.send_message(embed=embed)
 
-    @tree.command(name="random", description="레벨·상수·범위에서 랜덤으로 곡을 골라 줍니다")
-    @app_commands.describe(game="게임", level=tools.LEVEL_HELP, count="곡 수 (1~4)")
+    @tree.command(name="random", description="레벨·상수·범위에서 랜덤으로 곡을 골라 줍니다 (접두어: !r)")
+    @app_commands.describe(game="게임", level=tools.LEVEL_HELP, count="곡 수 (1~4, 기본 3)")
     async def random_cmd(interaction: discord.Interaction, game: GameChoice, level: str,
-                         count: app_commands.Range[int, 1, 4] = 1) -> None:
+                         count: app_commands.Range[int, 1, 4] = 3) -> None:
         try:
             lo, hi = tools.parse_level(level, game)
         except ValueError as e:
@@ -232,14 +254,20 @@ def register(bot: ChumaiBot) -> None:
             await interaction.response.send_message("해당하는 보면이 없어요.", ephemeral=True)
             return
         await interaction.response.defer(thinking=True)
-        embed = discord.Embed(title="랜덤 선곡", description="\n".join(
-            f"{i + 1}. {_song_line(game, s, c)}" for i, (s, c) in enumerate(picks)), color=COLORS[game])
-        file = await _jacket_file(bot, picks[0][0])
-        if file:
-            embed.set_thumbnail(url=f"attachment://{file.filename}")
-            await interaction.followup.send(embed=embed, file=file)
-        else:
-            await interaction.followup.send(embed=embed)
+        try:
+            jackets = await bot.jackets.fetch(game, [s.jacket_key for s, _ in picks])
+        except Exception:
+            log.warning("jacket fetch failed", exc_info=True)
+            jackets = {}
+        embeds, files = [], []
+        for i, (song, chart) in enumerate(picks):
+            embed = chart_embed(game, song, chart)
+            if i in jackets:
+                name = f"jacket{i}.png"
+                files.append(discord.File(str(jackets[i]), filename=name))
+                embed.set_thumbnail(url=f"attachment://{name}")
+            embeds.append(embed)
+        await interaction.followup.send(embeds=embeds, files=files)
 
     # -------------------------------------------------------------- reach / what-if
 

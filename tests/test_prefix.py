@@ -72,3 +72,9 @@ def test_prefix_level_and_count(tmp_path, monkeypatch):
         "game": "chunithm", "level": "14.0-14.8"}
     r = _run(bot, "!const chuni 14+")
     assert "14.5~14.9" in r[-1][1]["embed"].title
+
+
+def test_r_alias(tmp_path, monkeypatch):
+    bot = _bot(tmp_path, monkeypatch)
+    r = _run(bot, "!r chuni 14+ 2")
+    assert len(r[-1][1]["embeds"]) == 2

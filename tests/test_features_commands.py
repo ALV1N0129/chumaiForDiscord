@@ -47,7 +47,7 @@ def _bot(tmp_path, monkeypatch):
     Image.new("RGB", (200, 200), (0, 128, 255)).save(jacket)
 
     async def fetch(game, keys):
-        return {0: jacket}
+        return {i: jacket for i in range(len(keys))}
 
     bot.jackets.fetch = fetch
     return bot
@@ -74,7 +74,10 @@ def test_info_const_reach_random(tmp_path, monkeypatch):
     assert "1,007,500" in log[-1][1]
 
     log = _call(bot, "random", game="chunithm", level="12-15", count=2)
-    assert log[-1][2]["embed"].description.count("\n") == 1
+    embeds = log[-1][2]["embeds"]
+    assert len(embeds) == 2 and len(log[-1][2]["files"]) == 2
+    assert {e.fields[1].name for e in embeds} <= {"MASTER", "EXPERT"}
+    assert embeds[0].thumbnail.url.startswith("attachment://jacket")
 
     log = _call(bot, "info", game="chunithm", song="zzzzzz no such song")
     assert "찾지 못했어요" in log[-1][1]

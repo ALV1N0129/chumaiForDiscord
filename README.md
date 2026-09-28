@@ -53,7 +53,7 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/info game: song:` | 곡 정보 (난이도별 레벨·상수, 아티스트, 장르, 버전, 자켓) |
 | `/jacket game: song:` | 자켓 이미지 |
 | `/const game: level:` | 레벨(14+)·상수(14.5)·범위(14.0-14.8)에 해당하는 보면 목록 |
-| `/random game: level: [count:]` | 레벨·상수·범위에서 랜덤 선곡 |
+| `/random game: level: [count:]` (`!r`) | 레벨·상수·범위에서 랜덤 선곡 (곡마다 카드로 표시, 기본 3곡) |
 | `/reach game: const: target:` | 목표 곡 레이팅에 필요한 점수 |
 | `/whatif game: song: difficulty: score:` | 그 점수를 받으면 레이팅이 어떻게 바뀌는지 |
 | `/recommend game:` | 레이팅 올리기 좋은 곡 추천 |

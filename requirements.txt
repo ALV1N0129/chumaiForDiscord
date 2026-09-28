@@ -1,0 +1,7 @@
+discord.py>=2.3
+aiohttp>=3.9
+Pillow>=10.1
+python-dotenv>=1.0
+beautifulsoup4>=4.12
+cryptography>=42
+certifi

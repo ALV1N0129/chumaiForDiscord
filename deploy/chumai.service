@@ -1,0 +1,16 @@
+# systemd 서비스: 서버가 켜지면 봇을 자동 실행하고, 꺼지면 다시 켭니다.
+# 설치: sudo cp deploy/chumai.service /etc/systemd/system/ && sudo systemctl enable --now chumai
+[Unit]
+Description=chumaiForDiscord bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/chumaiForDiscord
+ExecStart=/home/ubuntu/chumaiForDiscord/start.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

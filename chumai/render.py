@@ -860,6 +860,9 @@ def _up_pill(canvas: Image.Image, right: int, y: int, text: str, size: int) -> i
     return x
 
 
+CREDIT_LOGO = (190, 92)  # logo box in the play log header
+
+
 def render_credit(game: str, player: str, entries: list[Entry], badges: list, date: str,
                   icon: bytes | None = None, rating: str | None = None, rating_before: str | None = None) -> bytes:
     """One credit as a fixed-size 2x2 grid, so every credit shows at the same size in Discord.
@@ -886,10 +889,15 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
         out.paste(ic, (0, 0), _rounded_mask((64, 64), 12))
         canvas.alpha_composite(out, (x, 30))
         x += 80
-    draw.text((x, 30), f"{GAME_NAMES[game].upper()}  PLAY LOG  ·  {date}", font=num(17, "SemiBold"),
-              fill=theme["accent"])
+    # game logo in the middle of the header
+    logo = _logo_image(game).copy()
+    logo.thumbnail(CREDIT_LOGO, Image.LANCZOS)
+    logo_x = (width - logo.width) // 2
+    canvas.alpha_composite(logo, (logo_x, 14 + (CREDIT_LOGO[1] - logo.height) // 2))
+    draw = ImageDraw.Draw(canvas)
+    draw.text((x, 30), f"PLAY LOG  ·  {date}", font=num(17, "SemiBold"), fill=theme["accent"])
     name = unicodedata.normalize("NFKC", player)
-    draw.text((x, 52), _fit(draw, name, cjk(34), 420), font=cjk(34), fill=WHITE)
+    draw.text((x, 52), _fit(draw, name, cjk(34), logo_x - x - 16), font=cjk(34), fill=WHITE)
 
     right = width - MARGIN
     if rating:

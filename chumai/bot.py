@@ -185,6 +185,10 @@ def register_commands(bot: ChumaiBot) -> None:
         if token is None:
             await interaction.response.send_message("`/login` 으로 먼저 SEGA ID 로그인을 해 주세요.", ephemeral=True)
             return
+        missing = missing_permissions(interaction.channel)
+        if missing:
+            await interaction.response.send_message(permission_message(missing), ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             async with NetClient(game, token) as net:
@@ -229,6 +233,11 @@ def register_commands(bot: ChumaiBot) -> None:
             await check_playlog(bot, interaction.user.id, game, interaction.channel_id, before, update=False)
         except SegaError as e:
             await interaction.followup.send(str(e), ephemeral=True)
+            return
+        except discord.Forbidden:
+            await interaction.followup.send(
+                permission_message(missing_permissions(interaction.channel) or ["메시지 보내기", "파일 첨부"]),
+                ephemeral=True)
             return
         except Exception:
             log.exception("play log test failed")
@@ -488,9 +497,37 @@ async def check_playlog(
         bot.links.update_playlog_key(discord_id, game, max(r.key for r in new))
     channel = bot.get_channel(channel_id)
     if channel is not None:
-        for i, png in enumerate(images):
-            await channel.send(file=discord.File(io.BytesIO(png), filename=render.filename(f"playlog_{game}_{i}")))
+        try:
+            for i, png in enumerate(images):
+                await channel.send(file=discord.File(io.BytesIO(png), filename=render.filename(f"playlog_{game}_{i}")))
+        except discord.Forbidden:
+            if not update:
+                raise
+            log.warning("no permission to post play logs in channel %s (%s)", channel_id,
+                        ", ".join(missing_permissions(channel)) or "unknown")
     return True
+
+
+PERMISSION_NAMES = {"view_channel": "채널 보기", "send_messages": "메시지 보내기", "attach_files": "파일 첨부"}
+
+
+def missing_permissions(channel) -> list[str]:
+    """Permissions the bot lacks to post play log images in `channel` (empty if fine or unknown)."""
+    guild = getattr(channel, "guild", None)
+    if guild is None or not hasattr(channel, "permissions_for"):
+        return []
+    perms = channel.permissions_for(guild.me)
+    if isinstance(channel, discord.Thread):
+        needed = {"view_channel": perms.view_channel, "send_messages": perms.send_messages_in_threads,
+                  "attach_files": perms.attach_files}
+    else:
+        needed = {k: getattr(perms, k) for k in PERMISSION_NAMES}
+    return [PERMISSION_NAMES[k] for k, ok in needed.items() if not ok]
+
+
+def permission_message(missing: list[str]) -> str:
+    return (f"봇이 이 채널에 글을 올릴 권한이 없어요: **{', '.join(missing)}**\n"
+            "채널 설정 → 권한 에서 봇(또는 봇 역할)에 이 권한을 허용하거나, 봇이 글을 쓸 수 있는 채널에서 다시 해 주세요.")
 
 
 async def attach_jackets(bot: ChumaiBot, result: B50) -> None:

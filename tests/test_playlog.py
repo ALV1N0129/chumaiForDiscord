@@ -175,3 +175,20 @@ def test_best_score_store(tmp_path):
     store.set_sega_token(1, "tok")
     store.delete_sega_token(1)  # logging out also forgets the scores
     assert store.get_bests(1, "chunithm") == ({}, None)
+
+
+def test_missing_permissions():
+    import discord
+
+    class Channel:
+        def __init__(self, **perms):
+            self.guild = SimpleNamespace(me=object())
+            self._perms = discord.Permissions(**perms)
+
+        def permissions_for(self, member):
+            return self._perms
+
+    assert botmod.missing_permissions(Channel(view_channel=True, send_messages=True, attach_files=True)) == []
+    assert botmod.missing_permissions(Channel(view_channel=True, send_messages=True)) == ["파일 첨부"]
+    assert "파일 첨부" in botmod.permission_message(["파일 첨부"])
+    assert botmod.missing_permissions(SimpleNamespace()) == []  # DMs etc.: nothing to check

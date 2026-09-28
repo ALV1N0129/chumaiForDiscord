@@ -104,7 +104,6 @@ class ChumaiBot(discord.Client):
         self.refresh_songdb.cancel()
         self.check_update.cancel()
         self.poll_playlogs.cancel()
-        self.links.close()
         await super().close()
 
 
@@ -414,6 +413,11 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     config = Config.from_env()
     bot = ChumaiBot(config)
-    bot.run(config.discord_token, log_handler=None)
+    try:
+        bot.run(config.discord_token, log_handler=None)
+    finally:
+        # closed only after everything else has stopped, so commands still running during a
+        # restart can finish their database writes
+        bot.links.close()
     if bot.restart_requested:
         raise SystemExit(updater.RESTART_EXIT_CODE)

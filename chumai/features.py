@@ -171,7 +171,7 @@ def _chart_hint(view_path: Path, notes_path: Path, rng: random.Random) -> bytes:
 
 
 GUESS_SECONDS = 60
-CONST_LIMIT = 90  # charts shown in one /const image
+CONST_LIMIT = 45 if render.LOW_MEMORY else 90  # charts shown in one /const image
 
 
 def register(bot: ChumaiBot) -> None:

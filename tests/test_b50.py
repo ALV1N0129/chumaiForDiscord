@@ -41,3 +41,20 @@ def test_render_smoke():
     assert render.encode(Image.new("RGB", (4, 4)), "png")[:8] == b"\x89PNG\r\n\x1a\n"
     assert render.encode(Image.new("RGB", (4, 4)), "jpeg")[:2] == b"\xff\xd8"
     assert render.filename("b50_maimai") == "b50_maimai.webp"
+
+
+def test_low_memory_scale():
+    import io
+
+    from PIL import Image
+
+    from chumai import render
+
+    b = select_b50("chunithm", "tester", _entries(40, 25))
+    small = Image.open(io.BytesIO(render_b50(b, scale=0.7)))
+    full = Image.open(io.BytesIO(render_b50(b)))
+    assert small.size == (round(full.width * 0.7), round(full.height * 0.7))
+    rows = [{"title": "A", "difficulty": "MASTER", "level": "14", "const": 14.0 + i / 10, "jacket": None} for i in range(7)]
+    page = Image.open(io.BytesIO(render.render_chart_list("chunithm", "CONST", "14", rows, "7", "more", 3, True,
+                                                          scale=0.7)))
+    assert page.width == round(1244 * 0.7)

@@ -119,6 +119,12 @@ PLATES = {
 
 GAME_NAMES = {"maimai": "maimai DX", "chunithm": "CHUNITHM"}
 
+# LOW_MEMORY=1 (small hosts, e.g. 128MB): the B50 is drawn at 70% size, which needs about half
+# the memory. Everything else looks the same.
+LOW_MEMORY = os.environ.get("LOW_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}
+B50_SCALE = 0.7 if LOW_MEMORY else 1.0
+LIST_SCALE = 0.7 if LOW_MEMORY else 1.0  # /const and /recommend
+
 # Output format. WebP is about a third of the PNG size, which matters on slow connections.
 IMAGE_FORMAT = os.environ.get("IMAGE_FORMAT", "webp").lower()
 # WebP method 2: about the same size as 4, half the time and a quarter less memory
@@ -138,6 +144,23 @@ def encode(image: Image.Image, fmt: str | None = None) -> bytes:
     rgb.save(buf, format=name, **opts)
     rgb.close()
     return buf.getvalue()
+
+
+def tune_malloc() -> None:
+    """glibc: return big image buffers to the OS as soon as they are freed.
+
+    By default glibc raises its mmap threshold after a big buffer is freed, so the next page-sized
+    buffers come from the heap and the memory is never given back; fixing the threshold (and
+    capping per-thread arenas, renders run in worker threads) keeps the resident size near idle.
+    """
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL("libc.so.6")
+        libc.mallopt(-3, 256 * 1024)  # M_MMAP_THRESHOLD
+        libc.mallopt(-8, 2)  # M_ARENA_MAX
+    except Exception:
+        pass  # not glibc (Windows / macOS)
 
 
 def release_memory() -> None:
@@ -194,7 +217,7 @@ def _cjk_font_file() -> str | None:
                             str(FONT_DIR / "NotoSansCJKkr-Bold.otf"), *CJK_BOLD])
 
 
-@lru_cache(maxsize=6)  # each size of the CJK font holds ~2MB, so keep only a few
+@lru_cache(maxsize=3 if LOW_MEMORY else 6)  # each size of the CJK font holds ~2MB, so keep only a few
 def cjk(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     """Song titles and player names (Japanese/full-width text)."""
     path = _cjk_font_file()
@@ -781,34 +804,72 @@ def _background(b50: B50, size: tuple[int, int], theme: dict, st: dict) -> Image
     return base
 
 
-def render_b50(b50: B50, now: datetime | None = None, style: str | None = None) -> bytes:
+def render_b50(b50: B50, now: datetime | None = None, style: str | None = None, scale: float | None = None) -> bytes:
+    """The B50 page. scale < 1 (low-memory mode) makes a smaller image: the page is drawn a strip
+    at a time at full size and each strip is shrunk into the small page, so only the small page
+    and one strip are in memory, and the layout code stays the same."""
     theme = THEMES[b50.game]
     st = STYLES[style or os.environ.get("B50_STYLE", DEFAULT_STYLE)]
+    scale = B50_SCALE if scale is None else scale
     old_slots, new_slots = SLOTS[b50.game]
     old_rows, new_rows = -(-old_slots // COLS), -(-new_slots // COLS)
     width = MARGIN * 2 + COLS * CARD_W + (COLS - 1) * GAP_X
     height = (HEADER_H + 2 * SECTION_H + (old_rows + new_rows) * (CARD_H + GAP_Y) + FOOTER_H)
 
-    canvas = _rgb(_background(b50, (width, height), theme, st))
-    _draw_header(canvas, b50, width, theme, st)
-
+    # (top, bottom, draw(canvas, dy)): everything drawn inside [top, bottom), shifted by dy
+    strips = [(0, HEADER_H, lambda c, dy: _draw_header(c, b50, width, theme, st))]
     y = HEADER_H
     for title, sub, entries, rows in (
         (f"BEST {old_slots}", "OLD VERSIONS", b50.old, old_rows),
         (f"NEW {new_slots}", "CURRENT VERSION", b50.new, new_rows),
     ):
-        y = _draw_section(canvas, y, title, sub, width, theme, st)
-        for i, e in enumerate(entries):
-            r, c = divmod(i, COLS)
-            _draw_card(canvas, MARGIN + c * (CARD_W + GAP_X), y + r * (CARD_H + GAP_Y), i + 1, e, theme, st)
+        strips.append((y, y + SECTION_H,
+                       lambda c, dy, y=y, t=title, s=sub: _draw_section(c, y + dy, t, s, width, theme, st)))
+        y += SECTION_H
+        for r in range(rows):
+            ry = y + r * (CARD_H + GAP_Y)
+
+            def row(c, dy, ry=ry, first=r * COLS, entries=entries):
+                for i, e in enumerate(entries[first:first + COLS], start=first):
+                    _draw_card(c, MARGIN + (i % COLS) * (CARD_W + GAP_X), ry + dy, i + 1, e, theme, st)
+
+            strips.append((ry, ry + CARD_H + GAP_Y, row))
         y += rows * (CARD_H + GAP_Y)
 
-    draw = ImageDraw.Draw(canvas)
-    stamp = (now or datetime.now()).strftime("%Y-%m-%d %H:%M")
-    source = f"{b50.source}  ·  " if b50.source else ""
-    draw.text((width - MARGIN, height - 28), f"{source}{stamp}", font=num(17, "Medium"), fill=st["faint"], anchor="rm")
+    def footer(c, dy):
+        stamp = (now or datetime.now()).strftime("%Y-%m-%d %H:%M")
+        source = f"{b50.source}  ·  " if b50.source else ""
+        ImageDraw.Draw(c).text((width - MARGIN, height - 28 + dy), f"{source}{stamp}", font=num(17, "Medium"),
+                               fill=st["faint"], anchor="rm")
 
-    return encode(canvas)
+    strips.append((height - FOOTER_H, height, footer))
+
+    return _paint(strips, (width, height), lambda size: _rgb(_background(b50, size, theme, st)), scale)
+
+
+def _paint(strips, size: tuple[int, int], background, scale: float) -> bytes:
+    """Draw a page from strips (top, bottom, draw(canvas, dy)) and encode it.
+
+    At scale < 1 each strip is drawn at full size over the enlarged background and shrunk into
+    a small page, so memory holds the small page and one strip instead of the full page.
+    """
+    width, height = size
+    if scale >= 1:
+        canvas = background(size)
+        for _, _, draw in strips:
+            draw(canvas, 0)
+        return encode(canvas)
+    sw, sh = round(width * scale), round(height * scale)
+    page = background((sw, sh))
+    for top, bottom, draw in strips:
+        sy0, sy1 = round(top * scale), round(bottom * scale)
+        if sy1 <= sy0:
+            continue
+        strip = page.crop((0, sy0, sw, sy1)).resize((width, bottom - top), Image.BICUBIC)
+        draw(strip, -top)
+        page.paste(strip.resize((sw, sy1 - sy0), Image.LANCZOS), (0, sy0))
+        strip.close()
+    return encode(page)
 
 
 # ------------------------------------------------------------ play log card
@@ -1297,7 +1358,8 @@ def render_song(game: str, song: dict, charts: list[dict], jacket) -> bytes:
 
 
 def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub: str | None = None,
-                      footer: str | None = None, columns: int = 3, group: bool = False) -> bytes:
+                      footer: str | None = None, columns: int = 3, group: bool = False,
+                      scale: float | None = None) -> bytes:
     """Charts as tiles: jacket, title, difficulty/level and a value on the right.
 
     rows: title, difficulty, level, const, jacket, right (big text), and optionally right_sub (small text
@@ -1335,15 +1397,13 @@ def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub:
         y += tile_h + gap
     height = y + (44 if footer else 20)
 
-    canvas = _page(game, (width, height))
-    _page_header(canvas, game, kicker, title, sub)
-    for kind, x, y, payload in items:
+    def draw_item(canvas, kind, x, y, payload):
         draw = ImageDraw.Draw(canvas)
         if kind == "head":
             draw.text((x + 2, y + 18), str(payload), font=num(28), fill=theme["accent"], anchor="lm")
             lw = draw.textlength(str(payload), font=num(28)) + 14
             draw.line((x + lw, y + 19, width - MARGIN, y + 19), fill=(255, 255, 255, 50), width=1)
-            continue
+            return
         row = payload
         _panel(canvas, (x, y, x + tile_w, y + tile_h), theme["card"], radius=14)
         _framed_jacket(canvas, x + 12, y + 10, js, row.get("jacket"), row["difficulty"])
@@ -1390,9 +1450,25 @@ def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub:
                 note_w -= gw + 10
             draw.text((x + 22, ny + (note_h - 10) // 2), _fit(draw, row["note"], cjk(14), note_w), font=cjk(14),
                       fill=MUTED, anchor="lm")
+
+    # one strip per row of tiles / heading, so LOW_MEMORY can draw a smaller page strip by strip
+    strips = [(0, 116, lambda c, dy: _page_header(c, game, kicker, title, sub))]
+    rows_at: dict[int, list] = {}
+    for item in items:
+        rows_at.setdefault(item[2], []).append(item)
+    for y, group_items in rows_at.items():
+        kind = group_items[0][0]
+        bottom = y + (40 if kind == "head" else tile_h + gap)
+
+        def strip(c, dy, group_items=group_items):
+            for kind, x, iy, payload in group_items:
+                draw_item(c, kind, x, iy + dy, payload)
+
+        strips.append((y, bottom, strip))
     if footer:
-        ImageDraw.Draw(canvas).text((width - MARGIN, height - 26), footer, font=cjk(15), fill=MUTED, anchor="rm")
-    return encode(canvas)
+        strips.append((height - 44, height, lambda c, dy: ImageDraw.Draw(c).text(
+            (width - MARGIN, height - 26 + dy), footer, font=cjk(15), fill=MUTED, anchor="rm")))
+    return _paint(strips, (width, height), lambda size: _page(game, size), LIST_SCALE if scale is None else scale)
 
 
 # ------------------------------------------------------------- calculations

@@ -564,6 +564,7 @@ async def send_b50(interaction: discord.Interaction, result: B50 | str, game: st
 
 
 def main() -> None:
+    render.tune_malloc()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     config = Config.from_env()
     bot = ChumaiBot(config)

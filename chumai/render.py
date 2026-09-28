@@ -1106,7 +1106,7 @@ def render_random(game: str, picks: list[dict], level_label: str) -> bytes:
     _page_header(canvas, game, "RANDOM", level_label)
 
     # fewer cards spread out a little instead of huddling in the middle
-    spread = {4: gap, 3: 44, 2: 60}.get(len(picks), gap)
+    spread = {4: gap, 3: 64, 2: 90}.get(len(picks), gap)
     x0 = (width - (len(picks) * PICK_W + (len(picks) - 1) * spread)) // 2
     for i, p in enumerate(picks):
         x, y = x0 + i * (PICK_W + spread), header

@@ -1105,9 +1105,11 @@ def render_random(game: str, picks: list[dict], level_label: str) -> bytes:
     canvas = _page(game, (width, height))
     _page_header(canvas, game, "RANDOM", level_label)
 
-    x0 = (width - (len(picks) * PICK_W + (len(picks) - 1) * gap)) // 2
+    # fewer cards spread out a little instead of huddling in the middle
+    spread = {4: gap, 3: 44, 2: 60}.get(len(picks), gap)
+    x0 = (width - (len(picks) * PICK_W + (len(picks) - 1) * spread)) // 2
     for i, p in enumerate(picks):
-        x, y = x0 + i * (PICK_W + gap), header
+        x, y = x0 + i * (PICK_W + spread), header
         _panel(canvas, (x, y, x + PICK_W, y + card_h), theme["card"])
         jx, jy = x + (PICK_W - PICK_JACKET) // 2, y + 16
         _framed_jacket(canvas, jx, jy, PICK_JACKET, p.get("jacket"), p["difficulty"])
@@ -1117,8 +1119,13 @@ def render_random(game: str, picks: list[dict], level_label: str) -> bytes:
 
         draw = ImageDraw.Draw(canvas)
         ty = by + 54
-        for line in _wrap(draw, p["title"], cjk(20), PICK_W - 32, 2):
-            draw.text((x + 16, ty), line, font=cjk(20), fill=WHITE)
+        tf = cjk(20)
+        lines = _wrap(draw, p["title"], tf, PICK_W - 32, 2)
+        if len(lines) == 2 and len(lines[1].strip()) <= 2:  # don't leave a lone "！" on the second line
+            tf = cjk(18)
+            lines = _wrap(draw, p["title"], tf, PICK_W - 32, 2)
+        for line in lines:
+            draw.text((x + 16, ty), line, font=tf, fill=WHITE)
             ty += 27
         draw.text((x + 16, ty + 2), _fit(draw, p.get("artist") or "", cjk(15), PICK_W - 32), font=cjk(15),
                   fill=MUTED)

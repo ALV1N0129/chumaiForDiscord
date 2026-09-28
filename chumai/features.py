@@ -398,7 +398,8 @@ def register(bot: ChumaiBot) -> None:
         if game == "chunithm":
             sub = f"현재 {tools.fmt_rating(game, b50.total)} · {tools.chunithm_advice(float(b50.total))}"
         else:
-            sub = f"현재 {tools.fmt_rating(game, b50.total)} · 평소 점수(B50 중앙값)로 쳤을 때"
+            reach = tools.maimai_reach(b50.old + b50.new)
+            sub = f"현재 {tools.fmt_rating(game, b50.total)} · 지금까지 {tools.maimai_reach_text(reach)}"
         png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows, sub, None, 2)
         await interaction.followup.send(file=_image(png, f"recommend_{game}"))
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import random
-import statistics
 from dataclasses import dataclass
 from fractions import Fraction
 
@@ -261,26 +260,52 @@ def chunithm_advice(rating: float) -> str:
     return next(text for floor, text in CHUNITHM_ADVICE if rating >= floor)
 
 
+# maimai: the rating formula jumps at these achievements (rank borders), so they are the targets
+MAIMAI_TARGETS = [100.5, 100.0, 99.5, 99.0, 98.0, 97.0]
+
+
+def maimai_reach(entries: list[Entry]) -> dict[float, float]:
+    """For each rank border, about the hardest constant you have reached it on (ignoring the
+    top 10% as flukes). Easier ranks are reached at least as far as harder ones."""
+    reach: dict[float, float] = {}
+    best = 0.0
+    for t in MAIMAI_TARGETS:
+        consts = sorted((e.level_const for e in entries if e.score >= t), reverse=True)
+        if consts:
+            best = max(best, consts[len(consts) // 10])
+        if best:
+            reach[t] = best
+    return reach
+
+
+def maimai_target(reach: dict[float, float], const: float) -> float | None:
+    """The hardest rank border you can expect on a chart of `const` (a little above what you've done)."""
+    return next((t for t in MAIMAI_TARGETS if t in reach and const <= reach[t] + 0.1 + 1e-9), None)
+
+
+def maimai_reach_text(reach: dict[float, float]) -> str:
+    names = {100.5: "SSS+", 100.0: "SSS", 99.5: "SS+", 99.0: "SS"}
+    return " · ".join(f"{names[t]} ~{reach[t]:.1f}" for t in names if t in reach)
+
+
 def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
               rng: random.Random | None = None) -> list[Recommendation]:
     """Charts outside the B50 where a realistic score would push out the weakest entry.
 
     CHUNITHM: the target score comes from chunithm_target (how far the chart is below your
-    rating). maimai: your median B50 score, on charts around the usual difficulty of the B50.
+    rating). maimai: the hardest rank border you have reached on charts of about that constant.
     """
     game = b50.game
     entries = b50.old + b50.new
     if not entries:
         return []
-    usual = statistics.median(e.score for e in entries)
     current = float(b50.total)
     have = {(normalize_title(e.title), e.difficulty) for e in entries}
     floors = {
         False: min((e.rating for e in b50.old), default=Fraction(0)),
         True: min((e.rating for e in b50.new), default=Fraction(0)),
     }
-    consts = sorted(e.level_const for e in entries)
-    ceiling = consts[(len(consts) * 3) // 4] + 0.1 + 1e-9
+    reach = maimai_reach(entries) if game == "maimai" else {}
     candidates = []
     for song in db.catalog.get(game, []):
         for chart in song.charts:
@@ -289,7 +314,7 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
             if game == "chunithm":
                 target = chunithm_target(current, chart.level_const)
             else:
-                target = usual if chart.level_const <= ceiling else None
+                target = maimai_target(reach, chart.level_const)
             if target is None:
                 continue
             new = is_new_version(chart, new_versions)

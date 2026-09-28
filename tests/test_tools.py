@@ -172,3 +172,17 @@ def test_font_download(tmp_path):
     first, again, missing = asyncio.run(main())
     assert first == again and first.read_bytes().startswith(b"OTTO")
     assert missing is None and not list((tmp_path / "other").iterdir())
+
+
+def test_maimai_targets_are_rank_borders():
+    es = [make_entry("maimai", f"A{i}", "Master", "12", 12.0 + i / 10, 100.0, None, False) for i in range(5)]  # SSS ~12.4
+    es += [make_entry("maimai", f"B{i}", "Master", "13", 12.5 + i / 10, 99.6, None, False) for i in range(4)]  # SS+ ~12.8
+    es += [make_entry("maimai", c, "Master", "13", k, 97.5, None, False) for c, k in (("C", 13.4), ("D", 13.5))]
+    reach = tools.maimai_reach(es)
+    assert reach[100.0] == 12.4 and reach[99.5] == 12.8 and reach[97.0] == 13.4  # the single 13.5 is a fluke
+    assert 100.5 not in reach
+    assert tools.maimai_target(reach, 12.5) == 100.0  # a little above what you've done
+    assert tools.maimai_target(reach, 12.9) == 99.5
+    assert tools.maimai_target(reach, 13.2) == 97.0
+    assert tools.maimai_target(reach, 13.7) is None
+    assert tools.maimai_reach_text(reach) == "SSS ~12.4 · SS+ ~12.8 · SS ~12.8"

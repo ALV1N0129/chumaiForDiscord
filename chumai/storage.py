@@ -57,6 +57,10 @@ class LinkStore:
         try:
             return self._fernet.decrypt(row[0].encode()).decode()
         except InvalidToken:
+            if not row[0].startswith("gAAAA"):
+                # saved before a key was set: encrypt it now
+                self.set_sega_token(discord_id, row[0])
+                return row[0]
             log.warning("could not decrypt SEGA token for %s (key changed?)", discord_id)
             return None
 

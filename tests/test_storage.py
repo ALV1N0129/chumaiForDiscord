@@ -14,3 +14,11 @@ def test_sega_token_encrypted(tmp_path):
     assert store.set_public(1, False) and not store.is_public(1)
     assert store.delete_sega_token(1) and store.get_sega_token(1) is None
 
+
+
+def test_plaintext_token_is_migrated_when_key_is_added(tmp_path):
+    LinkStore(tmp_path / "db.sqlite").set_sega_token(1, "old-plain")
+    store = LinkStore(tmp_path / "db.sqlite", Fernet.generate_key().decode())
+    assert store.get_sega_token(1) == "old-plain"
+    raw = store._db.execute("SELECT token FROM sega_tokens").fetchone()[0]
+    assert raw.startswith("gAAAA") and store.get_sega_token(1) == "old-plain"

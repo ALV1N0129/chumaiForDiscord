@@ -153,41 +153,73 @@ class SongDB:
         return found[0]
 
     async def load_or_update(self, cache_dir: str | Path, base_url: str = SEEDS_URL) -> None:
+        """Download the seeds (daily), keep only the fields we use in one small file, and load it.
+
+        The full seeds are about 9MB of JSON; parsing them all at once leaves tens of MB of
+        fragmented memory behind, so they are slimmed one file at a time and only the slim
+        file (under 3MB) is read at startup.
+        """
         cache = Path(cache_dir)
         cache.mkdir(parents=True, exist_ok=True)
-        names = ["songs-chunithm", "charts-chunithm", "songs-maimaidx", "charts-maimaidx"]
-        stale = any(
-            not (cache / f"{n}.json").exists()
-            or time.time() - (cache / f"{n}.json").stat().st_mtime > REFRESH_SECONDS
-            for n in names
-        )
+        slim_path = cache / SLIM_NAME
+        stale = not slim_path.exists() or time.time() - slim_path.stat().st_mtime > REFRESH_SECONDS
         if stale:
             try:
+                slim = {}
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as s:
-                    for n in names:
+                    for n in SEED_NAMES:
                         async with s.get(f"{base_url}/{n}.json") as resp:
                             resp.raise_for_status()
-                            data = await resp.read()
-                        json.loads(data)  # validate before overwriting the cache
-                        (cache / f"{n}.json").write_bytes(data)
+                            slim[n] = slim_seed(n, json.loads(await resp.read()))
+                _write_slim(slim_path, slim)
                 log.info("song database updated")
             except Exception:
                 log.exception("failed to download song database; using cached copy if any")
-
-        seeds = {}
-        for n in names:
-            path = cache / f"{n}.json"
-            if not path.exists():
-                log.warning("song database is unavailable; chart constants will be estimated")
-                return
-            seeds[n] = json.loads(path.read_text(encoding="utf-8"))
+                if not slim_path.exists() and all((cache / f"{n}.json").exists() for n in SEED_NAMES):
+                    # full seeds cached by an older version
+                    _write_slim(slim_path, {n: slim_seed(n, json.loads((cache / f"{n}.json").read_text("utf-8")))
+                                            for n in SEED_NAMES})
+        if not slim_path.exists():
+            log.warning("song database is unavailable; chart constants will be estimated")
+            return
+        seeds = json.loads(slim_path.read_text(encoding="utf-8"))
         self.chunithm.clear()
         self.chunithm_titles.clear()
         self.catalog = {"chunithm": [], "maimai": []}
         self.maimai.clear()
         self.load(seeds)
+        del seeds
         log.info("song database loaded: %d CHUNITHM charts, %d maimai charts",
                  len(self.chunithm), sum(len(v) for v in self.maimai.values()))
+
+
+SEED_NAMES = ["songs-chunithm", "charts-chunithm", "songs-maimaidx", "charts-maimaidx"]
+SLIM_NAME = "songdb.slim.json"
+
+
+def slim_seed(name: str, rows: list[dict]) -> list[dict]:
+    """Only the fields SongDB.load reads."""
+    out = []
+    for r in rows:
+        data = r.get("data", {})
+        if name.startswith("songs"):
+            item = {"id": r["id"], "title": r["title"], "artist": r.get("artist", ""),
+                    "data": {"genre": data.get("genre", "")}}
+            for k in ("altTitles", "searchTerms"):
+                if r.get(k):
+                    item[k] = r[k]
+        else:
+            item = {"songID": r["songID"], "difficulty": r["difficulty"], "level": r["level"],
+                    "levelNum": r["levelNum"],
+                    "data": {"displayVersion": data.get("displayVersion", ""), "inGameID": data.get("inGameID")}}
+        out.append(item)
+    return out
+
+
+def _write_slim(path: Path, slim: dict) -> None:
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(slim, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    tmp.replace(path)
 
 
 def search(db: SongDB, game: str, query: str, limit: int = 10) -> list[CatalogSong]:

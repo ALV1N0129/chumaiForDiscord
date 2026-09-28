@@ -121,17 +121,36 @@ GAME_NAMES = {"maimai": "maimai DX", "chunithm": "CHUNITHM"}
 
 # Output format. WebP is about a third of the PNG size, which matters on slow connections.
 IMAGE_FORMAT = os.environ.get("IMAGE_FORMAT", "webp").lower()
-_FORMATS = {"webp": ("WEBP", "webp", {"quality": 85, "method": 4}),
+# WebP method 2: about the same size as 4, half the time and a quarter less memory
+_FORMATS = {"webp": ("WEBP", "webp", {"quality": 85, "method": 2}),
             "jpeg": ("JPEG", "jpg", {"quality": 88, "subsampling": 0, "optimize": True}),
             "png": ("PNG", "png", {"optimize": True})}
 _FORMATS["jpg"] = _FORMATS["jpeg"]
 
 
 def encode(image: Image.Image, fmt: str | None = None) -> bytes:
+    """Encode for Discord. The image is closed afterwards (its memory is freed right away)."""
     name, _, opts = _FORMATS.get(fmt or IMAGE_FORMAT, _FORMATS["webp"])
+    rgb = image if image.mode == "RGB" else image.convert("RGB")
+    if rgb is not image:
+        image.close()  # free the RGBA canvas before the encoder allocates its buffers
     buf = io.BytesIO()
-    image.convert("RGB").save(buf, format=name, **opts)
+    rgb.save(buf, format=name, **opts)
+    rgb.close()
     return buf.getvalue()
+
+
+def release_memory() -> None:
+    """Hand freed memory back to the OS (glibc keeps it otherwise, so the peak would stick)."""
+    import gc
+
+    gc.collect()
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass  # not glibc (Windows / macOS)
 
 
 def filename(stem: str) -> str:
@@ -199,12 +218,13 @@ def _fit(draw: ImageDraw.ImageDraw, text: str, f, max_w: int) -> str:
     return text + "…"
 
 
-def _vertical_gradient(size: tuple[int, int], top, bottom) -> Image.Image:
+def _vertical_gradient(size: tuple[int, int], top, bottom, mode: str = "RGB") -> Image.Image:
     w, h = size
-    col = Image.new("RGB", (1, h))
+    col = Image.new(mode, (1, h))
+    extra = (255,) if mode == "RGBA" else ()
     for y in range(h):
         t = y / max(1, h - 1)
-        col.putpixel((0, y), tuple(round(top[i] + (bottom[i] - top[i]) * t) for i in range(3)))
+        col.putpixel((0, y), tuple(round(top[i] + (bottom[i] - top[i]) * t) for i in range(3)) + extra)
     return col.resize((w, h))
 
 
@@ -234,7 +254,7 @@ def _diff(e: Entry) -> tuple[str, tuple[int, int, int], bool]:
     return label, color, is_dx
 
 
-@lru_cache(maxsize=256)
+@lru_cache(maxsize=64)
 def _load_jacket(path: str) -> Image.Image | None:
     try:
         with Image.open(path) as im:
@@ -243,7 +263,7 @@ def _load_jacket(path: str) -> Image.Image | None:
         return None
 
 
-@lru_cache(maxsize=256)
+@lru_cache(maxsize=16)
 def _card_background(path: str | None, mode: str, fallback: tuple[int, int, int]) -> Image.Image:
     """RGBA card background. The jacket shows through on the right, fading out to the left."""
     if mode == "light":
@@ -658,27 +678,32 @@ def _background(b50: B50, size: tuple[int, int], theme: dict, st: dict) -> Image
                     src = im.convert("RGB")
                 lum = sum(ImageStat.Stat(src.convert("L")).mean) / 255
                 dark = min(0.72, 0.45 + max(0.0, lum - 0.35) * 0.8)
-                base = _vertical_gradient(size, theme["top"], theme["bottom"]).convert("RGBA")
+                # The art is blurred and darkened, so do that at half size (still larger than the
+                # source image, so nothing is lost) and enlarge once: a third of the memory.
+                k = 0.5 if w * 0.5 >= src.width else 1.0
                 if src.width / src.height > w / h:
                     # wide key art: fit to the width at the top and fade it out downward
                     ah = round(src.height * w / src.width)
-                    art = src.resize((w, ah), Image.LANCZOS)
+                    sw, sh = round(w * k), round(ah * k)
+                    art = src.resize((sw, sh), Image.LANCZOS)
                     blur = 2 if w / src.width < 2.5 else w / src.width
-                    art = art.filter(ImageFilter.GaussianBlur(blur))
-                    art = Image.blend(art, Image.new("RGB", art.size, theme["bottom"]), dark).convert("RGBA")
-                    fade = Image.linear_gradient("L").resize((w, ah)).point(lambda v: 255 - max(0, v - 128) * 2)
-                    art.putalpha(fade)
-                    base.alpha_composite(art)
+                    art = art.filter(ImageFilter.GaussianBlur(blur * k))
+                    art = Image.blend(art, Image.new("RGB", art.size, theme["bottom"]), dark)
+                    fade = Image.linear_gradient("L").resize((sw, sh)).point(lambda v: 255 - max(0, v - 128) * 2)
+                    base = _vertical_gradient(size, theme["top"], theme["bottom"], "RGBA")
+                    # paste through the fade mask: blends in place, no full-size RGBA copy
+                    base.paste(art.resize((w, ah), Image.BILINEAR), (0, 0), fade.resize((w, ah), Image.BILINEAR))
                     return base
                 # small images get blurred more (hides upscaling artifacts), bright ones darkened more
                 scale = max(w / src.width, h / src.height)
-                art = ImageOps.fit(src, size, Image.LANCZOS, centering=(0.5, 0.0))
-                art = art.filter(ImageFilter.GaussianBlur(3 if scale < 2.5 else scale * 2))
-                art = Image.blend(art, Image.new("RGB", size, theme["bottom"]), dark).convert("RGBA")
-                shade = Image.new("RGBA", size, (*theme["bottom"], 0))
-                shade.putalpha(Image.linear_gradient("L").resize(size).point(lambda v: v * 120 // 255))
+                small = (round(w * k), round(h * k))
+                art = ImageOps.fit(src, small, Image.LANCZOS, centering=(0.5, 0.0))
+                art = art.filter(ImageFilter.GaussianBlur((3 if scale < 2.5 else scale * 2) * k))
+                art = Image.blend(art, Image.new("RGB", small, theme["bottom"]), dark).convert("RGBA")
+                shade = Image.new("RGBA", small, (*theme["bottom"], 0))
+                shade.putalpha(Image.linear_gradient("L").resize(small).point(lambda v: v * 120 // 255))
                 art.alpha_composite(shade)
-                return art
+                return art.resize(size, Image.BILINEAR)
 
     if st["bg"] == "mosaic":
         paths = [e.jacket_path for e in b50.old + b50.new if e.jacket_path]
@@ -1397,3 +1422,33 @@ def render_scores(game: str, kicker: str, headline: str, detail: str, rows: list
     if note:
         draw.text((MARGIN + 4, height - 50), note, font=cjk(15), fill=FAINT)
     return encode(canvas)
+
+
+# ------------------------------------------------------------------- memory
+
+_render_lock = __import__("threading").Lock()
+
+
+def _one_at_a_time(fn):
+    """Draw one image at a time (renders run in worker threads), then give the memory back,
+    so a few people asking at once don't stack their peaks."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _render_lock:
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                release_memory()
+
+    return wrapper
+
+
+render_b50 = _one_at_a_time(render_b50)
+render_credit = _one_at_a_time(render_credit)
+render_profile = _one_at_a_time(render_profile)
+render_random = _one_at_a_time(render_random)
+render_song = _one_at_a_time(render_song)
+render_chart_list = _one_at_a_time(render_chart_list)
+render_scores = _one_at_a_time(render_scores)

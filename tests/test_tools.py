@@ -186,3 +186,23 @@ def test_maimai_targets_are_rank_borders():
     assert tools.maimai_target(reach, 13.2) == 97.0
     assert tools.maimai_target(reach, 13.7) is None
     assert tools.maimai_reach_text(reach) == "SSS ~12.4 · SS+ ~12.8 · SS ~12.8"
+
+
+def test_slim_seeds_load_the_same(tmp_path):
+    import asyncio
+
+    from chumai.songdb import SEED_NAMES, SLIM_NAME, SongDB, slim_seed
+
+    full, slim = SongDB(), SongDB()
+    full.load(SEEDS)
+    slim.load({n: slim_seed(n, SEEDS[n]) for n in SEED_NAMES})
+    assert full.chunithm == slim.chunithm and full.maimai == slim.maimai
+    assert full.catalog == slim.catalog
+
+    # an older version cached the full seeds: they are slimmed without downloading
+    import json
+    for n in SEED_NAMES:
+        (tmp_path / f"{n}.json").write_text(json.dumps(SEEDS[n]), encoding="utf-8")
+    db = SongDB()
+    asyncio.run(db.load_or_update(tmp_path, base_url="http://127.0.0.1:1/unreachable"))
+    assert (tmp_path / SLIM_NAME).exists() and db.catalog == full.catalog

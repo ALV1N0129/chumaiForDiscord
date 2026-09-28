@@ -27,6 +27,12 @@ def _gateway_app(site_url: str, state: dict) -> web.Application:
             resp = web.HTTPFound(f"{site_url}/mobile/?ssid=abc")
             resp.set_cookie("clal", "valid")
             raise resp
+        if form.get("sid") == "jarless" and form.get("password") == "pw":
+            # a cookie the jar refuses to store (domain of another site)
+            raise web.HTTPFound(f"{site_url}/mobile/?ssid=abc",
+                                headers={"Set-Cookie": "clal=fromheader; Domain=example.com; Path=/"})
+        if form.get("sid") in ("late", "nocookie") and form.get("password") == "pw":
+            raise web.HTTPFound(f"{site_url}/mobile/?ssid={form.get('sid')}")
         raise web.HTTPFound("/common_auth/login?site_id=chuniex")
 
     async def otpauth(request):
@@ -46,6 +52,12 @@ def _gateway_app(site_url: str, state: dict) -> web.Application:
 
 def _site_app(state: dict) -> web.Application:
     async def top(request):
+        if request.query.get("ssid") == "late":  # the cookie only comes with the redirect target
+            resp = web.Response(text="top page")
+            resp.set_cookie("clal", "late")
+            return resp
+        if request.query.get("ssid") == "nocookie":
+            return web.Response(text="top page")
         if request.query.get("ssid"):
             state["logins"] += 1
             resp = web.HTTPFound("/mobile/home/")
@@ -163,3 +175,11 @@ def test_post_sends_session_token(fake_sega):
             return await net.post("/mobile/record/musicGenre/sendMaster", {"genre": "99"})
 
     assert fake_sega(go) == b"master list genre=99"
+
+
+def test_login_token_fallbacks(fake_sega, caplog):
+    assert fake_sega(lambda s: segaid.login("jarless", "pw")) == "fromheader"
+    assert fake_sega(lambda s: segaid.login("late", "pw")) == "late"
+    with pytest.raises(segaid.LoginFailed, match="토큰"):
+        fake_sega(lambda s: segaid.login("nocookie", "pw"))
+    assert "login ok but no clal" in caplog.text and "pw" not in caplog.text

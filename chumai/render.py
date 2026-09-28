@@ -270,7 +270,9 @@ def _card_background(path: str | None, mode: str, fallback: tuple[int, int, int]
 # ------------------------------------------------------------------- card
 
 
-def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: dict, st: dict) -> None:
+def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: dict, st: dict,
+               title_reserve: int = 0) -> None:
+    """One chart card. title_reserve: room kept free at the right of the title row (drops the #n)."""
     label, color, is_dx = _diff(e)
     mask = _rounded_mask((CARD_W, CARD_H), RADIUS)
     if st["card"] == "light":
@@ -313,8 +315,11 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
     # text column
     tx = jx + JACKET + 16
     right = x + CARD_W - 14
-    draw.text((right, y + 12), f"#{idx}", font=num(17, "SemiBold"), fill=st["faint"], anchor="ra")
-    title_w = right - tx - 30
+    if title_reserve:
+        title_w = right - tx - title_reserve - 8
+    else:
+        draw.text((right, y + 12), f"#{idx}", font=num(17, "SemiBold"), fill=st["faint"], anchor="ra")
+        title_w = right - tx - 30
     draw.text((tx, y + 10), _fit(draw, e.title, cjk(17), title_w), font=cjk(17), fill=st["text"])
 
     score = f"{e.score:.4f}%" if e.game == "maimai" else f"{int(e.score):,}"
@@ -762,8 +767,8 @@ def render_b50(b50: B50, now: datetime | None = None, style: str | None = None) 
 ROW_H = 132
 
 
-def _draw_play_badge(canvas: Image.Image, right: int, y: int, game: str, badge) -> None:
-    """NEW (+improvement) / TIE / BEST <score>, right-aligned at `right`."""
+def _play_badge_style(game: str, badge):
+    """(text, gradient colors or None, text color) for a play badge."""
     if badge.kind == "new":
         if badge.delta is None:
             text = "NEW"
@@ -777,6 +782,17 @@ def _draw_play_badge(canvas: Image.Image, right: int, y: int, game: str, badge) 
     else:
         best = f"{badge.best:.4f}%" if game == "maimai" else f"{int(badge.best):,}"
         text, colors, fg = f"BEST {best}", None, MUTED
+    return text, colors, fg
+
+
+def _play_badge_width(game: str, badge) -> int:
+    text = _play_badge_style(game, badge)[0]
+    return int(ImageDraw.Draw(Image.new("L", (1, 1))).textlength(text, font=num(15))) + 18
+
+
+def _draw_play_badge(canvas: Image.Image, right: int, y: int, game: str, badge) -> int:
+    """NEW (+improvement) / TIE / BEST <score>, right-aligned at `right`. Returns its left edge."""
+    text, colors, fg = _play_badge_style(game, badge)
     f = num(15)
     draw = ImageDraw.Draw(canvas)
     bw, bh = int(draw.textlength(text, font=f)) + 18, 20
@@ -789,6 +805,7 @@ def _draw_play_badge(canvas: Image.Image, right: int, y: int, game: str, badge) 
         pill.paste(Image.new("RGBA", (bw, bh), (8, 8, 16, 170)), (0, 0), _rounded_mask((bw, bh), 10))
     canvas.alpha_composite(pill, (bx, y))
     ImageDraw.Draw(canvas).text((bx + bw // 2, y + bh // 2), text, font=f, fill=fg, anchor="mm")
+    return bx
 
 
 def _draw_credit_summary(canvas: Image.Image, box: tuple[int, int, int, int], game: str, entries: list[Entry],
@@ -914,12 +931,21 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
             draw.text((cx + CARD_W // 2, cy + CARD_H // 2), f"TRACK {i + 1}", font=num(20, "SemiBold"),
                       fill=(110, 112, 130), anchor="mm")
             continue
-        _draw_card(canvas, cx, cy, i + 1, entries[i], theme, st)
-        if badges[i] is not None:
-            _draw_play_badge(canvas, cx + CARD_W - 14, cy + 40, game, badges[i])
-            if badges[i].gain:
-                gain = f"+{float(badges[i].gain):.3f}" if game == "chunithm" else f"+{int(badges[i].gain)}"
-                _up_pill(canvas, cx + CARD_W - 14, cy + 64, gain, 15)
+        badge = badges[i]
+        right = cx + CARD_W - 14
+        # the badge goes beside the score; a long score (maimai) sends it up to the title row instead
+        on_title = False
+        if badge is not None:
+            score = f"{entries[i].score:.4f}%" if game == "maimai" else f"{int(entries[i].score):,}"
+            score_right = cx + 136 + draw.textlength(score, font=num(32))
+            on_title = right - _play_badge_width(game, badge) < score_right + 24
+        _draw_card(canvas, cx, cy, i + 1, entries[i], theme, st,
+                   title_reserve=_play_badge_width(game, badge) if on_title else 0)
+        if badge is not None:
+            _draw_play_badge(canvas, right, cy + 10 if on_title else cy + 40, game, badge)
+            if badge.gain:
+                gain = f"+{float(badge.gain):.3f}" if game == "chunithm" else f"+{int(badge.gain)}"
+                _up_pill(canvas, right, cy + 40 if on_title else cy + 64, gain, 15)
         draw = ImageDraw.Draw(canvas)
 
     return encode(canvas)

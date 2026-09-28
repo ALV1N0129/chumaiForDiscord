@@ -106,7 +106,19 @@ def parse_level(text: str, game: str) -> tuple[float, float]:
 
 
 def describe_level(text: str, lo: float, hi: float) -> str:
-    return f"{lo:.1f}" if lo == hi else f"{text} ({lo:.1f}~{hi:.1f})"
+    if lo == hi:
+        return f"{lo:.1f}"
+    if "+" in text or "." not in text:  # a level like 14+ / 13-14: show what it covers
+        return f"{text} ({lo:.1f}~{hi:.1f})"
+    return f"{lo:.1f}~{hi:.1f}"
+
+
+DIFF_ORDER = ["BASIC", "ADVANCED", "EXPERT", "MASTER", "ULTIMA", "Basic", "Advanced", "Expert", "Master",
+              "Re:Master", "DX Basic", "DX Advanced", "DX Expert", "DX Master", "DX Re:Master"]
+
+
+def sort_charts(charts: list[CatalogChart]) -> list[CatalogChart]:
+    return sorted(charts, key=lambda c: DIFF_ORDER.index(c.difficulty) if c.difficulty in DIFF_ORDER else 99)
 
 
 # ---------------------------------------------------------------- charts
@@ -205,9 +217,11 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
             gain = chart_rating(game, chart.level_const, usual) - floors[new]
             if gain > 0:
                 candidates.append(Recommendation(song, chart, usual, gain))
-    # prefer the easiest charts that still help, with a little variety
-    candidates.sort(key=lambda r: (r.chart.level_const, -r.gain))
-    head = candidates[: max(count * 4, count)]
+    # biggest gains among charts no harder than what is already in the B50, with a little variety
+    ceiling = max(e.level_const for e in entries) + 0.2
+    reachable = [r for r in candidates if r.chart.level_const <= ceiling] or candidates
+    reachable.sort(key=lambda r: (-r.gain, r.chart.level_const))
+    head = reachable[: max(count * 3, count)]
     rng = rng or random.Random()
     picked = rng.sample(head, min(count, len(head)))
     return sorted(picked, key=lambda r: -r.gain)

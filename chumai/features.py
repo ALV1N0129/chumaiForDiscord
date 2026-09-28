@@ -159,7 +159,7 @@ def register(bot: ChumaiBot) -> None:
             return
         await interaction.response.defer(thinking=True)
         lines = []
-        for c in found.charts:
+        for c in tools.sort_charts(found.charts):
             const = f"{c.level_const:.1f}" if c.level_const else "-"
             lines.append(f"`{tools.short(c.difficulty):<10}` {c.level:<4} ({const})")
         versions = sorted({c.display_version for c in found.charts if c.display_version})

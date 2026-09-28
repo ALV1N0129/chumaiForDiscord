@@ -257,3 +257,30 @@ def test_sega_b50_loads_pages_once_for_recommend(tmp_path, monkeypatch):
     again = asyncio.run(botmod.sega_b50(bot, "chunithm", 1, "tok", images=False))
     assert first is again and len(first.old) == 30
     assert len(requested) == 3  # no nameplate / icon pages, and the second call used the cache
+
+
+def test_give_up(tmp_path, monkeypatch):
+    bot = _bot(tmp_path, monkeypatch)
+    monkeypatch.setattr(features, "GUESS_SECONDS", 3600)
+
+    async def run():
+        log = []
+        i = _interaction(log)
+        i.client = bot
+        await bot.tree.get_command("guess").callback(i, game="chunithm", level=None)
+        view = log[-1][2]["view"]
+        assert isinstance(view, features.GiveUpView)
+        glog = []
+        g = _interaction(glog)
+        await bot.tree.get_command("giveup").callback(g)
+        again = []
+        await bot.tree.get_command("giveup").callback(_interaction(again))
+        # the button after the round is over
+        blog = []
+        b = _interaction(blog)
+        await view.give_up.callback(b)
+        return glog, again, blog
+
+    glog, again, blog = asyncio.run(run())
+    assert "포기" in glog[-1][1] and "정답은" in glog[-1][1] and glog[-1][2]["file"]
+    assert again[-1][2]["ephemeral"] and blog[-1][2]["ephemeral"]

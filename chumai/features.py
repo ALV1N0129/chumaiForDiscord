@@ -171,6 +171,34 @@ def _chart_hint(view_path: Path, notes_path: Path, rng: random.Random) -> bytes:
 
 
 GUESS_SECONDS = 60
+
+
+def _give_up(rounds: dict[int, GuessRound], channel_id: int, who: str) -> tuple[str, dict] | None:
+    """End the running round in `channel_id` and return the reveal message, or None if there is none."""
+    rnd = rounds.get(channel_id)
+    if rnd is None or rnd.answered:
+        return None
+    rnd.answered = True
+    return f"{who} 님이 포기했어요. 정답은 **{rnd.song.title}**{rnd.label} 였어요.", rnd.reveal()
+
+
+class GiveUpView(discord.ui.View):
+    """A "give up" button under the question."""
+
+    def __init__(self, rounds: dict[int, GuessRound], channel_id: int):
+        super().__init__(timeout=GUESS_SECONDS)
+        self.rounds = rounds
+        self.channel_id = channel_id
+
+    @discord.ui.button(label="포기 · 정답 보기", style=discord.ButtonStyle.secondary)
+    async def give_up(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        result = _give_up(self.rounds, self.channel_id, interaction.user.mention)
+        if result is None:
+            await interaction.response.send_message("이미 끝난 게임이에요.", ephemeral=True)
+            return
+        text, reveal = result
+        self.stop()
+        await interaction.response.send_message(text, **reveal)
 CONST_LIMIT = 45 if render.LOW_MEMORY else 90  # charts shown in one /const image
 
 
@@ -443,8 +471,9 @@ def register(bot: ChumaiBot) -> None:
     async def _start_round(interaction: discord.Interaction, rnd: GuessRound, hint: bytes, question: str) -> None:
         channel_id = interaction.channel_id
         rounds[channel_id] = rnd
-        await interaction.followup.send(f"{question} `/answer` 로 답해 주세요. ({GUESS_SECONDS}초)",
-                                        file=_image(hint, "guess"))
+        await interaction.followup.send(
+            f"{question} `/answer` 로 답해 주세요. ({GUESS_SECONDS}초 · 모르겠으면 `/giveup` 또는 아래 버튼)",
+            file=_image(hint, "guess"), view=GiveUpView(rounds, channel_id))
 
         async def timeout() -> None:
             await asyncio.sleep(GUESS_SECONDS)
@@ -517,6 +546,15 @@ def register(bot: ChumaiBot) -> None:
         hint = await asyncio.to_thread(_chart_hint, *paths, rng)
         await _start_round(interaction, rnd, hint, "이 채보의 곡은?")
 
+    @tree.command(name="giveup", description="자켓·채보 맞히기를 포기하고 정답을 봅니다 (접두어: !포기)")
+    async def giveup(interaction: discord.Interaction) -> None:
+        result = _give_up(rounds, interaction.channel_id, interaction.user.mention)
+        if result is None:
+            await interaction.response.send_message("진행 중인 게임이 없어요.", ephemeral=True)
+            return
+        text, reveal = result
+        await interaction.response.send_message(text, **reveal)
+
     @tree.command(name="answer", description="자켓·채보 맞히기 게임의 정답을 입력합니다")
     @app_commands.describe(title="곡 제목")
     async def answer(interaction: discord.Interaction, title: str) -> None:
@@ -546,7 +584,8 @@ def register(bot: ChumaiBot) -> None:
                   ("chart", "채보 보기 (CHUNITHM)")],
             "계산": [("calc", "곡 레이팅 계산"), ("reach", "목표 레이팅에 필요한 점수"),
                    ("whatif", "이 점수면 레이팅이 얼마나 오르나"), ("recommend", "추천 곡")],
-            "놀이": [("guess", "자켓 맞히기"), ("chartguess", "채보 맞히기 (CHUNITHM)"), ("answer", "정답 입력")],
+            "놀이": [("guess", "자켓 맞히기"), ("chartguess", "채보 맞히기 (CHUNITHM)"), ("answer", "정답 입력"),
+                   ("giveup", "포기하고 정답 보기")],
         }
         p = bot.config.prefix
         short = {full: alias for alias, full in ALIASES.items()}

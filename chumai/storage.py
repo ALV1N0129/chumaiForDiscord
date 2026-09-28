@@ -6,8 +6,6 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from cryptography.fernet import Fernet, InvalidToken
-
 log = logging.getLogger(__name__)
 
 
@@ -53,7 +51,12 @@ class LinkStore:
             """
         )
         self._db.commit()
-        self._fernet = Fernet(token_key.encode()) if token_key else None
+        self._fernet = None
+        if token_key:
+            # imported only when used: cryptography costs ~6MB of memory
+            from cryptography.fernet import Fernet
+
+            self._fernet = Fernet(token_key.encode())
         if self._fernet is None:
             log.warning("TOKEN_ENCRYPTION_KEY is not set; SEGA login tokens are stored unencrypted")
 
@@ -74,6 +77,8 @@ class LinkStore:
             return None
         if self._fernet is None:
             return row[0]
+        from cryptography.fernet import InvalidToken
+
         try:
             return self._fernet.decrypt(row[0].encode()).decode()
         except InvalidToken:

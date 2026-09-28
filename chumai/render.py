@@ -194,7 +194,7 @@ def _cjk_font_file() -> str | None:
                             str(FONT_DIR / "NotoSansCJKkr-Bold.otf"), *CJK_BOLD])
 
 
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=6)  # each size of the CJK font holds ~2MB, so keep only a few
 def cjk(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     """Song titles and player names (Japanese/full-width text)."""
     path = _cjk_font_file()
@@ -239,6 +239,30 @@ def _horizontal_gradient(size: tuple[int, int], stops) -> Image.Image:
         a, b = stops[i], stops[i + 1]
         row.putpixel((x, 0), tuple(round(a[k] + (b[k] - a[k]) * f) for k in range(3)))
     return row.resize((w, h))
+
+
+def _rgb(im: Image.Image) -> Image.Image:
+    """The page canvas: RGB (the page is opaque; drawing on RGB saves a quarter of the memory)."""
+    if im.mode == "RGB":
+        return im
+    out = im.convert("RGB")
+    im.close()
+    return out
+
+
+def _over(canvas: Image.Image, im: Image.Image, dest: tuple[int, int] = (0, 0)) -> None:
+    """Draw `im` over the canvas at `dest`, blending by its alpha.
+
+    Canvases are RGB (a quarter smaller than RGBA, and saved without a copy); pasting through the
+    image's own alpha gives the same result as alpha_composite on an opaque canvas.
+    """
+    dest = (int(dest[0]), int(dest[1]))
+    if canvas.mode == "RGBA":
+        canvas.alpha_composite(im, dest)
+    elif im.mode in ("RGBA", "LA"):
+        canvas.paste(im, dest, im)
+    else:
+        canvas.paste(im, dest)
 
 
 def _rounded_mask(size: tuple[int, int], radius: int) -> Image.Image:
@@ -300,11 +324,11 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
         ImageDraw.Draw(shadow).rounded_rectangle((12, 16, CARD_W + 11, CARD_H + 15), radius=RADIUS,
                                                  fill=(60, 40, 90, 40))
         shadow = shadow.filter(ImageFilter.GaussianBlur(7))
-        canvas.alpha_composite(shadow, (x - 12, y - 12))
+        _over(canvas, shadow, (x - 12, y - 12))
     bg = _card_background(e.jacket_path, st["card"], theme["card"])
     card = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
     card.paste(bg, (0, 0), mask)
-    canvas.alpha_composite(card, (x, y))
+    _over(canvas, card, (x, y))
     draw = ImageDraw.Draw(canvas)
 
     # jacket with a difficulty-colored frame and a level tag along the bottom
@@ -442,7 +466,7 @@ def _logo_image(game: str) -> Image.Image:
 
 def _draw_logo(canvas: Image.Image, game: str, width: int, theme: dict) -> None:
     logo = _logo_image(game)
-    canvas.alpha_composite(logo, ((width - logo.width) // 2, 10 + (LOGO_BOX[1] - logo.height) // 2))
+    _over(canvas, logo, ((width - logo.width) // 2, 10 + (LOGO_BOX[1] - logo.height) // 2))
 
 
 TITLE_COLORS = {
@@ -491,7 +515,7 @@ def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> N
     body.paste(_gradient_fill((6, ch), [theme["accent"], theme["glow2"]]), (0, 0))
     card.paste(body, (0, 0), _rounded_mask((cw, ch), 18))
     ImageDraw.Draw(card).rounded_rectangle((0, 0, cw - 1, ch - 1), radius=18, outline=(255, 255, 255, 40), width=2)
-    canvas.alpha_composite(card, (cx, cy))
+    _over(canvas, card, (cx, cy))
     draw = ImageDraw.Draw(canvas)
 
     tx = cx + 30
@@ -504,7 +528,7 @@ def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> N
         framed.alpha_composite(icon)
         out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         out.paste(framed, (0, 0), _rounded_mask((size, size), 14))
-        canvas.alpha_composite(out, (ix, iy))
+        _over(canvas, out, (ix, iy))
         draw.rounded_rectangle((ix - 1, iy - 1, ix + size, iy + size), radius=15, outline=(255, 255, 255, 90), width=2)
         tx = ix + size + 24
 
@@ -529,7 +553,7 @@ def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> N
         w = int(lw + vw + 30)
         chip = Image.new("RGBA", (w, 34), (0, 0, 0, 0))
         chip.paste(Image.new("RGBA", (w, 34), (10, 8, 18, 150)), (0, 0), _rounded_mask((w, 34), 17))
-        canvas.alpha_composite(chip, (sx, sy))
+        _over(canvas, chip, (sx, sy))
         draw.text((sx + 12, sy + 17), label, font=num(15, "SemiBold"), fill=st["faint"], anchor="lm")
         draw.text((sx + w - 12, sy + 18), value, font=num(22), fill=st["text"], anchor="rm")
         sx += w + 8
@@ -586,7 +610,7 @@ def _draw_plate(canvas: Image.Image, game: str, rating: str, width: int, st: dic
             gm = Image.new("L", glow.size, 0)
             ImageDraw.Draw(gm).rounded_rectangle((20, 20, pw + 19, ph + 19), radius=20, fill=200)
             glow.putalpha(gm.filter(ImageFilter.GaussianBlur(12)))
-            canvas.alpha_composite(glow, (px - 20, py - 20))
+            _over(canvas, glow, (px - 20, py - 20))
         panel = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
         border = _gradient_fill((pw, ph), colors)
         border.putalpha(_rounded_mask((pw, ph), 20))
@@ -594,25 +618,25 @@ def _draw_plate(canvas: Image.Image, game: str, rating: str, width: int, st: dic
         inner = Image.new("RGBA", (pw - 6, ph - 6), (14, 12, 24, 225))
         inner.putalpha(_rounded_mask((pw - 6, ph - 6), 17).point(lambda v: v * 225 // 255))
         panel.alpha_composite(inner, (3, 3))
-        canvas.alpha_composite(panel, (px, py))
+        _over(canvas, panel, (px, py))
         draw.text((px + 22, py + 18), "RATING", font=num(18, "SemiBold"), fill=st["muted"])
         if tier.startswith("極"):
             label = _gradient_text("極 RAINBOW", cjk(18), [tuple(min(255, c + 40) for c in col) for col in colors])
-            canvas.alpha_composite(label, (px + pw - 14 - label.width, py + 10))
+            _over(canvas, label, (px + pw - 14 - label.width, py + 10))
         else:
             draw.text((px + pw - 22, py + 18), tier, font=num(18, "SemiBold"), fill=st["muted"], anchor="ra")
         number = _gradient_text(rating, num(84), [tuple(min(255, c + 40) for c in col) for col in colors])
-        canvas.alpha_composite(number, (px + pw - 18 - number.width, py + ph - 14 - number.height))
+        _over(canvas, number, (px + pw - 18 - number.width, py + ph - 14 - number.height))
 
     elif PLATE_STYLE == "bare":
         # no panel: large gradient number with a thin tier bar under it
         number = _gradient_text(rating, num(104), [tuple(min(255, c + 40) for c in col) for col in colors])
         nx, ny = right - number.width + 8, 62
-        canvas.alpha_composite(number, (nx, ny))
+        _over(canvas, number, (nx, ny))
         draw.text((right, 34), f"RATING  ·  {tier}", font=num(18, "SemiBold"), fill=st["muted"], anchor="ra")
         bar = _gradient_fill((number.width - 16, 5), colors)
         bar.putalpha(_rounded_mask(bar.size, 2))
-        canvas.alpha_composite(bar, (right - bar.width, ny + number.height + 2))
+        _over(canvas, bar, (right - bar.width, ny + number.height + 2))
 
     else:  # "stripe": dark panel with a tier-colored stripe on the left, white number
         pw, ph = 340, 132
@@ -623,10 +647,10 @@ def _draw_plate(canvas: Image.Image, game: str, rating: str, width: int, st: dic
         mask = _rounded_mask((pw, ph), 16)
         out = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
         out.paste(panel, (0, 0), mask)
-        canvas.alpha_composite(out, (px, py))
+        _over(canvas, out, (px, py))
         draw.text((px + 32, py + 18), "RATING", font=num(18, "SemiBold"), fill=st["muted"])
         tier_img = _gradient_text(tier, num(18, "SemiBold"), [tuple(min(255, c + 40) for c in col) for col in colors])
-        canvas.alpha_composite(tier_img, (px + pw - 12 - tier_img.width, py + 10))
+        _over(canvas, tier_img, (px + pw - 12 - tier_img.width, py + 10))
         draw.text((px + pw - 20, py + ph - 12), rating, font=num(80), fill=(255, 255, 255), anchor="rd")
 
 
@@ -690,7 +714,7 @@ def _background(b50: B50, size: tuple[int, int], theme: dict, st: dict) -> Image
                     art = art.filter(ImageFilter.GaussianBlur(blur * k))
                     art = Image.blend(art, Image.new("RGB", art.size, theme["bottom"]), dark)
                     fade = Image.linear_gradient("L").resize((sw, sh)).point(lambda v: 255 - max(0, v - 128) * 2)
-                    base = _vertical_gradient(size, theme["top"], theme["bottom"], "RGBA")
+                    base = _vertical_gradient(size, theme["top"], theme["bottom"])
                     # paste through the fade mask: blends in place, no full-size RGBA copy
                     base.paste(art.resize((w, ah), Image.BILINEAR), (0, 0), fade.resize((w, ah), Image.BILINEAR))
                     return base
@@ -703,7 +727,7 @@ def _background(b50: B50, size: tuple[int, int], theme: dict, st: dict) -> Image
                 shade = Image.new("RGBA", small, (*theme["bottom"], 0))
                 shade.putalpha(Image.linear_gradient("L").resize(small).point(lambda v: v * 120 // 255))
                 art.alpha_composite(shade)
-                return art.resize(size, Image.BILINEAR)
+                return art.convert("RGB").resize(size, Image.BILINEAR)
 
     if st["bg"] == "mosaic":
         paths = [e.jacket_path for e in b50.old + b50.new if e.jacket_path]
@@ -765,7 +789,7 @@ def render_b50(b50: B50, now: datetime | None = None, style: str | None = None) 
     width = MARGIN * 2 + COLS * CARD_W + (COLS - 1) * GAP_X
     height = (HEADER_H + 2 * SECTION_H + (old_rows + new_rows) * (CARD_H + GAP_Y) + FOOTER_H)
 
-    canvas = _background(b50, (width, height), theme, st)
+    canvas = _rgb(_background(b50, (width, height), theme, st))
     _draw_header(canvas, b50, width, theme, st)
 
     y = HEADER_H
@@ -828,7 +852,7 @@ def _draw_play_badge(canvas: Image.Image, right: int, y: int, game: str, badge) 
     else:
         pill = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
         pill.paste(Image.new("RGBA", (bw, bh), (8, 8, 16, 170)), (0, 0), _rounded_mask((bw, bh), 10))
-    canvas.alpha_composite(pill, (bx, y))
+    _over(canvas, pill, (bx, y))
     ImageDraw.Draw(canvas).text((bx + bw // 2, y + bh // 2), text, font=f, fill=fg, anchor="mm")
     return bx
 
@@ -903,7 +927,7 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
     width = MARGIN * 2 + cols * CARD_W + (cols - 1) * GAP_X
     height = header + (slots // cols) * (CARD_H + GAP_Y) + 26
     stub = SimpleNamespace(game=game, old=entries, new=[], icon=icon)
-    canvas = _background(stub, (width, height), theme, st)
+    canvas = _rgb(_background(stub, (width, height), theme, st))
     draw = ImageDraw.Draw(canvas)
 
     x = MARGIN
@@ -912,13 +936,13 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
         ic = ImageOps.fit(ic, (64, 64), Image.LANCZOS)
         out = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
         out.paste(ic, (0, 0), _rounded_mask((64, 64), 12))
-        canvas.alpha_composite(out, (x, 30))
+        _over(canvas, out, (x, 30))
         x += 80
     # game logo in the middle of the header
     logo = _logo_image(game).copy()
     logo.thumbnail(CREDIT_LOGO, Image.LANCZOS)
     logo_x = (width - logo.width) // 2
-    canvas.alpha_composite(logo, (logo_x, 14 + (CREDIT_LOGO[1] - logo.height) // 2))
+    _over(canvas, logo, (logo_x, 14 + (CREDIT_LOGO[1] - logo.height) // 2))
     draw = ImageDraw.Draw(canvas)
     draw.text((x, 30), f"PLAY LOG  ·  {date}", font=num(17, "SemiBold"), fill=theme["accent"])
     name = unicodedata.normalize("NFKC", player)
@@ -928,7 +952,7 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
     if rating:
         colors = _plate_colors(game, rating)
         number = _gradient_text(rating, num(50), [tuple(min(255, c + 40) for c in col) for col in colors])
-        canvas.alpha_composite(number, (right - number.width + 8, 44))
+        _over(canvas, number, (right - number.width + 8, 44))
         change = _rating_change(game, rating_before, rating)
         label = f"RATING   {rating_before} »" if change else "RATING"
         draw.text((right, 24), label, font=num(15, "SemiBold"), fill=st["muted"], anchor="ra")
@@ -940,7 +964,7 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
         bx, by = right - bw, 56
         badge = _gradient_fill((bw, bh), [theme["accent"], theme["glow2"]])
         badge.putalpha(_rounded_mask((bw, bh), 13))
-        canvas.alpha_composite(badge, (bx, by))
+        _over(canvas, badge, (bx, by))
         draw.text((bx + bw // 2, by + bh // 2), "C to C", font=num(17), fill=(20, 18, 30), anchor="mm")
 
     # an unplayed slot shows a summary of the credit instead of an empty card
@@ -960,7 +984,7 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
                 continue  # covered by the summary
             empty = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
             empty.paste(Image.new("RGBA", (CARD_W, CARD_H), (10, 8, 18, 90)), (0, 0), _rounded_mask((CARD_W, CARD_H), RADIUS))
-            canvas.alpha_composite(empty, (cx, cy))
+            _over(canvas, empty, (cx, cy))
             draw.text((cx + CARD_W // 2, cy + CARD_H // 2), f"TRACK {i + 1}", font=num(20, "SemiBold"),
                       fill=(110, 112, 130), anchor="mm")
             continue
@@ -991,7 +1015,7 @@ def render_profile(game: str, name: str, rating: str | None, title: str | None, 
     theme = THEMES[game]
     st = STYLES["version"]
     width, height = MARGIN * 2 + 2 * CARD_W + GAP_X, 220
-    canvas = _background(SimpleNamespace(game=game, old=[], new=[], icon=icon), (width, height), theme, st)
+    canvas = _rgb(_background(SimpleNamespace(game=game, old=[], new=[], icon=icon), (width, height), theme, st))
 
     cw, ch = width - MARGIN * 2 - 360, 150
     cx, cy = MARGIN, 36
@@ -1006,7 +1030,7 @@ def render_profile(game: str, name: str, rating: str | None, title: str | None, 
     card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
     card.paste(bg, (0, 0), _rounded_mask((cw, ch), 18))
     ImageDraw.Draw(card).rounded_rectangle((0, 0, cw - 1, ch - 1), radius=18, outline=(255, 255, 255, 60), width=2)
-    canvas.alpha_composite(card, (cx, cy))
+    _over(canvas, card, (cx, cy))
     draw = ImageDraw.Draw(canvas)
 
     tx, right = cx + 20, cx + cw - 16
@@ -1018,7 +1042,7 @@ def render_profile(game: str, name: str, rating: str | None, title: str | None, 
         framed.alpha_composite(ic)
         out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         out.paste(framed, (0, 0), _rounded_mask((size, size), 14))
-        canvas.alpha_composite(out, (right - size, cy + 14))
+        _over(canvas, out, (right - size, cy + 14))
         right -= size + 16
 
     if title:
@@ -1027,10 +1051,10 @@ def render_profile(game: str, name: str, rating: str | None, title: str | None, 
         tw = int(draw.textlength(t, font=cjk(16))) + 40
         rim = _gradient_fill((tw, 30), colors)
         rim.putalpha(_rounded_mask((tw, 30), 15))
-        canvas.alpha_composite(rim, (tx, cy + 16))
+        _over(canvas, rim, (tx, cy + 16))
         core = Image.new("RGBA", (tw - 4, 26), (0, 0, 0, 0))
         core.paste(Image.new("RGBA", core.size, (14, 12, 24, 215)), (0, 0), _rounded_mask(core.size, 13))
-        canvas.alpha_composite(core, (tx + 2, cy + 18))
+        _over(canvas, core, (tx + 2, cy + 18))
         draw.text((tx + tw // 2, cy + 31), t, font=cjk(16), fill=WHITE, anchor="mm")
 
     base = cy + ch - 26
@@ -1060,7 +1084,8 @@ ULTIMA_RIM = (210, 20, 50)
 def _page(game: str, size: tuple[int, int]) -> Image.Image:
     from types import SimpleNamespace
 
-    return _background(SimpleNamespace(game=game, old=[], new=[], icon=None), size, THEMES[game], STYLES["version"])
+    return _rgb(_background(SimpleNamespace(game=game, old=[], new=[], icon=None), size, THEMES[game],
+                            STYLES["version"]))
 
 
 def _page_header(canvas: Image.Image, game: str, kicker: str, title: str, sub: str | None = None) -> None:
@@ -1082,7 +1107,7 @@ def _panel(canvas: Image.Image, box: tuple[int, int, int, int], color, alpha: in
     if outline:
         ImageDraw.Draw(panel).rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, outline=(255, 255, 255, 40),
                                                 width=2)
-    canvas.alpha_composite(panel, (x0, y0))
+    _over(canvas, panel, (x0, y0))
 
 
 def _diff_info(difficulty: str) -> tuple[str, str, tuple[int, int, int], bool]:

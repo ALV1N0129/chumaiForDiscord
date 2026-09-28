@@ -17,15 +17,17 @@ installs some roots on demand and Python can't trigger that.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import asyncio
 import logging
 import ssl
 
 import aiohttp
 import certifi
-from cryptography import x509
-from cryptography.hazmat.primitives.serialization import Encoding
-from cryptography.x509.oid import AuthorityInformationAccessOID, ExtensionOID
+
+if TYPE_CHECKING:
+    from cryptography import x509
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +45,8 @@ _fixed_hosts: set[tuple[str, int]] = set()
 
 
 async def _peer_certificate(host: str, port: int) -> x509.Certificate:
+    from cryptography import x509  # imported only when needed: ~6MB of memory
+
     insecure = ssl.create_default_context()
     insecure.check_hostname = False
     insecure.verify_mode = ssl.CERT_NONE
@@ -57,12 +61,17 @@ async def _peer_certificate(host: str, port: int) -> x509.Certificate:
 
 
 def _load_cert(data: bytes) -> x509.Certificate:
+    from cryptography import x509
+
     if data.lstrip().startswith(b"-----BEGIN"):
         return x509.load_pem_x509_certificate(data)
     return x509.load_der_x509_certificate(data)
 
 
 async def add_missing_intermediate(host: str, port: int = 443, context: ssl.SSLContext | None = None) -> bool:
+    from cryptography.hazmat.primitives.serialization import Encoding
+    from cryptography.x509.oid import AuthorityInformationAccessOID, ExtensionOID
+
     """Fetch the issuer of `host`'s certificate via AIA and add it to the context.
 
     Returns True if a certificate was added (the caller should retry once).

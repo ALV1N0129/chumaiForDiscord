@@ -188,3 +188,31 @@ class NetClient:
             msg = parse_error_message(body) or f"HTTP {resp.status}"
             raise SegaError(f"페이지를 불러오지 못했어요 ({target.path}): {msg}")
         raise AssertionError("unreachable")
+
+    def _cookie(self, name: str) -> str | None:
+        assert self._session is not None
+        for cookie in self._session.cookie_jar:
+            if cookie.key == name:
+                return cookie.value
+        return None
+
+    async def post(self, path: str, data: dict[str, str]) -> bytes:
+        """Submit a form on the site. The session token (`_t` cookie) is sent as `token`."""
+        assert self._session is not None
+        target = self.site.base.join(URL(path))
+        top = self.site.home_path.rstrip("/")
+        for attempt in range(2):
+            if not self._authed:
+                await self._authenticate()
+            form = {**data, "token": self._cookie("_t") or ""}
+            resp, body = await _request(self._session, "POST", target, data=form)
+            final = resp.url
+            bounced = final.path.rstrip("/") == top or "/error" in final.path
+            if final.host == target.host and resp.status == 200 and not bounced:
+                return body
+            if attempt == 0:
+                self._authed = False
+                continue
+            msg = parse_error_message(body) or f"HTTP {resp.status}"
+            raise SegaError(f"페이지를 불러오지 못했어요 ({target.path}): {msg}")
+        raise AssertionError("unreachable")

@@ -127,3 +127,51 @@ def test_check_playlog_without_updating_key(tmp_path, monkeypatch):
     assert asyncio.run(botmod.check_playlog(fake_bot, 1, "chunithm", 99, before, update=False))
     assert len(sent) == 1
     assert links.playlogs()[0][3] == "9999"  # subscription untouched
+
+
+def _play(key_time, track, title, score, new, diff="MASTER"):
+    return net_parsers.PlayRecord(key_time, track, title, diff, score, None, None, new, None)
+
+
+def test_badges_new_tie_best():
+    from chumai.playlog import badges
+
+    cache = {("A", "MASTER"): 1_000_000, ("B", "MASTER"): 990_000}
+    plays = [
+        _play("2026/01/01 09:00", 1, "A", 999_000, True),  # before the cache: improvement unknown
+        _play("2026/01/02 10:00", 1, "A", 1_002_500, True),
+        _play("2026/01/02 10:00", 2, "A", 1_002_500, False),
+        _play("2026/01/02 10:00", 3, "B", 980_000, False),
+        _play("2026/01/02 10:00", 4, "C", 970_000, True),  # first play of the chart
+        _play("2026/01/02 11:00", 1, "D", 950_000, False),  # not in the cache: use the record pages
+    ]
+    now = {("D", "MASTER"): 960_000}
+    out = badges(plays, cache, "2026/01/01 09:00#01", now)
+    got = [(out[p.key].kind, out[p.key].delta, out[p.key].best) if p.key in out else None for p in plays]
+    assert got == [
+        ("new", None, None),
+        ("new", 2500, None),
+        ("tie", None, None),
+        ("best", None, 990_000),
+        ("new", None, None),
+        ("best", None, 960_000),
+    ]
+
+
+def test_badges_maimai_tie():
+    from chumai.playlog import badges
+
+    p = _play("2026/01/02 10:00", 1, "X", 100.5123, False, "DX Master")
+    out = badges([p], {("X", "DX Master"): 100.5123}, "2026/01/01 00:00#01", {})
+    assert out[p.key].kind == "tie"
+
+
+def test_best_score_store(tmp_path):
+    store = LinkStore(tmp_path / "db.sqlite")
+    assert store.get_bests(1, "chunithm") == ({}, None)
+    store.save_bests(1, "chunithm", {("A", "MASTER"): 1_000_000}, "k1")
+    store.save_bests(1, "chunithm", {("A", "MASTER"): 1_001_000, ("B", "EXPERT"): 990_000}, "k2")
+    assert store.get_bests(1, "chunithm") == ({("A", "MASTER"): 1_001_000, ("B", "EXPERT"): 990_000}, "k2")
+    store.set_sega_token(1, "tok")
+    store.delete_sega_token(1)  # logging out also forgets the scores
+    assert store.get_bests(1, "chunithm") == ({}, None)

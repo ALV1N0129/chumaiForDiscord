@@ -756,9 +756,41 @@ def render_b50(b50: B50, now: datetime | None = None, style: str | None = None) 
 ROW_H = 132
 
 
-def render_credit(game: str, player: str, entries: list[Entry], new_flags: list[bool], date: str,
+def _draw_play_badge(canvas: Image.Image, right: int, y: int, game: str, badge) -> None:
+    """NEW (+improvement) / TIE / BEST <score>, right-aligned at `right`."""
+    if badge.kind == "new":
+        if badge.delta is None:
+            text = "NEW"
+        elif game == "maimai":
+            text = f"NEW +{badge.delta:.4f}%"
+        else:
+            text = f"NEW +{int(badge.delta):,}"
+        colors, fg = [(255, 120, 150), (255, 200, 90)], (40, 20, 30)
+    elif badge.kind == "tie":
+        text, colors, fg = "TIE", [(120, 200, 255), (160, 150, 255)], (20, 24, 44)
+    else:
+        best = f"{badge.best:.4f}%" if game == "maimai" else f"{int(badge.best):,}"
+        text, colors, fg = f"BEST {best}", None, MUTED
+    f = num(15)
+    draw = ImageDraw.Draw(canvas)
+    bw, bh = int(draw.textlength(text, font=f)) + 18, 20
+    bx = right - bw
+    if colors:
+        pill = _gradient_fill((bw, bh), colors)
+        pill.putalpha(_rounded_mask((bw, bh), 10))
+    else:
+        pill = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
+        pill.paste(Image.new("RGBA", (bw, bh), (8, 8, 16, 170)), (0, 0), _rounded_mask((bw, bh), 10))
+    canvas.alpha_composite(pill, (bx, y))
+    ImageDraw.Draw(canvas).text((bx + bw // 2, y + bh // 2), text, font=f, fill=fg, anchor="mm")
+
+
+def render_credit(game: str, player: str, entries: list[Entry], badges: list, date: str,
                   icon: bytes | None = None, rating: str | None = None) -> bytes:
-    """One credit as a fixed-size 2x2 grid, so every credit shows at the same size in Discord."""
+    """One credit as a fixed-size 2x2 grid, so every credit shows at the same size in Discord.
+
+    badges: a playlog.Badge (or None) per entry.
+    """
     from types import SimpleNamespace
 
     theme = THEMES[game]
@@ -810,14 +842,8 @@ def render_credit(game: str, player: str, entries: list[Entry], new_flags: list[
                       fill=(110, 112, 130), anchor="mm")
             continue
         _draw_card(canvas, cx, cy, i + 1, entries[i], theme, st)
-        if new_flags[i]:
-            bw, bh = 50, 20
-            bx, by = cx + CARD_W - 14 - bw, cy + 40
-            badge = _gradient_fill((bw, bh), [(255, 120, 150), (255, 200, 90)])
-            badge.putalpha(_rounded_mask((bw, bh), 10))
-            canvas.alpha_composite(badge, (bx, by))
-            ImageDraw.Draw(canvas).text((bx + bw // 2, by + bh // 2), "NEW", font=num(15), fill=(40, 20, 30),
-                                        anchor="mm")
+        if badges[i] is not None:
+            _draw_play_badge(canvas, cx + CARD_W - 14, cy + 40, game, badges[i])
         draw = ImageDraw.Draw(canvas)
 
     return encode(canvas)
@@ -1110,14 +1136,17 @@ def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub:
                       footer: str | None = None, columns: int = 3, group: bool = False) -> bytes:
     """Charts as tiles: jacket, title, difficulty/level and a value on the right.
 
-    rows: title, difficulty, level, const, jacket, right (big text), right_sub (small, optional).
+    rows: title, difficulty, level, const, jacket, right (big text), and optionally right_sub (small text
+    under it), sub_line (after the difficulty) and note (a line along the bottom of the tile).
     group=True puts a heading above each run of charts with the same constant.
     """
     theme = THEMES[game]
     big = columns <= 2
     tile_w = 560 if big else 380
-    tile_h = 96 if big else 72
-    js = tile_h - 20
+    top_h = 96 if big else 72
+    note_h = 40 if any(r.get("note") for r in rows) else 0
+    tile_h = top_h + note_h
+    js = top_h - 20
     gap = 12
     width = MARGIN * 2 + columns * tile_w + (columns - 1) * gap
 
@@ -1165,17 +1194,29 @@ def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub:
         dcolor = (255, 80, 100) if label == "ULT" else tuple(min(255, v + 50) for v in color)
         info = f"{name}  {_const_text(row['level'], row['const'])}" if big else \
             f"{('DX ' if name.startswith('DX') else '') + label}  {row['level']}"
-        draw.text((tx, y + tile_h - (24 if big else 16)), info, font=num(19 if big else 17, "SemiBold"),
-                  fill=dcolor, anchor="ls")
+        info_font = num(19 if big else 17, "SemiBold")
+        info_y = y + top_h - (24 if big else 16)
+        draw.text((tx, info_y), info, font=info_font, fill=dcolor, anchor="ls")
+        if row.get("sub_line"):
+            sx = tx + draw.textlength(info, font=info_font) + 12
+            draw.text((sx, info_y), _fit(draw, row["sub_line"], cjk(14), max(0, text_w - int(sx - tx))),
+                      font=cjk(14), fill=MUTED, anchor="ls")
         if right:
             if row.get("right_sub"):
-                draw.text((x + tile_w - 16, y + tile_h / 2 - 2), right, font=num(34), fill=MAX_RATING, anchor="rs")
+                draw.text((x + tile_w - 16, y + top_h / 2 - 2), right, font=num(34), fill=MAX_RATING, anchor="rs")
                 sub_font = num(17, "Medium") if row["right_sub"].isascii() else cjk(14)
-                draw.text((x + tile_w - 16, y + tile_h / 2 + 22), row["right_sub"], font=sub_font, fill=MUTED,
+                draw.text((x + tile_w - 16, y + top_h / 2 + 22), row["right_sub"], font=sub_font, fill=MUTED,
                           anchor="rs")
             else:
-                draw.text((x + tile_w - 14, y + tile_h / 2), right, font=num(34 if big else 26), fill=WHITE,
+                draw.text((x + tile_w - 14, y + top_h / 2), right, font=num(34 if big else 26), fill=WHITE,
                           anchor="rm")
+        if row.get("note"):
+            ny = y + top_h
+            _panel(canvas, (x + 10, ny, x + tile_w - 10, ny + note_h - 10), (0, 0, 0), alpha=70, radius=10,
+                   outline=False)
+            draw = ImageDraw.Draw(canvas)
+            draw.text((x + 22, ny + (note_h - 10) // 2), _fit(draw, row["note"], cjk(14), tile_w - 44), font=cjk(14),
+                      fill=MUTED, anchor="lm")
     if footer:
         ImageDraw.Draw(canvas).text((width - MARGIN, height - 26), footer, font=cjk(15), fill=MUTED, anchor="rm")
     return encode(canvas)

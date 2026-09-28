@@ -156,13 +156,35 @@ def test_recent_and_profile_with_fake_sega(tmp_path, monkeypatch):
         async def get_bytes(self, url):
             raise botmod.SegaError("no images")
 
+        async def post(self, path, data):
+            FakeNet.posted.append(path)
+            return (fix / "best30.html").read_bytes()  # same list format as the record pages
+
+    FakeNet.posted = []
+
     monkeypatch.setattr(botmod, "NetClient", FakeNet)
     monkeypatch.setattr(features, "NetClient", FakeNet)
     bot = _bot(tmp_path, monkeypatch)
     bot.links.set_sega_token(1, "tok")
 
+    shown = []
+    real_credit = botmod.render_credit
+
+    def spy_credit(game, player, entries, badges, *rest):
+        shown.append([(e.title, b and b.kind, b and b.best) for e, b in zip(entries, badges)])
+        return real_credit(game, player, entries, badges, *rest)
+
+    monkeypatch.setattr(botmod, "render_credit", spy_credit)
     log = _call(bot, "recent", game="chunithm")
     assert log[-1][2]["file"].filename == render.filename("recent_chunithm")
+    # no saved scores yet: new records without the improvement, and the record pages are saved
+    assert [kind for _, kind, _ in shown[-1]] == ["new"] * 4
+    assert len(FakeNet.posted) == 5 and bot.links.get_bests(1, "chunithm")[1] == "2023/08/04 18:33#04"
+
+    images, _ = asyncio.run(botmod.render_credits(
+        bot, 1, "chunithm", lambda rs: [r for r in rs if r.date.startswith("2023/08/04 15")]))
+    aleph = next(x for x in shown[-1] if x[0] == "Aleph-0")
+    assert aleph[1] == "best" and aleph[2] == bot.links.get_bests(1, "chunithm")[0][("Aleph-0", "MASTER")]
 
     log = _call(bot, "profile", game="chunithm", member=None)
     assert log[-1][2]["file"].filename == render.filename("profile_chunithm")

@@ -61,7 +61,18 @@ def _site_app(state: dict) -> web.Application:
             raise web.HTTPFound("/mobile/")
         return web.Response(text=PLAYER_DATA, content_type="text/html")
 
+    async def send_master(request):
+        form = await request.post()
+        if request.cookies.get("_t") != "ok" or form.get("token") != "ok":
+            raise web.HTTPFound("/mobile/")
+        raise web.HTTPFound(f"/mobile/record/musicGenre/master?genre={form.get('genre')}")
+
+    async def master(request):
+        return web.Response(text=f"master list genre={request.query.get('genre')}")
+
     app = web.Application()
+    app.router.add_post("/mobile/record/musicGenre/sendMaster", send_master)
+    app.router.add_get("/mobile/record/musicGenre/master", master)
     app.router.add_get("/mobile/", top)
     app.router.add_get("/mobile/home/", home)
     app.router.add_get("/mobile/home/playerData/", player_data)
@@ -144,3 +155,11 @@ def test_expired_token(fake_sega):
 
     with pytest.raises(segaid.TokenExpired):
         fake_sega(go)
+
+
+def test_post_sends_session_token(fake_sega):
+    async def go(state):
+        async with segaid.NetClient("chunithm", "valid") as net:
+            return await net.post("/mobile/record/musicGenre/sendMaster", {"genre": "99"})
+
+    assert fake_sega(go) == b"master list genre=99"

@@ -18,7 +18,7 @@ from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .config import Config
 from .jackets import JacketStore
 from .logos import download_logos
-from .playlog import to_entry
+from .playlog import badges as play_badges, to_entry
 from .render import render_b50, render_credit
 from .segaid import LoginFailed, NetClient, SegaError, login
 from .songdb import SongDB
@@ -180,12 +180,13 @@ def register_commands(bot: ChumaiBot) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             async with NetClient(game, token) as net:
-                html = await net.get(PLAYLOG_PATHS[game])
-            records = parse_playlog(game, html)
+                records = parse_playlog(game, await net.get(PLAYLOG_PATHS[game]))
+                last_key = max((r.key for r in records), default="")
+                # best scores now, so the next new records can show how much they improved
+                await seed_bests(bot, net, interaction.user.id, game, last_key)
         except SegaError as e:
             await interaction.followup.send(str(e), ephemeral=True)
             return
-        last_key = max((r.key for r in records), default="")
         bot.links.set_playlog(interaction.user.id, game, interaction.channel_id, last_key)
         bot._playlog_schedule.pop((interaction.user.id, game), None)
         await interaction.followup.send(
@@ -363,8 +364,39 @@ async def _cached_image(bot: ChumaiBot, net: NetClient, game: str, url: str | No
     return str(path)
 
 
-async def render_credits(bot: ChumaiBot, discord_id: int, game: str, select) -> tuple[list[bytes], list]:
-    """Fetch the play log and render the credits of the records chosen by `select(records)`."""
+CHUNITHM_RECORD_DIFFS = ["BASIC", "ADVANCED", "EXPERT", "MASTER", "ULTIMA"]
+
+
+async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None) -> dict[tuple[str, str], float]:
+    """Best score per (title, difficulty) from the record pages, for `diffs` (all if None)."""
+    out: dict[tuple[str, str], float] = {}
+    if game == "chunithm":
+        for d in CHUNITHM_RECORD_DIFFS:
+            if diffs is None or d in diffs:
+                html = await net.post(f"/mobile/record/musicGenre/send{d.capitalize()}", {"genre": "99"})
+                out.update({(r.title, r.difficulty): r.score for r in net_parsers.parse_chunithm_rating_list(html)})
+    else:
+        for i, base in enumerate(net_parsers.MAIMAI_DIFFS):
+            if diffs is None or base in diffs or f"DX {base}" in diffs:
+                html = await net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={i}")
+                out.update({(r.title, r.difficulty): r.achievement for r in net_parsers.parse_maimai_scores(html, i)})
+    return out
+
+
+async def seed_bests(bot: ChumaiBot, net: NetClient, discord_id: int, game: str, play_key: str) -> None:
+    try:
+        bot.links.save_bests(discord_id, game, await fetch_bests(net, game), play_key)
+    except Exception:
+        log.warning("could not load best scores", exc_info=True)
+
+
+async def render_credits(bot: ChumaiBot, discord_id: int, game: str, select,
+                         save_bests: bool = False) -> tuple[list[bytes], list]:
+    """Fetch the play log and render the credits of the records chosen by `select(records)`.
+
+    Each play gets a badge: NEW (+improvement), TIE or BEST <score>. The improvement comes from
+    the best scores saved last time; `save_bests` stores the current ones for next time.
+    """
     token = bot.links.get_sega_token(discord_id)
     if token is None:
         raise SegaError("`/login` 으로 먼저 SEGA ID 로그인을 해 주세요.")
@@ -378,6 +410,19 @@ async def render_credits(bot: ChumaiBot, discord_id: int, game: str, select) -> 
         else:
             player = net_parsers.parse_maimai_player(await net.get("/maimai-mobile/home/"))
         icon = await _fetch_image(net, player.icon_url)
+
+        cache, cache_key = bot.links.get_bests(discord_id, game)
+        latest = max(r.key for r in records)
+        diffs = None if cache_key is None else {r.difficulty for r in records if r.key > cache_key}
+        try:
+            now = await fetch_bests(net, game, diffs) if diffs != set() else {}
+        except Exception:
+            log.warning("could not load best scores", exc_info=True)
+            now = None
+        marks = play_badges(chosen, cache, cache_key, now or {})
+        if now is not None and (save_bests or cache_key is None):
+            bot.links.save_bests(discord_id, game, now, latest)
+
         images = []
         for credit in net_parsers.group_credits(chosen):
             entries = []
@@ -386,7 +431,7 @@ async def render_credits(bot: ChumaiBot, discord_id: int, game: str, select) -> 
                 e.jacket_path = await _cached_image(bot, net, game, r.jacket_url)
                 entries.append(e)
             png = await asyncio.to_thread(
-                render_credit, game, player.name, entries, [r.new_record for r in credit], credit[0].date, icon,
+                render_credit, game, player.name, entries, [marks.get(r.key) for r in credit], credit[0].date, icon,
                 player.rating,
             )
             images.append(png)
@@ -406,7 +451,8 @@ async def check_playlog(
     """Post credits played since last_key. Returns True if there were new plays."""
     if bot.links.get_sega_token(discord_id) is None:
         return False
-    images, new = await render_credits(bot, discord_id, game, lambda rs: [r for r in rs if r.key > last_key])
+    images, new = await render_credits(bot, discord_id, game, lambda rs: [r for r in rs if r.key > last_key],
+                                       save_bests=update)
     if not new:
         return False
     if update:

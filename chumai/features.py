@@ -364,10 +364,18 @@ def register(bot: ChumaiBot) -> None:
             await interaction.followup.send("추천할 곡을 찾지 못했어요.")
             return
         jackets = await _jackets(bot, game, [r.song.jacket_key for r in recs])
-        rows = [_chart_row(r.song, r.chart, jackets.get(i), right=f"+{tools.fmt_rating(game, r.gain)}",
-                           right_sub=f"목표 {tools.fmt_score(game, r.target_score)}") for i, r in enumerate(recs)]
+        rows = []
+        for i, r in enumerate(recs):
+            gone = r.replaces
+            note = (f"{'NEW' if r.is_new else 'BEST'} 최하위 {gone.title} ({gone.rating_text}) → "
+                    f"이 곡 {tools.fmt_rating(game, r.song_rating)}") if gone else None
+            rows.append(_chart_row(
+                r.song, r.chart, jackets.get(i), right=f"+{tools.fmt_rating(game, r.after - r.before)}",
+                right_sub=f"{tools.fmt_rating(game, r.before)} » {tools.fmt_rating(game, r.after)}",
+                sub_line=f"목표 {tools.fmt_score(game, r.target_score)}", note=note))
         png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows,
-                                      "평소 점수(B50 중앙값)로 치면 B50의 가장 낮은 곡을 밀어내요", None, 2)
+                                      f"현재 {tools.fmt_rating(game, b50.total)} · 평소 점수(B50 중앙값)로 쳤을 때",
+                                      None, 2)
         await interaction.followup.send(file=_image(png, f"recommend_{game}"))
 
     # ----------------------------------------------------------------- guessing

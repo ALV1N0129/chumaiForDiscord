@@ -1,4 +1,4 @@
-"""Per-user data in SQLite: SEGA ID login tokens."""
+"""Per-user data in SQLite: SEGA ID login tokens, play log subscriptions and best scores."""
 
 from __future__ import annotations
 
@@ -23,6 +23,20 @@ class LinkStore:
                 game TEXT NOT NULL,
                 channel_id INTEGER NOT NULL,
                 last_key TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (discord_id, game)
+            );
+            CREATE TABLE IF NOT EXISTS best_scores (
+                discord_id INTEGER NOT NULL,
+                game TEXT NOT NULL,
+                title TEXT NOT NULL,
+                difficulty TEXT NOT NULL,
+                score REAL NOT NULL,
+                PRIMARY KEY (discord_id, game, title, difficulty)
+            );
+            CREATE TABLE IF NOT EXISTS best_scores_at (
+                discord_id INTEGER NOT NULL,
+                game TEXT NOT NULL,
+                play_key TEXT NOT NULL,
                 PRIMARY KEY (discord_id, game)
             );
             CREATE TABLE IF NOT EXISTS sega_tokens (
@@ -66,6 +80,8 @@ class LinkStore:
 
     def delete_sega_token(self, discord_id: int) -> bool:
         cur = self._db.execute("DELETE FROM sega_tokens WHERE discord_id = ?", (discord_id,))
+        self._db.execute("DELETE FROM best_scores WHERE discord_id = ?", (discord_id,))
+        self._db.execute("DELETE FROM best_scores_at WHERE discord_id = ?", (discord_id,))
         self._db.commit()
         return cur.rowcount > 0
 
@@ -103,6 +119,32 @@ class LinkStore:
     def update_playlog_key(self, discord_id: int, game: str, last_key: str) -> None:
         self._db.execute(
             "UPDATE playlog_subs SET last_key = ? WHERE discord_id = ? AND game = ?", (last_key, discord_id, game)
+        )
+        self._db.commit()
+
+    # ---- best scores (to show how much a play log record improved)
+
+    def get_bests(self, discord_id: int, game: str) -> tuple[dict[tuple[str, str], float], str | None]:
+        """({(title, difficulty): best score}, play-log key of the newest play they include)."""
+        rows = self._db.execute(
+            "SELECT title, difficulty, score FROM best_scores WHERE discord_id = ? AND game = ?", (discord_id, game)
+        )
+        bests = {(t, d): s for t, d, s in rows}
+        at = self._db.execute(
+            "SELECT play_key FROM best_scores_at WHERE discord_id = ? AND game = ?", (discord_id, game)
+        ).fetchone()
+        return bests, at[0] if at else None
+
+    def save_bests(self, discord_id: int, game: str, bests: dict[tuple[str, str], float], play_key: str) -> None:
+        self._db.executemany(
+            "INSERT INTO best_scores (discord_id, game, title, difficulty, score) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(discord_id, game, title, difficulty) DO UPDATE SET score = excluded.score",
+            [(discord_id, game, t, d, s) for (t, d), s in bests.items()],
+        )
+        self._db.execute(
+            "INSERT INTO best_scores_at (discord_id, game, play_key) VALUES (?, ?, ?) "
+            "ON CONFLICT(discord_id, game) DO UPDATE SET play_key = excluded.play_key",
+            (discord_id, game, play_key),
         )
         self._db.commit()
 

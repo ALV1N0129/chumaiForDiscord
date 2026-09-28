@@ -193,6 +193,11 @@ class Recommendation:
     chart: CatalogChart
     target_score: float
     gain: Fraction  # rating gained for the B50 total (before averaging for CHUNITHM)
+    song_rating: Fraction | None = None  # rating of the chart at target_score
+    replaces: Entry | None = None  # the B50 entry it pushes out
+    is_new: bool = False  # goes into the new-version section
+    before: Fraction | None = None  # B50 total now
+    after: Fraction | None = None  # B50 total with this score
 
 
 def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
@@ -216,7 +221,7 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
             new = is_new_version(chart, new_versions)
             gain = chart_rating(game, chart.level_const, usual) - floors[new]
             if gain > 0:
-                candidates.append(Recommendation(song, chart, usual, gain))
+                candidates.append(Recommendation(song, chart, usual, gain, is_new=new))
     # biggest gains among charts no harder than what is already in the B50, with a little variety
     ceiling = max(e.level_const for e in entries) + 0.2
     reachable = [r for r in candidates if r.chart.level_const <= ceiling] or candidates
@@ -224,4 +229,9 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
     head = reachable[: max(count * 3, count)]
     rng = rng or random.Random()
     picked = rng.sample(head, min(count, len(head)))
-    return sorted(picked, key=lambda r: -r.gain)
+    for r in picked:
+        section = b50.new if r.is_new else b50.old
+        r.replaces = min(section, key=lambda e: e.rating, default=None)
+        result = what_if(b50, r.song, r.chart, usual, r.is_new)
+        r.song_rating, r.before, r.after = result.entry.rating, result.before, result.after
+    return sorted(picked, key=lambda r: (-(r.after - r.before), -r.gain))

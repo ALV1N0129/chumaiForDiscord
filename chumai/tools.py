@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 from . import rating
-from .b50 import B50, Entry, make_entry, select_b50
+from .b50 import SLOTS, B50, Entry, make_entry, select_b50
 from .songdb import CatalogChart, CatalogSong, SongDB, normalize_title
 
 DIFF_SHORT = {
@@ -208,6 +208,8 @@ class Recommendation:
     is_new: bool = False  # goes into the new-version section
     before: Fraction | None = None  # B50 total now
     after: Fraction | None = None  # B50 total with this score
+    raw_before: Fraction | None = None  # B50 average (CHUNITHM) / sum (maimai) before truncating
+    raw_after: Fraction | None = None
 
 
 # CHUNITHM: a realistic score for a chart, from how far its constant is below your rating
@@ -316,4 +318,9 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
         r.replaces = min(section, key=lambda e: e.rating, default=None)
         result = what_if(b50, r.song, r.chart, r.target_score, r.is_new)
         r.song_rating, r.before, r.after = result.entry.rating, result.before, result.after
-    return sorted(picked, key=lambda r: (-(r.after - r.before), -r.gain))
+        slots = SLOTS[game][1 if r.is_new else 0]
+        pushed_out = r.replaces.rating if r.replaces is not None and len(section) >= slots else Fraction(0)
+        divisor = 50 if game == "chunithm" else 1
+        r.raw_before = (b50.old_sum + b50.new_sum) / divisor
+        r.raw_after = r.raw_before + (r.song_rating - pushed_out) / divisor
+    return sorted(picked, key=lambda r: (-(r.raw_after - r.raw_before), -r.gain))

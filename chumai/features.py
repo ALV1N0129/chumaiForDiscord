@@ -386,9 +386,14 @@ def register(bot: ChumaiBot) -> None:
             gone = r.replaces
             note = (f"{'NEW' if r.is_new else 'BEST'} 최하위 {gone.title} ({gone.rating_text}) → "
                     f"이 곡 {tools.fmt_rating(game, r.song_rating)}") if gone else None
+            if game == "chunithm":  # one chart moves the average by thousandths: show them
+                right = f"+{float(r.raw_after - r.raw_before):.3f}"
+                right_sub = f"{float(r.raw_before):.3f} » {float(r.raw_after):.3f}"
+            else:
+                right = f"+{tools.fmt_rating(game, r.after - r.before)}"
+                right_sub = f"{tools.fmt_rating(game, r.before)} » {tools.fmt_rating(game, r.after)}"
             rows.append(_chart_row(
-                r.song, r.chart, jackets.get(i), right=f"+{tools.fmt_rating(game, r.after - r.before)}",
-                right_sub=f"{tools.fmt_rating(game, r.before)} » {tools.fmt_rating(game, r.after)}",
+                r.song, r.chart, jackets.get(i), right=right, right_sub=right_sub,
                 sub_line=f"목표 {_rank(game, r.target_score)} {tools.fmt_score(game, r.target_score)}", note=note))
         if game == "chunithm":
             sub = f"현재 {tools.fmt_rating(game, b50.total)} · {tools.chunithm_advice(float(b50.total))}"

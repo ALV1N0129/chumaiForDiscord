@@ -33,7 +33,8 @@ def _gateway_app(site_url: str, state: dict) -> web.Application:
                                 headers={"Set-Cookie": "clal=fromheader; Domain=example.com; Path=/"})
         if form.get("sid") in ("late", "nocookie") and form.get("password") == "pw":
             raise web.HTTPFound(f"{site_url}/mobile/?ssid={form.get('sid')}")
-        raise web.HTTPFound("/common_auth/login?site_id=chuniex")
+        # like the real gateway: back to the login page, with the game site in the query string
+        raise web.HTTPFound(f"/common_auth/login?site_id=chuniex&redirect_url={site_url}/mobile/")
 
     async def otpauth(request):
         form = await request.post()
@@ -183,3 +184,9 @@ def test_login_token_fallbacks(fake_sega, caplog):
     with pytest.raises(segaid.LoginFailed, match="토큰"):
         fake_sega(lambda s: segaid.login("nocookie", "pw"))
     assert "login ok but no clal" in caplog.text and "pw" not in caplog.text
+
+
+def test_failed_login_is_not_mistaken_for_success(fake_sega, caplog):
+    with pytest.raises(segaid.LoginFailed, match="비밀번호가 올바르지 않아요"):
+        fake_sega(lambda s: segaid.login("user", "wrong"))
+    assert "login refused" in caplog.text and "wrong" not in caplog.text

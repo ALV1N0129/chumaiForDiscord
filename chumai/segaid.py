@@ -92,6 +92,13 @@ def _get_clal(session: aiohttp.ClientSession) -> str | None:
     return None
 
 
+def _to_game_site(location: str) -> bool:
+    """A successful login redirects to a game site. A failed one goes back to the gateway, whose
+    URL also mentions the game site (as redirect_url), so compare hosts, not text."""
+    host = URL(location).host or ""
+    return any(host == site.base.host for site in SITES.values())
+
+
 def _clal_from_headers(resp: aiohttp.ClientResponse) -> str | None:
     """clal straight from the Set-Cookie headers, in case the cookie jar refused to store it."""
     for header in resp.headers.getall("Set-Cookie", []):
@@ -133,11 +140,15 @@ async def login(sega_id: str, password: str, otp: str | None = None) -> str:
                 allow_redirects=False,
             )
             location = resp.headers.get("Location", "")
-            if not any(site.base.host in location for site in SITES.values()):
+            if not _to_game_site(location):
                 raise LoginFailed("2단계 인증 코드가 올바르지 않아요.")
 
-        if not any(site.base.host in location for site in SITES.values()):
-            raise LoginFailed("SEGA ID 또는 비밀번호가 올바르지 않아요.")
+        if not _to_game_site(location):
+            # back to the gateway: wrong ID/password, or SEGA refused the login (e.g. too many tries)
+            log.warning("login refused: status=%s location=%s%s", resp.status, URL(location).host or "",
+                        URL(location).path)
+            raise LoginFailed("SEGA ID 또는 비밀번호가 올바르지 않아요. "
+                              "(맞다면 여러 번 실패해서 잠시 막힌 것일 수 있어요. 몇 분 뒤에 다시 해 주세요)")
 
         clal = _get_clal(s) or _clal_from_headers(resp)
         if not clal:

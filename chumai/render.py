@@ -785,6 +785,28 @@ def _draw_play_badge(canvas: Image.Image, right: int, y: int, game: str, badge) 
     ImageDraw.Draw(canvas).text((bx + bw // 2, y + bh // 2), text, font=f, fill=fg, anchor="mm")
 
 
+def _draw_credit_summary(canvas: Image.Image, box: tuple[int, int, int, int], game: str, entries: list[Entry],
+                         badges: list, theme: dict) -> None:
+    """Tracks played, new records and the average song rating, as a card in an unplayed slot."""
+    x0, y0, x1, y1 = box
+    _panel(canvas, box, theme["card"], alpha=200, radius=RADIUS)
+    draw = ImageDraw.Draw(canvas)
+    draw.text((x0 + 18, y0 + 16), "CREDIT", font=num(16, "SemiBold"), fill=theme["accent"])
+    ratings = [e.rating for e in entries]
+    avg = sum(ratings) / len(ratings)
+    new = sum(1 for b in badges if b is not None and b.kind == "new")
+    stats = [
+        ("TRACKS", str(len(entries)), WHITE),
+        ("NEW RECORD", str(new), (255, 200, 120) if new else WHITE),
+        ("AVG RATING", f"{float(avg):.0f}" if game == "maimai" else f"{float(avg):.2f}", WHITE),
+    ]
+    col = (x1 - x0 - 36) / len(stats)
+    for k, (label, value, color) in enumerate(stats):
+        cx = x0 + 18 + col * k
+        draw.text((cx, y1 - 26), label, font=num(14, "SemiBold"), fill=MUTED, anchor="ls")
+        draw.text((cx, y1 - 42), value, font=num(38), fill=color, anchor="ls")
+
+
 def render_credit(game: str, player: str, entries: list[Entry], badges: list, date: str,
                   icon: bytes | None = None, rating: str | None = None) -> bytes:
     """One credit as a fixed-size 2x2 grid, so every credit shows at the same size in Discord.
@@ -831,10 +853,21 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
         canvas.alpha_composite(badge, (bx, by))
         draw.text((bx + bw // 2, by + bh // 2), "C to C", font=num(17), fill=(20, 18, 30), anchor="mm")
 
+    # an unplayed slot shows a summary of the credit instead of an empty card
+    summary_at = {1: 1, 2: 2, 3: 3}.get(len(entries), -1)
     for i in range(slots):
         r, c = divmod(i, cols)
         cx, cy = MARGIN + c * (CARD_W + GAP_X), header + r * (CARD_H + GAP_Y)
+        if i >= len(entries) and i == summary_at:
+            if len(entries) == 2:  # the whole second row
+                box = (cx, cy, cx + 2 * CARD_W + GAP_X, cy + CARD_H)
+            else:
+                box = (cx, cy, cx + CARD_W, cy + CARD_H)
+            _draw_credit_summary(canvas, box, game, entries, badges, theme)
+            continue
         if i >= len(entries):
+            if len(entries) == 2:
+                continue  # covered by the summary
             empty = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
             empty.paste(Image.new("RGBA", (CARD_W, CARD_H), (10, 8, 18, 90)), (0, 0), _rounded_mask((CARD_W, CARD_H), RADIUS))
             canvas.alpha_composite(empty, (cx, cy))

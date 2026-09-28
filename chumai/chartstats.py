@@ -44,8 +44,8 @@ def build(music: Iterator[dict], stats: Iterator[tuple[str, list]]) -> dict[str,
     """{"<normalized title>\\t<difficulty>": [official constant - fit_diff, plays]}"""
     songs = {}
     for song in music:
-        if song.get("type") not in ("SD", "DX") or not song.get("title"):
-            continue  # 宴 (utage) and the like
+        if song.get("type") not in ("SD", "DX") or not song.get("title") or int(song.get("id") or 0) >= 100000:
+            continue  # 宴 (utage) charts have ids from 100000
         prefix = "DX " if song["type"] == "DX" else ""
         songs[str(song.get("id"))] = (normalize_title(song["title"]), prefix, song.get("ds") or [])
     out: dict[str, list[float]] = {}

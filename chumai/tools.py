@@ -269,6 +269,8 @@ MAIMAI_TARGETS = [100.5, 100.0, 99.5, 99.0, 98.0, 97.0]
 MAIMAI_RANK_NAMES = {100.5: "SSS+", 100.0: "SSS", 99.5: "SS+", 99.0: "SS", 98.0: "S+", 97.0: "S"}
 SKILL_WIDTH = 0.3  # how far (in constant) your other scores still say something about a chart
 SKILL_SLOPE = 2.5  # achievement % lost per +1.0 constant, to compare scores on nearby constants
+MIN_WEIGHT = 2.5  # about this many scores near a constant before we guess at it
+HONEY_WEIGHT = 20  # rating points a chart playing 1.0 easier than its constant is worth when ranking
 TARGET_STRETCH = 0.35  # a border this much above your expected achievement is still a fair target
 
 
@@ -304,7 +306,7 @@ class MaimaiSkill:
             if abs(d) <= 3:
                 weighted.append((a - SKILL_SLOPE * (const - c), 2.0 ** (-d * d)))
         total = sum(w for _, w in weighted)
-        if total < 1.5:  # too few scores near this constant to say
+        if total < MIN_WEIGHT:  # too few scores near this constant to say
             return None
         weighted.sort()
         run = 0.0
@@ -417,14 +419,15 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
     by_const: dict[float, list[Recommendation]] = {}
     for r in candidates:
         by_const.setdefault(r.chart.level_const, []).append(r)
-    sweetness = lambda r: r.honey or 0.0  # noqa: E731
+    # rank by the gain plus how easy the chart plays: a "꿀곡" is worth more than its target alone
+    # says, since you are likelier to get it (and to do better)
+    value = lambda r: float(r.gain) + HONEY_WEIGHT * max(0.0, r.honey or 0.0)  # noqa: E731
     for group in by_const.values():
-        # the most to gain, and of those the sweetest; random among near-equals for variety
-        group.sort(key=lambda r: (-r.gain, -sweetness(r)))
-        top = [r for r in group if r.gain == group[0].gain and sweetness(r) >= sweetness(group[0]) - 0.1]
+        group.sort(key=lambda r: -value(r))
+        top = [r for r in group if value(r) >= value(group[0]) - 2]  # random among near-equals
         rng.shuffle(top)
         group[: len(top)] = top
-    ranked = sorted(by_const.values(), key=lambda g: (-g[0].gain, -sweetness(g[0]), g[0].chart.level_const))
+    ranked = sorted(by_const.values(), key=lambda g: (-max(value(r) for r in g), g[0].chart.level_const))
     picked, songs = [], set()
 
     def take(r: Recommendation) -> None:

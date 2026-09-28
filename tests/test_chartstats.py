@@ -8,7 +8,7 @@ from chumai import chartstats
 MUSIC = [
     {"id": "834", "title": "Sweet Song", "type": "SD", "ds": [3.0, 6.0, 9.5, 12.8, 13.2]},
     {"id": "10834", "title": "Sweet Song", "type": "DX", "ds": [4.0, 7.0, 10.0, 13.0]},
-    {"id": "100001", "title": "[宴]Party", "type": "UTAGE", "ds": [13.0]},
+    {"id": "100001", "title": "[宴]Party", "type": "DX", "ds": [13.0]},
 ]
 STATS = {"charts": {
     "834": [{}, {}, {"fit_diff": 9.6, "cnt": 800}, {"fit_diff": 12.3, "cnt": 5000}, {"fit_diff": 13.3, "cnt": 20}],

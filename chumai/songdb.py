@@ -41,6 +41,29 @@ class ChartInfo:
     display_version: str
 
 
+@dataclass
+class CatalogChart:
+    difficulty: str
+    level: str
+    level_const: float
+    display_version: str
+
+
+@dataclass
+class CatalogSong:
+    game: str  # "chunithm" / "maimai"
+    title: str
+    artist: str
+    genre: str
+    keys: list[str]  # normalized title + alternative titles / search terms
+    charts: list[CatalogChart]
+    music_id: int | None = None  # CHUNITHM in-game id (for jackets)
+
+    @property
+    def jacket_key(self):
+        return self.music_id if self.game == "chunithm" else (self.title, self.genre)
+
+
 def normalize_title(title: str) -> str:
     return unicodedata.normalize("NFKC", title).strip().lower()
 
@@ -68,10 +91,29 @@ class SongDB:
         self.maimai: dict[tuple[str, str], list[ChartInfo]] = {}
         # CHUNITHM by (normalized title, difficulty), for play logs that have no music id
         self.chunithm_titles: dict[tuple[str, str], ChartInfo] = {}
+        # every song with all of its charts, for search / random / const lists
+        self.catalog: dict[str, list[CatalogSong]] = {"chunithm": [], "maimai": []}
 
     def load(self, seeds: dict[str, list[dict]]) -> None:
         for game in ("chunithm", "maimaidx"):
             songs = {s["id"]: s for s in seeds[f"songs-{game}"]}
+            name = "maimai" if game == "maimaidx" else "chunithm"
+            by_song: dict[str, CatalogSong] = {}
+            for sid, song in songs.items():
+                keys = [normalize_title(t) for t in [song["title"], *song.get("altTitles", []),
+                                                     *song.get("searchTerms", [])] if t]
+                by_song[sid] = CatalogSong(name, song["title"], song.get("artist", ""),
+                                           song.get("data", {}).get("genre", ""), keys, [])
+            for c in seeds[f"charts-{game}"]:
+                cs = by_song.get(c["songID"])
+                if cs is None:
+                    continue
+                cs.charts.append(CatalogChart(c["difficulty"], str(c["level"]), float(c["levelNum"]),
+                                              c.get("data", {}).get("displayVersion", "")))
+                ids = c.get("data", {}).get("inGameID")
+                if name == "chunithm" and cs.music_id is None and ids is not None:
+                    cs.music_id = int(ids[0] if isinstance(ids, list) else ids)
+            self.catalog[name] = [cs for cs in by_song.values() if cs.charts]
             for c in seeds[f"charts-{game}"]:
                 song = songs.get(c["songID"])
                 if song is None:
@@ -141,7 +183,31 @@ class SongDB:
             seeds[n] = json.loads(path.read_text(encoding="utf-8"))
         self.chunithm.clear()
         self.chunithm_titles.clear()
+        self.catalog = {"chunithm": [], "maimai": []}
         self.maimai.clear()
         self.load(seeds)
         log.info("song database loaded: %d CHUNITHM charts, %d maimai charts",
                  len(self.chunithm), sum(len(v) for v in self.maimai.values()))
+
+
+def search(db: SongDB, game: str, query: str, limit: int = 10) -> list[CatalogSong]:
+    """Exact title, then prefix, then substring, then fuzzy matches."""
+    import difflib
+
+    q = normalize_title(query)
+    if not q:
+        return []
+    songs = db.catalog.get(game, [])
+    exact = [s for s in songs if q in s.keys]
+    prefix = [s for s in songs if s not in exact and any(k.startswith(q) for k in s.keys)]
+    sub = [s for s in songs if s not in exact and s not in prefix and any(q in k for k in s.keys)]
+    found = exact + prefix + sub
+    if len(found) < limit:
+        key_to_song = {}
+        for s in songs:
+            for k in s.keys:
+                key_to_song.setdefault(k, s)
+        for k in difflib.get_close_matches(q, list(key_to_song), n=limit, cutoff=0.6):
+            if key_to_song[k] not in found:
+                found.append(key_to_song[k])
+    return found[:limit]

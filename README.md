@@ -42,6 +42,17 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/playlog off game:<maimai\|chunithm>` | 자동 업로드 끄기 |
 | `/playlog test game:<maimai\|chunithm>` | 최근 크레딧 하나를 바로 올려 보기 (확인용) |
 | `/update` | GitHub에서 최신 코드를 바로 받아 재시작 (봇 주인만). 자동으로도 1분마다 확인합니다 |
+| `/profile game:` | 프로필 카드 (아이콘, 칭호, 레벨, 네임플레이트, 레이팅) |
+| `/recent game:` | 가장 최근 크레딧 |
+| `/info game: song:` | 곡 정보 (난이도별 레벨·상수, 아티스트, 장르, 버전, 자켓) |
+| `/jacket game: song:` | 자켓 이미지 |
+| `/const game: min: [max:]` | 상수 범위의 보면 목록 |
+| `/random game: min: [max:] [count:]` | 랜덤 선곡 |
+| `/reach game: const: target:` | 목표 곡 레이팅에 필요한 점수 |
+| `/whatif game: song: difficulty: score:` | 그 점수를 받으면 레이팅이 어떻게 바뀌는지 |
+| `/recommend game:` | 레이팅 올리기 좋은 곡 추천 |
+| `/guess game:` / `/answer title:` | 자켓 일부를 보고 곡 맞히기 |
+| `/help` | 명령어 목록 |
 | `/calc game:<maimai\|chunithm> const:<상수> score:<점수>` | 단일 곡 레이팅 계산 (maimai는 달성률 %, CHUNITHM은 점수) |
 
 ### 플레이 기록 자동 업로드

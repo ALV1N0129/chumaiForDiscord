@@ -13,7 +13,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import net_parsers, rating, render, updater
+from . import features, net_parsers, rating, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .config import Config
 from .jackets import JacketStore
@@ -41,6 +41,7 @@ class ChumaiBot(discord.Client):
         self.songdb = SongDB()
         self.jackets = JacketStore(config.jacket_dir)
         register_commands(self)
+        features.register(self)
 
     async def setup_hook(self) -> None:
         await self.songdb.load_or_update(self.config.songdb_dir)
@@ -345,26 +346,23 @@ async def _cached_image(bot: ChumaiBot, net: NetClient, game: str, url: str | No
     return str(path)
 
 
-async def check_playlog(
-    bot: ChumaiBot, discord_id: int, game: str, channel_id: int, last_key: str, update: bool = True
-) -> bool:
-    """Post credits played since last_key. Returns True if there were new plays."""
+async def render_credits(bot: ChumaiBot, discord_id: int, game: str, select) -> tuple[list[bytes], list]:
+    """Fetch the play log and render the credits of the records chosen by `select(records)`."""
     token = bot.links.get_sega_token(discord_id)
     if token is None:
-        return False
-    channel = bot.get_channel(channel_id)
+        raise SegaError("`/login` 으로 먼저 SEGA ID 로그인을 해 주세요.")
     async with NetClient(game, token) as net:
         records = parse_playlog(game, await net.get(PLAYLOG_PATHS[game]))
-        new = [r for r in records if r.key > last_key]
-        if not new:
-            return False
+        chosen = select(records)
+        if not chosen:
+            return [], []
         if game == "chunithm":
             player = net_parsers.parse_chunithm_player(await net.get("/mobile/home/playerData/"))
         else:
             player = net_parsers.parse_maimai_player(await net.get("/maimai-mobile/home/"))
         icon = await _fetch_image(net, player.icon_url)
         images = []
-        for credit in net_parsers.group_credits(new):
+        for credit in net_parsers.group_credits(chosen):
             entries = []
             for r in credit:
                 e = to_entry(game, r, bot.songdb)
@@ -377,8 +375,26 @@ async def check_playlog(
             images.append(png)
     if net.clal != token:
         bot.links.set_sega_token(discord_id, net.clal)
+    return images, chosen
+
+
+def latest_credit(records):
+    credits = net_parsers.group_credits(records)
+    return credits[-1] if credits else []
+
+
+async def check_playlog(
+    bot: ChumaiBot, discord_id: int, game: str, channel_id: int, last_key: str, update: bool = True
+) -> bool:
+    """Post credits played since last_key. Returns True if there were new plays."""
+    if bot.links.get_sega_token(discord_id) is None:
+        return False
+    images, new = await render_credits(bot, discord_id, game, lambda rs: [r for r in rs if r.key > last_key])
+    if not new:
+        return False
     if update:
         bot.links.update_playlog_key(discord_id, game, max(r.key for r in new))
+    channel = bot.get_channel(channel_id)
     if channel is not None:
         for i, png in enumerate(images):
             await channel.send(file=discord.File(io.BytesIO(png), filename=f"playlog_{game}_{i}.png"))

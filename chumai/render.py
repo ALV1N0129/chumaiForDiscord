@@ -806,3 +806,75 @@ def render_credit(game: str, player: str, entries: list[Entry], new_flags: list[
     buf = io.BytesIO()
     canvas.convert("RGB").save(buf, format="PNG", optimize=True)
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------- profile
+
+
+def render_profile(game: str, name: str, rating: str | None, title: str | None, title_rarity: str | None,
+                   level: str | None, icon: bytes | None, plate: bytes | None) -> bytes:
+    """Profile card: nameplate, icon, title, level, name and the rating plate."""
+    from types import SimpleNamespace
+
+    theme = THEMES[game]
+    st = STYLES["version"]
+    width, height = MARGIN * 2 + 2 * CARD_W + GAP_X, 220
+    canvas = _background(SimpleNamespace(game=game, old=[], new=[], icon=icon), (width, height), theme, st)
+
+    cw, ch = width - MARGIN * 2 - 360, 150
+    cx, cy = MARGIN, 36
+    nameplate = _open_image(plate)
+    if nameplate is not None:
+        bg = ImageOps.fit(nameplate.convert("RGB"), (cw, ch), Image.LANCZOS).convert("RGBA")
+        shade = Image.new("RGBA", (cw, ch), (8, 6, 16, 0))
+        shade.putalpha(Image.linear_gradient("L").resize((cw, ch)).point(lambda v: max(0, v - 60) * 170 // 195))
+        bg.alpha_composite(shade)
+    else:
+        bg = Image.new("RGBA", (cw, ch), (*theme["card"], 235))
+    card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    card.paste(bg, (0, 0), _rounded_mask((cw, ch), 18))
+    ImageDraw.Draw(card).rounded_rectangle((0, 0, cw - 1, ch - 1), radius=18, outline=(255, 255, 255, 60), width=2)
+    canvas.alpha_composite(card, (cx, cy))
+    draw = ImageDraw.Draw(canvas)
+
+    tx, right = cx + 20, cx + cw - 16
+    ic = _open_image(icon)
+    if ic is not None:
+        size = ch - 28
+        ic = ImageOps.fit(ic, (size, size), Image.LANCZOS)
+        framed = Image.new("RGBA", (size, size), (20, 18, 30, 255))
+        framed.alpha_composite(ic)
+        out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        out.paste(framed, (0, 0), _rounded_mask((size, size), 14))
+        canvas.alpha_composite(out, (right - size, cy + 14))
+        right -= size + 16
+
+    if title:
+        colors = TITLE_COLORS.get((title_rarity or "normal").lower(), TITLE_COLORS["normal"])
+        t = _fit(draw, title, cjk(16), right - tx - 40)
+        tw = int(draw.textlength(t, font=cjk(16))) + 40
+        rim = _gradient_fill((tw, 30), colors)
+        rim.putalpha(_rounded_mask((tw, 30), 15))
+        canvas.alpha_composite(rim, (tx, cy + 16))
+        core = Image.new("RGBA", (tw - 4, 26), (0, 0, 0, 0))
+        core.paste(Image.new("RGBA", core.size, (14, 12, 24, 215)), (0, 0), _rounded_mask(core.size, 13))
+        canvas.alpha_composite(core, (tx + 2, cy + 18))
+        draw.text((tx + tw // 2, cy + 31), t, font=cjk(16), fill=WHITE, anchor="mm")
+
+    base = cy + ch - 26
+    nx = tx
+    if level:
+        lv = f"Lv.{level}"
+        draw.text((nx, base), lv, font=num(26, "SemiBold"), fill=(235, 235, 245), anchor="ls",
+                  stroke_width=2, stroke_fill=(10, 8, 18))
+        nx += draw.textlength(lv, font=num(26, "SemiBold")) + 16
+    shown = unicodedata.normalize("NFKC", name)
+    draw.text((nx, base + 2), _fit(draw, shown, cjk(44), right - nx), font=cjk(44), fill=WHITE, anchor="ls",
+              stroke_width=3, stroke_fill=(10, 8, 18))
+
+    if rating:
+        _draw_plate(canvas, game, rating, width, st)
+
+    buf = io.BytesIO()
+    canvas.convert("RGB").save(buf, format="PNG", optimize=True)
+    return buf.getvalue()

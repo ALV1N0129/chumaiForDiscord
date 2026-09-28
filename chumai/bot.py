@@ -84,7 +84,7 @@ class ChumaiBot(discord.Client):
     async def _wait_ready(self) -> None:
         await self.wait_until_ready()
 
-    @tasks.loop(minutes=2)
+    @tasks.loop(minutes=1)
     async def check_update(self) -> None:
         if await updater.pull_if_updated():
             log.info("new version pulled; restarting")
@@ -215,6 +215,24 @@ def register_commands(bot: ChumaiBot) -> None:
         await interaction.followup.send("최근 크레딧을 올렸어요.", ephemeral=True)
 
     tree.add_command(playlog)
+
+    @tree.command(name="update", description="GitHub에서 최신 코드를 바로 받아서 봇을 재시작합니다 (봇 주인만)")
+    async def update_cmd(interaction: discord.Interaction) -> None:
+        app = await bot.application_info()
+        owners = {m.id for m in app.team.members} if app.team else {app.owner.id}
+        if interaction.user.id not in owners:
+            await interaction.response.send_message("봇 주인만 쓸 수 있어요.", ephemeral=True)
+            return
+        if not updater.enabled():
+            await interaction.response.send_message("git으로 받은 폴더가 아니라서 업데이트할 수 없어요.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await updater.pull_if_updated():
+            await interaction.followup.send("이미 최신 버전이에요.", ephemeral=True)
+            return
+        await interaction.followup.send("새 버전을 받았어요. 몇 초 뒤 재시작돼요.", ephemeral=True)
+        bot.restart_requested = True
+        await bot.close()
 
     @tree.command(name="calc", description="보면 상수와 점수로 단일 곡 레이팅을 계산합니다")
     @app_commands.describe(

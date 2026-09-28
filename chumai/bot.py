@@ -65,6 +65,7 @@ class ChumaiBot(discord.Client):
             render.cjk.cache_clear()
         self.refresh_songdb.start()
         if updater.enabled():
+            await updater.remember_start()
             self.check_update.start()
         self.poll_playlogs.start()
         if self.config.guild_id:
@@ -110,7 +111,9 @@ class ChumaiBot(discord.Client):
         if await updater.pull_if_updated():
             log.info("new version pulled; restarting")
             self.restart_requested = True
-            await self.close()
+            # close() cancels this loop, so it must run in its own task: awaited here, the
+            # cancellation would stop it halfway and the old code would keep running
+            self._restart_task = asyncio.create_task(self.close())
 
     @tasks.loop(hours=24)
     async def refresh_songdb(self) -> None:

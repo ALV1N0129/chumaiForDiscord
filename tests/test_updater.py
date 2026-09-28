@@ -24,6 +24,13 @@ def test_check_pulls_and_explains_failures(tmp_path, monkeypatch):
     pulled, msg = asyncio.run(updater.check())
     assert not pulled and "이미 최신" in msg
 
+    # files already up to date, but the running bot started from an older commit: restart
+    monkeypatch.setattr(updater, "started_at", "0000000")
+    restart, msg = asyncio.run(updater.check())
+    assert restart and "재시작" in msg
+    asyncio.run(updater.remember_start())
+    assert not asyncio.run(updater.check())[0]
+
     (work / "a.txt").write_text("2")
     _git(work, "commit", "-qam", "two")
     _git(work, "push", "-q", "origin", "HEAD")
@@ -35,3 +42,36 @@ def test_check_pulls_and_explains_failures(tmp_path, monkeypatch):
     pulled, msg = asyncio.run(updater.check())
     assert pulled and "업데이트했어요" in msg and (clone / "a.txt").read_text() == "2"
     assert asyncio.run(updater.version()) != "?"
+
+
+def test_auto_update_restarts_the_bot(tmp_path, monkeypatch):
+    import discord
+
+    from chumai.bot import ChumaiBot
+    from chumai.config import Config
+
+    monkeypatch.setenv("DISCORD_TOKEN", "x")
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "db.sqlite"))
+    closed = []
+
+    async def fake_close(self):
+        await asyncio.sleep(0)  # let the loop's cancellation land, as the real close() does
+        closed.append(True)
+
+    async def pulled():
+        return True
+
+    monkeypatch.setattr(discord.Client, "close", fake_close)
+    monkeypatch.setattr(updater, "pull_if_updated", pulled)
+
+    async def main():
+        bot = ChumaiBot(Config.from_env())
+        bot.check_update.start()
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if closed:
+                break
+        return bot
+
+    bot = asyncio.run(main())
+    assert bot.restart_requested and closed == [True]

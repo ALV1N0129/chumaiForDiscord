@@ -11,6 +11,7 @@ log = logging.getLogger(__name__)
 
 RESTART_EXIT_CODE = 3
 REPO = Path(__file__).resolve().parent.parent
+started_at: str | None = None  # commit the running code came from (set by remember_start)
 
 
 async def _git(*args: str) -> tuple[int, str]:
@@ -30,8 +31,15 @@ def enabled() -> bool:
     return (REPO / ".git").exists()
 
 
+async def remember_start() -> None:
+    """Note which commit is running, so a pull that happened without a restart is noticed later."""
+    global started_at
+    code, out = await _git("rev-parse", "--short", "HEAD")
+    started_at = out if code == 0 else None
+
+
 async def check() -> tuple[bool, str]:
-    """Pull new commits. Returns (pulled, message for the owner)."""
+    """Pull new commits. Returns (restart needed, message for the owner)."""
     code, out = await _git("fetch", "--quiet")
     if code != 0:
         log.warning("git fetch failed: %s", out)
@@ -42,6 +50,9 @@ async def check() -> tuple[bool, str]:
     if code != 0:
         return False, f"`{branch}` 브랜치에 연결된 GitHub 브랜치가 없어요: {remote[:200]}"
     if local == remote:
+        if started_at and started_at != local:
+            # the files were updated earlier but the bot never restarted onto them
+            return True, f"최신 코드(`{local}`)는 받아져 있는데 봇은 `{started_at}` 로 돌고 있어요. 재시작할게요."
         return False, f"이미 최신 버전이에요. (`{branch}` @ `{local}`)"
     code, out = await _git("pull", "--ff-only")
     if code != 0:

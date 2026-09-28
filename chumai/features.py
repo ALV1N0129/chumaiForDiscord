@@ -557,7 +557,11 @@ def register(bot: ChumaiBot) -> None:
                 alias = f" · `{p}{short[cmd]}`" if p and cmd in short else ""
                 lines.append(f"/{cmd}{alias} — {desc}")
             embed.add_field(name=name, value="\n".join(lines), inline=False)
-        if p:
-            embed.set_footer(text=f"접두어 예시: {p}b c · {p}r m 13+ · {p}i c 곡이름 · {p}pl on c "
-                                  "(게임: m / mai / c / chuni)")
+        from . import updater
+
+        footer = f"접두어 예시: {p}b c · {p}r m 13+ · {p}i c 곡이름 · {p}pl on c (게임: m / mai / c / chuni)" if p else ""
+        if updater.enabled():
+            footer += f"\n버전 {await updater.version()}"
+        if footer:
+            embed.set_footer(text=footer.strip())
         await interaction.response.send_message(embed=embed, ephemeral=True)

@@ -30,19 +30,33 @@ def enabled() -> bool:
     return (REPO / ".git").exists()
 
 
-async def pull_if_updated() -> bool:
-    """Return True if new commits were pulled."""
+async def check() -> tuple[bool, str]:
+    """Pull new commits. Returns (pulled, message for the owner)."""
     code, out = await _git("fetch", "--quiet")
     if code != 0:
         log.warning("git fetch failed: %s", out)
-        return False
-    _, local = await _git("rev-parse", "HEAD")
-    code, remote = await _git("rev-parse", "@{u}")
-    if code != 0 or local == remote:
-        return False
+        return False, f"GitHub에서 받아오지 못했어요: {out[:300]}"
+    _, branch = await _git("rev-parse", "--abbrev-ref", "HEAD")
+    _, local = await _git("rev-parse", "--short", "HEAD")
+    code, remote = await _git("rev-parse", "--short", "@{u}")
+    if code != 0:
+        return False, f"`{branch}` 브랜치에 연결된 GitHub 브랜치가 없어요: {remote[:200]}"
+    if local == remote:
+        return False, f"이미 최신 버전이에요. (`{branch}` @ `{local}`)"
     code, out = await _git("pull", "--ff-only")
     if code != 0:
         log.warning("git pull failed: %s", out)
-        return False
-    log.info("updated to %s", remote[:7])
-    return True
+        return False, (f"새 버전(`{remote}`)이 있지만 받지 못했어요. 지금 `{local}` 이에요.\n"
+                       f"```{out[:900]}```\n봇 폴더에서 `git status` 로 바뀐 파일이 있는지 확인해 주세요.")
+    log.info("updated %s -> %s", local, remote)
+    return True, f"`{local}` → `{remote}` 로 업데이트했어요. 몇 초 뒤 재시작돼요."
+
+
+async def pull_if_updated() -> bool:
+    """Return True if new commits were pulled."""
+    return (await check())[0]
+
+
+async def version() -> str:
+    code, out = await _git("log", "-1", "--format=%h %cd", "--date=format:%m/%d %H:%M")
+    return out if code == 0 else "?"

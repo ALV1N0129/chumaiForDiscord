@@ -252,15 +252,14 @@ def register_commands(bot: ChumaiBot) -> None:
             await interaction.followup.send("git으로 받은 폴더가 아니라서 업데이트할 수 없어요.", ephemeral=True)
             return
         try:
-            pulled = await updater.pull_if_updated()
+            pulled, message = await updater.check()
         except Exception as e:
             log.exception("update failed")
             await interaction.followup.send(f"업데이트에 실패했어요: {e}", ephemeral=True)
             return
+        await interaction.followup.send(message, ephemeral=True)
         if not pulled:
-            await interaction.followup.send("이미 최신 버전이에요.", ephemeral=True)
             return
-        await interaction.followup.send("새 버전을 받았어요. 몇 초 뒤 재시작돼요.", ephemeral=True)
         bot.restart_requested = True
         await bot.close()
 

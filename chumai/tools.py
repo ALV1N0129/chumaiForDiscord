@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
 
@@ -211,6 +212,7 @@ class Recommendation:
     raw_after: Fraction | None = None
     expected: float | None = None  # maimai: your expected achievement on a chart of this constant
     best: float | None = None  # your best score on it so far, if played
+    honey: float | None = None  # maimai: how much easier than its constant it plays (player statistics)
 
 
 # CHUNITHM: a realistic score for a chart, from how far its constant is below your rating
@@ -325,16 +327,26 @@ class MaimaiSkill:
         return out
 
 
-def maimai_skill(b50: B50, db: SongDB | None = None) -> MaimaiSkill:
-    """Skill from every played chart when the B50 came with them, else from the B50 itself."""
+Honey = Callable[[str, str], "float | None"]  # (title, difficulty) -> how much easier than its constant
+
+
+def real_const(const: float, title: str, difficulty: str, honey: Honey | None) -> float:
+    """The constant a chart really plays like (its own constant without statistics)."""
+    h = honey(title, difficulty) if honey else None
+    return const - h if h else const
+
+
+def maimai_skill(b50: B50, db: SongDB | None = None, honey: Honey | None = None) -> MaimaiSkill:
+    """Skill from every played chart when the B50 came with them, else from the B50 itself,
+    placed at how hard each chart really plays."""
     points = []
     if b50.played and db is not None:
         for (title, difficulty), score in b50.played.items():
             info = db.maimai_chart(title, difficulty)
             if info is not None and info.level_const:
-                points.append((info.level_const, score))
+                points.append((real_const(info.level_const, title, difficulty, honey), score))
     if len(points) < 10:
-        points = [(e.level_const, e.score) for e in b50.old + b50.new]
+        points = [(real_const(e.level_const, e.title, e.difficulty, honey), e.score) for e in b50.old + b50.new]
     return MaimaiSkill(points)
 
 
@@ -353,12 +365,14 @@ def maimai_reach_text(reach: dict[float, float]) -> str:
 
 
 def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
-              rng: random.Random | None = None) -> list[Recommendation]:
+              rng: random.Random | None = None, honey: Honey | None = None) -> list[Recommendation]:
     """Charts outside the B50 where a realistic score would push out the weakest entry.
 
     CHUNITHM: the target score comes from chunithm_target (how far the chart is below your
     rating). maimai: the rank border just around your expected achievement on that constant
     (MaimaiSkill); charts you've played count too if your best there is below that border.
+    With `honey` (player statistics), a chart counts as the constant it really plays like, so
+    charts that play easier than their number ("꿀곡") get higher targets and come first.
     """
     game = b50.game
     entries = b50.old + b50.new
@@ -370,7 +384,7 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
         False: min((e.rating for e in b50.old), default=Fraction(0)),
         True: min((e.rating for e in b50.new), default=Fraction(0)),
     }
-    skill = maimai_skill(b50, db) if game == "maimai" else None
+    skill = maimai_skill(b50, db, honey) if game == "maimai" else None
     played = {(normalize_title(t), d): score for (t, d), score in b50.played.items()}
     expect: dict[float, float | None] = {}
     candidates = []
@@ -380,12 +394,15 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
             if not playable(chart) or key in have:
                 continue
             best = played.get(key)
+            sweet = None
             if game == "chunithm":
                 target, expected = chunithm_target(current, chart.level_const), None
             else:
-                if chart.level_const not in expect:
-                    expect[chart.level_const] = skill.expected(chart.level_const)
-                expected = expect[chart.level_const]
+                sweet = honey(song.title, chart.difficulty) if honey else None
+                real = round(chart.level_const - (sweet or 0), 1)
+                if real not in expect:
+                    expect[real] = skill.expected(real)
+                expected = expect[real]
                 target = maimai_target(expected, best)
             if target is None:
                 continue
@@ -393,20 +410,21 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
             gain = chart_rating(game, chart.level_const, target) - floors[new]
             if gain > 0:
                 candidates.append(Recommendation(song, chart, target, gain, is_new=new,
-                                                 expected=expected, best=best))
+                                                 expected=expected, best=best, honey=sweet))
     # spread over difficulties: a random chart from each of the constants that gain the most,
     # then fill up from those constants if there are fewer of them than `count`
     rng = rng or random.Random()
     by_const: dict[float, list[Recommendation]] = {}
     for r in candidates:
         by_const.setdefault(r.chart.level_const, []).append(r)
+    sweetness = lambda r: r.honey or 0.0  # noqa: E731
     for group in by_const.values():
-        group.sort(key=lambda r: -r.gain)
-        best = group[0].gain
-        top = [r for r in group if r.gain == best]
+        # the most to gain, and of those the sweetest; random among near-equals for variety
+        group.sort(key=lambda r: (-r.gain, -sweetness(r)))
+        top = [r for r in group if r.gain == group[0].gain and sweetness(r) >= sweetness(group[0]) - 0.1]
         rng.shuffle(top)
         group[: len(top)] = top
-    ranked = sorted(by_const.values(), key=lambda g: (-g[0].gain, g[0].chart.level_const))
+    ranked = sorted(by_const.values(), key=lambda g: (-g[0].gain, -sweetness(g[0]), g[0].chart.level_const))
     picked, songs = [], set()
 
     def take(r: Recommendation) -> None:

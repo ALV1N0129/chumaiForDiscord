@@ -223,6 +223,26 @@ def test_recommend_maimai_uses_every_played_chart():
     assert r.expected is not None and abs(r.expected - 99.1) < 0.2
 
 
+def test_recommend_maimai_prefers_charts_that_play_easy():
+    from chumai.songdb import CatalogChart, CatalogSong
+
+    db = _db()
+    db.catalog["maimai"] = [CatalogSong("maimai", t, "", "maimai", [t.lower()],
+                                        [CatalogChart("Master", "12+", 12.8, "maimai")])
+                            for t in ("Sweet", "Plain", "Sour")]
+    entries = [make_entry("maimai", f"S{i}", "Master", "12", 12.0 + (i % 5) / 10, 100.0 - (i % 5) * 0.25,
+                          None, False) for i in range(35)]
+    entries += [make_entry("maimai", f"N{i}", "Master", "12", 11.5, 100.0, None, True) for i in range(15)]
+    b = select_b50("maimai", "p", entries)
+    honey = {"sweet": 0.5, "sour": -0.4}
+    recs = tools.recommend(db, b, ["maimai でらっくす PRiSM PLUS"], 3, random.Random(0),
+                           honey=lambda title, diff: honey.get(title.lower()))
+    by_title = {r.song.title: r for r in recs}
+    assert recs[0].song.title == "Sweet" and recs[0].honey == 0.5
+    assert by_title["Sweet"].target_score > by_title["Plain"].target_score  # plays like 12.3
+    assert "Sour" not in by_title or by_title["Sour"].target_score < by_title["Plain"].target_score
+
+
 def test_slim_seeds_load_the_same(tmp_path):
     import asyncio
 

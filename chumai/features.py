@@ -404,7 +404,8 @@ def register(bot: ChumaiBot) -> None:
         b50 = await _load_b50(interaction, game)
         if b50 is None:
             return
-        recs = tools.recommend(bot.songdb, b50, bot.config.new_versions[game], 6)
+        honey = bot.chart_stats.honey if game == "maimai" and bot.chart_stats.delta else None
+        recs = tools.recommend(bot.songdb, b50, bot.config.new_versions[game], 6, honey=honey)
         if not recs:
             await interaction.followup.send("추천할 곡을 찾지 못했어요.")
             return
@@ -423,6 +424,8 @@ def register(bot: ChumaiBot) -> None:
             sub_line = f"목표 {_rank(game, r.target_score)} {tools.fmt_score(game, r.target_score)}"
             if game == "maimai":  # rank borders are round numbers: keep it short
                 sub_line = f"목표 {_rank(game, r.target_score)} {r.target_score:.1f}%"
+                if r.honey is not None and abs(r.honey) >= 0.1:  # plays like another constant
+                    sub_line += f" · 체감 {r.chart.level_const - r.honey:.1f}"
                 # numbers first: a long title is what gets cut
                 parts = [f"현재 {r.best:.4f}%" if r.best is not None else
                          f"예상 {r.expected:.2f}%" if r.expected is not None else None]
@@ -436,7 +439,7 @@ def register(bot: ChumaiBot) -> None:
         if game == "chunithm":
             sub = f"현재 {tools.fmt_rating(game, b50.total)} · {tools.chunithm_advice(float(b50.total))}"
         else:
-            reach = tools.maimai_skill(b50, bot.songdb).reach()
+            reach = tools.maimai_skill(b50, bot.songdb, honey).reach()
             sub = f"현재 {tools.fmt_rating(game, b50.total)} · 예상 {tools.maimai_reach_text(reach)}"
         png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows, sub, None, 2)
         await interaction.followup.send(file=_image(png, f"recommend_{game}"))

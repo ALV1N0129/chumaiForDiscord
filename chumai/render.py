@@ -119,11 +119,12 @@ PLATES = {
 
 GAME_NAMES = {"maimai": "maimai DX", "chunithm": "CHUNITHM"}
 
-# LOW_MEMORY=1 (small hosts, e.g. 128MB): the B50 is drawn at 70% size, which needs about half
-# the memory. Everything else looks the same.
+# LOW_MEMORY=1 (small hosts, e.g. 128MB): the B50 is drawn at 60% size (B50_SCALE to change it),
+# /const and /recommend at 70%, which needs about half the memory. Everything else looks the same.
 LOW_MEMORY = os.environ.get("LOW_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}
-B50_SCALE = 0.7 if LOW_MEMORY else 1.0
-LIST_SCALE = 0.7 if LOW_MEMORY else 1.0  # /const and /recommend
+_scale_env = os.environ.get("B50_SCALE", "").strip()
+B50_SCALE = float(_scale_env) if _scale_env else (0.6 if LOW_MEMORY else 1.0)  # e.g. B50_SCALE=0.7
+LIST_SCALE = min(B50_SCALE, 0.7) if LOW_MEMORY else 1.0  # /const and /recommend
 
 # Output format. WebP is about a third of the PNG size, which matters on slow connections.
 IMAGE_FORMAT = os.environ.get("IMAGE_FORMAT", "webp").lower()

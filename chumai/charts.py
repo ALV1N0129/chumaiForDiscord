@@ -19,6 +19,8 @@ from pathlib import Path
 import aiohttp
 from PIL import Image
 
+from .jsonstream import download_to, iter_items
+
 log = logging.getLogger(__name__)
 
 INDEX_URL = ("https://raw.githubusercontent.com/beer-psi/chuni-penguin/develop/"
@@ -30,7 +32,7 @@ SDVX = "https://sdvx.in/chunithm"
 DIFFS = {"BASIC": "BAS", "ADVANCED": "ADV", "EXPERT": "EXP", "MASTER": "MAS", "ULTIMA": "ULT"}
 
 
-def build_index(songs: list[dict]) -> dict[str, str]:
+def build_index(songs) -> dict[str, str]:
     """chuni-penguin songs.json -> {"<song id>/<difficulty>": sdvx.in id}."""
     index = {}
     for song in songs:
@@ -115,11 +117,11 @@ class ChartViews:
         path = self.dir / "sdvxin.json"
         if not path.exists() or time.time() - path.stat().st_mtime > REFRESH_SECONDS:
             try:
+                raw = self.dir / "songs.download"
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=180)) as s:
-                    async with s.get(INDEX_URL) as resp:
-                        resp.raise_for_status()
-                        songs = json.loads(await resp.read())
-                path.write_text(json.dumps(build_index(songs)), encoding="utf-8")
+                    await download_to(s, INDEX_URL, raw)  # 7MB: read song by song, not all at once
+                path.write_text(json.dumps(build_index(iter_items(raw))), encoding="utf-8")
+                raw.unlink()
                 log.info("chart view index updated")
             except Exception:
                 log.exception("failed to download the chart view index; using cached copy if any")

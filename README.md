@@ -21,8 +21,8 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
   ([Tachi](https://github.com/TNG-dev/Tachi)의 seeds)을 GitHub에서 내려받아 사용합니다.
   계정이나 로그인은 필요 없고, 하루에 한 번 갱신되며 `SONGDB_DIR`에 캐시됩니다.
 - 파일 하나를 실행하는 호스팅(디스호스트 등)에서는 시작 파일을 `app.py`로 두면 됩니다(`python -m chumai`와 같음).
-- 메모리가 적은 호스팅(128MB 등)에서는 `.env`에 `LOW_MEMORY=1`을 넣으세요. B50·상수표·추천 이미지를 70% 크기로 그려서
-  메모리를 아낍니다(디자인은 같고 이미지만 작아집니다).
+- 메모리가 적은 호스팅(128MB 등)에서는 `.env`에 `LOW_MEMORY=1`을 넣으세요. B50은 60%, 상수표·추천은 70% 크기로 그려서
+  메모리를 아낍니다(디자인은 같고 이미지만 작아집니다). B50 크기는 `B50_SCALE=0.7`처럼 직접 정할 수도 있어요.
 - 결과 이미지는 기본으로 WebP(PNG의 약 1/3 크기)로 보냅니다. `.env`의 `IMAGE_FORMAT`으로 `jpeg` / `png`를 고를 수 있어요.
 - 이미지 스타일은 `.env`의 `B50_STYLE`로 고릅니다: `collage`(기본, 1위 곡 자켓 배경), `glow`, `light`.
 - 상단 가운데 로고는 `.env`의 `MAIMAI_LOGO_URL` / `CHUNITHM_LOGO_URL`에 공식 로고 이미지 주소를 넣으면

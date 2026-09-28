@@ -6,6 +6,7 @@ those up here. The seeds are downloaded from GitHub and cached on disk.
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
 import time
@@ -14,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import aiohttp
+
+from .jsonstream import download_to, iter_items
 
 log = logging.getLogger(__name__)
 
@@ -168,25 +171,30 @@ class SongDB:
                 slim = {}
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as s:
                     for n in SEED_NAMES:
-                        async with s.get(f"{base_url}/{n}.json") as resp:
-                            resp.raise_for_status()
-                            slim[n] = slim_seed(n, json.loads(await resp.read()))
+                        # to disk, then read one item at a time (low memory)
+                        raw = cache / f"{n}.download"
+                        await download_to(s, f"{base_url}/{n}.json", raw)
+                        slim[n] = [slim_item(n, r) for r in iter_items(raw)]
+                        raw.unlink()
                 _write_slim(slim_path, slim)
+                del slim
                 log.info("song database updated")
             except Exception:
                 log.exception("failed to download song database; using cached copy if any")
                 if not slim_path.exists() and all((cache / f"{n}.json").exists() for n in SEED_NAMES):
                     # full seeds cached by an older version
-                    _write_slim(slim_path, {n: slim_seed(n, json.loads((cache / f"{n}.json").read_text("utf-8")))
+                    _write_slim(slim_path, {n: [slim_item(n, r) for r in iter_items(cache / f"{n}.json")]
                                             for n in SEED_NAMES})
         if not slim_path.exists():
             log.warning("song database is unavailable; chart constants will be estimated")
             return
-        seeds = json.loads(slim_path.read_text(encoding="utf-8"))
+        # drop the old data before reading the new, so the two are never in memory together
         self.chunithm.clear()
         self.chunithm_titles.clear()
         self.catalog = {"chunithm": [], "maimai": []}
         self.maimai.clear()
+        gc.collect()
+        seeds = json.loads(slim_path.read_text(encoding="utf-8"))
         self.load(seeds)
         del seeds
         log.info("song database loaded: %d CHUNITHM charts, %d maimai charts",
@@ -197,23 +205,22 @@ SEED_NAMES = ["songs-chunithm", "charts-chunithm", "songs-maimaidx", "charts-mai
 SLIM_NAME = "songdb.slim.json"
 
 
-def slim_seed(name: str, rows: list[dict]) -> list[dict]:
+def slim_item(name: str, r: dict) -> dict:
     """Only the fields SongDB.load reads."""
-    out = []
-    for r in rows:
-        data = r.get("data", {})
-        if name.startswith("songs"):
-            item = {"id": r["id"], "title": r["title"], "artist": r.get("artist", ""),
-                    "data": {"genre": data.get("genre", "")}}
-            for k in ("altTitles", "searchTerms"):
-                if r.get(k):
-                    item[k] = r[k]
-        else:
-            item = {"songID": r["songID"], "difficulty": r["difficulty"], "level": r["level"],
-                    "levelNum": r["levelNum"],
-                    "data": {"displayVersion": data.get("displayVersion", ""), "inGameID": data.get("inGameID")}}
-        out.append(item)
-    return out
+    data = r.get("data", {})
+    if name.startswith("songs"):
+        item = {"id": r["id"], "title": r["title"], "artist": r.get("artist", ""),
+                "data": {"genre": data.get("genre", "")}}
+        for k in ("altTitles", "searchTerms"):
+            if r.get(k):
+                item[k] = r[k]
+        return item
+    return {"songID": r["songID"], "difficulty": r["difficulty"], "level": r["level"], "levelNum": r["levelNum"],
+            "data": {"displayVersion": data.get("displayVersion", ""), "inGameID": data.get("inGameID")}}
+
+
+def slim_seed(name: str, rows: list[dict]) -> list[dict]:
+    return [slim_item(name, r) for r in rows]
 
 
 def _write_slim(path: Path, slim: dict) -> None:

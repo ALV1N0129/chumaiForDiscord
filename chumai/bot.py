@@ -39,7 +39,8 @@ class ChumaiBot(discord.Client):
         intents = discord.Intents.default()
         # reading "!b50" style messages needs the Message Content intent (enable it in the developer portal)
         intents.message_content = bool(config.prefix)
-        super().__init__(intents=intents)
+        # no message cache: prefix commands only need the message they came with (saves memory)
+        super().__init__(intents=intents, max_messages=None)
         self.config = config
         self.tree = app_commands.CommandTree(self)
         self.links = LinkStore(config.db_path, config.token_key)
@@ -58,7 +59,8 @@ class ChumaiBot(discord.Client):
     async def setup_hook(self) -> None:
         await self.songdb.load_or_update(self.config.songdb_dir)
         await self.jackets.load_or_update()
-        self._charts_task = asyncio.create_task(self.charts.load_or_update())  # large download; don't wait
+        self._charts_task = asyncio.create_task(self._load_charts())  # large download; don't wait
+        render.release_memory()
         render.LOGO_DIR = Path(self.config.logo_dir)
         await download_logos(self.config.logo_dir, self.config.logo_urls)
         if await ensure_font(render.FONT_DIR):
@@ -120,6 +122,11 @@ class ChumaiBot(discord.Client):
         await self.songdb.load_or_update(self.config.songdb_dir)
         await self.jackets.load_or_update()
         await self.charts.load_or_update()
+        render.release_memory()
+
+    async def _load_charts(self) -> None:
+        await self.charts.load_or_update()
+        render.release_memory()
 
     @refresh_songdb.before_loop
     async def _skip_first_refresh(self) -> None:

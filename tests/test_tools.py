@@ -206,3 +206,39 @@ def test_slim_seeds_load_the_same(tmp_path):
     db = SongDB()
     asyncio.run(db.load_or_update(tmp_path, base_url="http://127.0.0.1:1/unreachable"))
     assert (tmp_path / SLIM_NAME).exists() and db.catalog == full.catalog
+
+
+def test_songdb_download_streams_to_disk(tmp_path):
+    import asyncio
+    import json
+
+    from aiohttp import web
+
+    from chumai import jsonstream
+    from chumai.songdb import SEED_NAMES, SongDB
+
+    async def main():
+        app = web.Application()
+        for n in SEED_NAMES:
+            app.router.add_get(f"/seeds/{n}.json", lambda r, n=n: web.json_response(SEEDS[n]))
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        try:
+            db = SongDB()
+            await db.load_or_update(tmp_path, base_url=f"http://127.0.0.1:{port}/seeds")
+        finally:
+            await runner.cleanup()
+        return db
+
+    db = asyncio.run(main())
+    full = SongDB()
+    full.load(SEEDS)
+    assert db.catalog == full.catalog
+    assert not list(tmp_path.glob("*.download*"))  # temporary files cleaned up
+
+    p = tmp_path / "items.json"
+    p.write_text(json.dumps([{"a": 1.5}, {"b": [1, 2]}]))
+    assert list(jsonstream.iter_items(p)) == [{"a": 1.5}, {"b": [1, 2]}]

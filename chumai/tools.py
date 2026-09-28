@@ -209,6 +209,8 @@ class Recommendation:
     after: Fraction | None = None  # B50 total with this score
     raw_before: Fraction | None = None  # B50 average (CHUNITHM) / sum (maimai) before truncating
     raw_after: Fraction | None = None
+    expected: float | None = None  # maimai: your expected achievement on a chart of this constant
+    best: float | None = None  # your best score on it so far, if played
 
 
 # CHUNITHM: a realistic score for a chart, from how far its constant is below your rating
@@ -262,30 +264,92 @@ def chunithm_advice(rating: float) -> str:
 
 # maimai: the rating formula jumps at these achievements (rank borders), so they are the targets
 MAIMAI_TARGETS = [100.5, 100.0, 99.5, 99.0, 98.0, 97.0]
+MAIMAI_RANK_NAMES = {100.5: "SSS+", 100.0: "SSS", 99.5: "SS+", 99.0: "SS", 98.0: "S+", 97.0: "S"}
+SKILL_WIDTH = 0.3  # how far (in constant) your other scores still say something about a chart
+SKILL_SLOPE = 2.5  # achievement % lost per +1.0 constant, to compare scores on nearby constants
+TARGET_STRETCH = 0.35  # a border this much above your expected achievement is still a fair target
 
 
-def maimai_reach(entries: list[Entry]) -> dict[float, float]:
-    """For each rank border, about the hardest constant you have reached it on (ignoring the
-    top 10% as flukes). Easier ranks are reached at least as far as harder ones."""
-    reach: dict[float, float] = {}
-    best = 0.0
-    for t in MAIMAI_TARGETS:
-        consts = sorted((e.level_const for e in entries if e.score >= t), reverse=True)
-        if consts:
-            best = max(best, consts[len(consts) // 10])
-        if best:
-            reach[t] = best
-    return reach
+class MaimaiSkill:
+    """Your expected achievement on a chart of a given constant, from the scores you have.
+
+    Each score is moved to the asked constant (SKILL_SLOPE), and the
+    weighted median of those (nearer constants weigh more) is the expectation: a typical play,
+    not your best one. Harder charts never expect more than easier ones.
+    """
+
+    def __init__(self, points: list[tuple[float, float]]):
+        self.points = [(c, min(a, 100.5)) for c, a in points if c and a >= 80]
+        # 1.0 ~ 15.0 in 0.1 steps, then made non-increasing by pooling neighbours that break it
+        # (weighted by how many scores back each one), so a lucky hard chart or a gap between
+        # the levels you play doesn't bend the curve
+        blocks: list[list] = []  # [value, weight, constants]
+        for step in range(10, 151):
+            found = self._median(step / 10)
+            if found is None:
+                continue
+            blocks.append([found[0], found[1], [step / 10]])
+            while len(blocks) > 1 and blocks[-2][0] < blocks[-1][0]:
+                (v2, w2, c2), (v1, w1, c1) = blocks.pop(), blocks.pop()
+                blocks.append([(v1 * w1 + v2 * w2) / (w1 + w2), w1 + w2, c1 + c2])
+        self.curve = {c: v for v, _, cs in blocks for c in cs}
+
+    def _median(self, const: float) -> tuple[float, float] | None:
+        """(weighted median of your scores moved to `const`, total weight) or None if too few."""
+        weighted = []
+        for c, a in self.points:
+            d = (const - c) / SKILL_WIDTH
+            if abs(d) <= 3:
+                weighted.append((a - SKILL_SLOPE * (const - c), 2.0 ** (-d * d)))
+        total = sum(w for _, w in weighted)
+        if total < 1.5:  # too few scores near this constant to say
+            return None
+        weighted.sort()
+        run = 0.0
+        for value, w in weighted:
+            run += w
+            if run >= total / 2:
+                return min(100.5, value), total
+        return None
+
+    def expected(self, const: float) -> float | None:
+        return self.curve.get(round(const, 1))
+
+    def reach(self) -> dict[float, float]:
+        """The hardest constant where each rank border is still expected."""
+        out = {}
+        for t in MAIMAI_TARGETS:
+            ok = [c for c, e in self.curve.items() if e >= t - 1e-9]
+            if ok:
+                out[t] = max(ok)
+        return out
 
 
-def maimai_target(reach: dict[float, float], const: float) -> float | None:
-    """The hardest rank border you can expect on a chart of `const` (a little above what you've done)."""
-    return next((t for t in MAIMAI_TARGETS if t in reach and const <= reach[t] + 0.1 + 1e-9), None)
+def maimai_skill(b50: B50, db: SongDB | None = None) -> MaimaiSkill:
+    """Skill from every played chart when the B50 came with them, else from the B50 itself."""
+    points = []
+    if b50.played and db is not None:
+        for (title, difficulty), score in b50.played.items():
+            info = db.maimai_chart(title, difficulty)
+            if info is not None and info.level_const:
+                points.append((info.level_const, score))
+    if len(points) < 10:
+        points = [(e.level_const, e.score) for e in b50.old + b50.new]
+    return MaimaiSkill(points)
+
+
+def maimai_target(expected: float | None, best: float | None = None) -> float | None:
+    """The rank border to aim for: the highest one within a small stretch of your expected
+    achievement, if it beats your current best on the chart. None if the chart is still too
+    hard (S not expected) or there is nothing to gain."""
+    if expected is None or expected < 97.0 - TARGET_STRETCH:
+        return None
+    t = next(t for t in MAIMAI_TARGETS if t <= expected + TARGET_STRETCH + 1e-9)
+    return t if best is None or t > best + 1e-9 else None
 
 
 def maimai_reach_text(reach: dict[float, float]) -> str:
-    names = {100.5: "SSS+", 100.0: "SSS", 99.5: "SS+", 99.0: "SS"}
-    return " · ".join(f"{names[t]} ~{reach[t]:.1f}" for t in names if t in reach)
+    return " · ".join(f"{MAIMAI_RANK_NAMES[t]} ~{reach[t]:.1f}" for t in (100.5, 100.0, 99.5, 99.0) if t in reach)
 
 
 def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
@@ -293,7 +357,8 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
     """Charts outside the B50 where a realistic score would push out the weakest entry.
 
     CHUNITHM: the target score comes from chunithm_target (how far the chart is below your
-    rating). maimai: the hardest rank border you have reached on charts of about that constant.
+    rating). maimai: the rank border just around your expected achievement on that constant
+    (MaimaiSkill); charts you've played count too if your best there is below that border.
     """
     game = b50.game
     entries = b50.old + b50.new
@@ -305,22 +370,30 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
         False: min((e.rating for e in b50.old), default=Fraction(0)),
         True: min((e.rating for e in b50.new), default=Fraction(0)),
     }
-    reach = maimai_reach(entries) if game == "maimai" else {}
+    skill = maimai_skill(b50, db) if game == "maimai" else None
+    played = {(normalize_title(t), d): score for (t, d), score in b50.played.items()}
+    expect: dict[float, float | None] = {}
     candidates = []
     for song in db.catalog.get(game, []):
         for chart in song.charts:
-            if not playable(chart) or (normalize_title(song.title), chart.difficulty) in have:
+            key = (normalize_title(song.title), chart.difficulty)
+            if not playable(chart) or key in have:
                 continue
+            best = played.get(key)
             if game == "chunithm":
-                target = chunithm_target(current, chart.level_const)
+                target, expected = chunithm_target(current, chart.level_const), None
             else:
-                target = maimai_target(reach, chart.level_const)
+                if chart.level_const not in expect:
+                    expect[chart.level_const] = skill.expected(chart.level_const)
+                expected = expect[chart.level_const]
+                target = maimai_target(expected, best)
             if target is None:
                 continue
             new = is_new_version(chart, new_versions)
             gain = chart_rating(game, chart.level_const, target) - floors[new]
             if gain > 0:
-                candidates.append(Recommendation(song, chart, target, gain, is_new=new))
+                candidates.append(Recommendation(song, chart, target, gain, is_new=new,
+                                                 expected=expected, best=best))
     # spread over difficulties: a random chart from each of the constants that gain the most,
     # then fill up from those constants if there are fewer of them than `count`
     rng = rng or random.Random()
@@ -333,11 +406,23 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
         top = [r for r in group if r.gain == best]
         rng.shuffle(top)
         group[: len(top)] = top
-    ranked = sorted(by_const.values(), key=lambda g: (-g[0].gain, g[0].chart.level_const))[:count]
-    picked = [g[0] for g in ranked]
-    rest = [r for g in ranked for r in g[1:]]
+    ranked = sorted(by_const.values(), key=lambda g: (-g[0].gain, g[0].chart.level_const))
+    picked, songs = [], set()
+
+    def take(r: Recommendation) -> None:
+        # one chart per song (not its STD and DX charts, or EXPERT and MASTER, side by side)
+        if len(picked) < count and normalize_title(r.song.title) not in songs:
+            picked.append(r)
+            songs.add(normalize_title(r.song.title))
+
+    for g in ranked[:count]:  # a random chart from each of the best constants
+        r = next((r for r in g if normalize_title(r.song.title) not in songs), None)
+        if r is not None:
+            take(r)
+    rest = [r for g in ranked[:count] for r in g]
     rng.shuffle(rest)
-    picked += rest[: count - len(picked)]
+    for r in rest + [r for g in ranked[count:] for r in g]:
+        take(r)
     for r in picked:
         section = b50.new if r.is_new else b50.old
         r.replaces = min(section, key=lambda e: e.rating, default=None)

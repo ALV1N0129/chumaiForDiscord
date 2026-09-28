@@ -369,6 +369,7 @@ async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str, image
                 ))
                 records = [r for diff, html in enumerate(pages) for r in net_parsers.parse_maimai_scores(html, diff)]
                 result = b50_from_maimai_net(player, records, bot.songdb, bot.config.new_versions[game])
+                result.played = {(r.title, r.difficulty): r.achievement for r in records}  # for /recommend
             if images:
                 result.icon, result.plate = await asyncio.gather(
                     _fetch_image(net, player.icon_url), _fetch_image(net, player.plate_url))

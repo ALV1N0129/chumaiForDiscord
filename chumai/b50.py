@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import Iterable
 
@@ -59,6 +59,8 @@ class B50:
     icon: bytes | None = None  # image data
     plate: bytes | None = None
     level: str | None = None
+    # every played chart's best score {(title, difficulty): score}, when the site gave them all (maimai)
+    played: dict[tuple[str, str], float] = field(default_factory=dict, repr=False)
 
     @property
     def old_sum(self) -> Fraction:

@@ -32,6 +32,12 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 
 ## 명령어
 
+모든 명령어는 슬래시(`/b50`)와 접두어(`!b50 chuni`) 둘 다 쓸 수 있습니다.
+접두어는 `.env`의 `PREFIX`로 바꿀 수 있고, 게임은 `mai` / `chuni`로 줄여 써도 됩니다.
+접두어 명령어를 쓰려면 Discord 개발자 포털 → Bot → **Message Content Intent**를 켜야 합니다.
+
+예: `!b50 chuni`, `!b50 mai @친구`, `!info chuni aleph`, `!whatif chuni aleph-0 MAS 1009000`, `!playlog on mai`
+
 | 명령어 | 설명 |
 | --- | --- |
 | `/login` | SEGA ID로 로그인 (국제판) |

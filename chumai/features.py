@@ -380,4 +380,8 @@ def register(bot: ChumaiBot) -> None:
         embed = discord.Embed(title="명령어", color=0x8A7CFF)
         for name, cmds in groups.items():
             embed.add_field(name=name, value="\n".join(cmds), inline=False)
+        if bot.config.prefix:
+            p = bot.config.prefix
+            embed.set_footer(text=f"접두어로도 쓸 수 있어요: {p}b50 chuni · {p}info mai 곡이름 · "
+                                  f"{p}playlog on chuni (게임: mai / chuni)")
         await interaction.response.send_message(embed=embed, ephemeral=True)

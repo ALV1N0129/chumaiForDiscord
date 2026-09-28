@@ -13,7 +13,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import features, net_parsers, rating, render, updater
+from . import features, net_parsers, prefix, rating, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .config import Config
 from .jackets import JacketStore
@@ -34,7 +34,10 @@ PLAYLOG_PATHS = {"chunithm": "/mobile/record/playlog", "maimai": "/maimai-mobile
 
 class ChumaiBot(discord.Client):
     def __init__(self, config: Config):
-        super().__init__(intents=discord.Intents.default())
+        intents = discord.Intents.default()
+        # reading "!b50" style messages needs the Message Content intent (enable it in the developer portal)
+        intents.message_content = bool(config.prefix)
+        super().__init__(intents=intents)
         self.config = config
         self.tree = app_commands.CommandTree(self)
         self.links = LinkStore(config.db_path, config.token_key)
@@ -42,6 +45,11 @@ class ChumaiBot(discord.Client):
         self.jackets = JacketStore(config.jacket_dir)
         register_commands(self)
         features.register(self)
+
+    async def on_message(self, message: discord.Message) -> None:
+        if message.author.bot or not self.config.prefix or not message.content.startswith(self.config.prefix):
+            return
+        await prefix.handle(self, message, self.config.prefix)
 
     async def setup_hook(self) -> None:
         await self.songdb.load_or_update(self.config.songdb_dir)
@@ -444,6 +452,12 @@ def main() -> None:
     bot = ChumaiBot(config)
     try:
         bot.run(config.discord_token, log_handler=None)
+    except discord.PrivilegedIntentsRequired:
+        log.error(
+            "접두어 명령어를 쓰려면 Discord 개발자 포털 → Bot → 'Message Content Intent'를 켜 주세요. "
+            "접두어 명령어를 안 쓰려면 .env에 PREFIX= 를 빈 값으로 넣으세요."
+        )
+        raise SystemExit(1)
     finally:
         # closed only after everything else has stopped, so commands still running during a
         # restart can finish their database writes

@@ -27,6 +27,7 @@ class Config:
     songdb_dir: str
     jacket_dir: str
     logo_dir: str
+    prefix: str
     logo_urls: dict[str, str | None]
     new_versions: dict[str, list[str]]
 
@@ -45,6 +46,7 @@ class Config:
             songdb_dir=os.environ.get("SONGDB_DIR", "data/songdb"),
             jacket_dir=os.environ.get("JACKET_DIR", "data/jackets"),
             logo_dir=os.environ.get("LOGO_DIR", "data/logos"),
+            prefix=os.environ.get("PREFIX", "!"),
             logo_urls={
                 "maimai": os.environ.get("MAIMAI_LOGO_URL") or None,
                 "chunithm": os.environ.get("CHUNITHM_LOGO_URL") or None,

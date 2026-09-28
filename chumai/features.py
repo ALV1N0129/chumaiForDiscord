@@ -420,15 +420,24 @@ def register(bot: ChumaiBot) -> None:
             else:
                 right = f"+{tools.fmt_rating(game, r.after - r.before)}"
                 right_sub = f"{tools.fmt_rating(game, r.before)} » {tools.fmt_rating(game, r.after)}"
+            sub_line = f"목표 {_rank(game, r.target_score)} {tools.fmt_score(game, r.target_score)}"
+            if game == "maimai":  # rank borders are round numbers: keep it short
+                sub_line = f"목표 {_rank(game, r.target_score)} {r.target_score:.1f}%"
+                # numbers first: a long title is what gets cut
+                parts = [f"현재 {r.best:.4f}%" if r.best is not None else
+                         f"예상 {r.expected:.2f}%" if r.expected is not None else None]
+                if gone:
+                    parts.append(f"이 곡 {tools.fmt_rating(game, r.song_rating)} ← "
+                                 f"{'NEW' if r.is_new else 'BEST'} 최하위 {gone.rating_text} {gone.title}")
+                note = " · ".join(p for p in parts if p) or None
             rows.append(_chart_row(
                 r.song, r.chart, jackets.get(i), right=right, right_sub=right_sub,
-                sub_line=f"목표 {_rank(game, r.target_score)} {tools.fmt_score(game, r.target_score)}", note=note,
-                genre=r.song.genre))
+                sub_line=sub_line, note=note, genre=r.song.genre))
         if game == "chunithm":
             sub = f"현재 {tools.fmt_rating(game, b50.total)} · {tools.chunithm_advice(float(b50.total))}"
         else:
-            reach = tools.maimai_reach(b50.old + b50.new)
-            sub = f"현재 {tools.fmt_rating(game, b50.total)} · 지금까지 {tools.maimai_reach_text(reach)}"
+            reach = tools.maimai_skill(b50, bot.songdb).reach()
+            sub = f"현재 {tools.fmt_rating(game, b50.total)} · 예상 {tools.maimai_reach_text(reach)}"
         png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows, sub, None, 2)
         await interaction.followup.send(file=_image(png, f"recommend_{game}"))
 

@@ -143,7 +143,8 @@ def test_recommend_maimai_stays_near_usual_difficulty():
     entries += [make_entry("maimai", f"N{i}", "Master", "12", 11.5, 100.0, None, True) for i in range(15)]
     b = select_b50("maimai", "p", entries)
     recs = tools.recommend(db, b, ["maimai でらっくす PRiSM PLUS"], 5, random.Random(0))
-    assert {r.song.title for r in recs} == {"M123"}  # 12.8 / 13.2 are above the usual difficulty
+    assert {r.song.title for r in recs} == {"M123", "M128"}  # 13.2 is too far above what you play
+    assert {r.song.title: r.target_score for r in recs} == {"M123": 100.0, "M128": 99.0}
 
 
 def test_font_download(tmp_path):
@@ -174,18 +175,52 @@ def test_font_download(tmp_path):
     assert missing is None and not list((tmp_path / "other").iterdir())
 
 
+def test_maimai_skill_expects_a_typical_play():
+    # about 100.0 at 12.0, losing 0.3% per +0.1 constant, plus one lucky 13.5
+    pts = [(12.0 + i / 10, 100.0 - 3 * i / 10) for i in range(8) for _ in range(3)] + [(13.5, 99.5)]
+    skill = tools.MaimaiSkill(pts)
+    assert abs(skill.expected(12.3) - 99.1) < 0.1
+    assert skill.expected(13.5) is None  # one lucky score is not enough to say
+    lucky = tools.MaimaiSkill(pts + [(12.9, 99.9)])
+    assert lucky.expected(12.9) <= lucky.expected(12.8) <= lucky.expected(12.7)  # and never lifts the curve
+    assert skill.expected(9.0) is None  # nothing played near it
+    reach = skill.reach()
+    assert reach[100.0] == 11.9 and reach[99.5] == 12.1 and reach[99.0] == 12.3
+    assert tools.maimai_reach_text(reach) == "SSS+ ~11.7 · SSS ~11.9 · SS+ ~12.1 · SS ~12.3"
+
+
 def test_maimai_targets_are_rank_borders():
-    es = [make_entry("maimai", f"A{i}", "Master", "12", 12.0 + i / 10, 100.0, None, False) for i in range(5)]  # SSS ~12.4
-    es += [make_entry("maimai", f"B{i}", "Master", "13", 12.5 + i / 10, 99.6, None, False) for i in range(4)]  # SS+ ~12.8
-    es += [make_entry("maimai", c, "Master", "13", k, 97.5, None, False) for c, k in (("C", 13.4), ("D", 13.5))]
-    reach = tools.maimai_reach(es)
-    assert reach[100.0] == 12.4 and reach[99.5] == 12.8 and reach[97.0] == 13.4  # the single 13.5 is a fluke
-    assert 100.5 not in reach
-    assert tools.maimai_target(reach, 12.5) == 100.0  # a little above what you've done
-    assert tools.maimai_target(reach, 12.9) == 99.5
-    assert tools.maimai_target(reach, 13.2) == 97.0
-    assert tools.maimai_target(reach, 13.7) is None
-    assert tools.maimai_reach_text(reach) == "SSS ~12.4 · SS+ ~12.8 · SS ~12.8"
+    assert tools.maimai_target(99.2) == 99.5  # a small stretch
+    assert tools.maimai_target(99.1) == 99.0  # 99.5 is too far: the border you should get
+    assert tools.maimai_target(98.2) == 98.0
+    assert tools.maimai_target(100.3) == 100.5
+    assert tools.maimai_target(96.5) is None  # below S: too hard
+    assert tools.maimai_target(None) is None
+    assert tools.maimai_target(99.2, best=99.3) == 99.5  # played: must beat your best
+    assert tools.maimai_target(99.2, best=99.5) is None
+
+
+def test_recommend_maimai_uses_every_played_chart():
+    from chumai.songdb import CatalogChart, CatalogSong
+
+    db = _db()
+    db.catalog["maimai"] = [
+        CatalogSong("maimai", "Played", "", "maimai", ["played"],
+                    [CatalogChart("Master", "12", 12.3, "maimai"), CatalogChart("DX Master", "12", 12.3, "maimai")]),
+        CatalogSong("maimai", "Done", "", "maimai", ["done"], [CatalogChart("Master", "12", 12.3, "maimai")]),
+    ]
+    entries = [make_entry("maimai", f"S{i}", "Master", "12", 12.0 + (i % 5) / 10, 100.0 - (i % 5) * 0.3,
+                          None, False) for i in range(35)]
+    entries += [make_entry("maimai", f"N{i}", "Master", "12", 11.5, 100.0, None, True) for i in range(15)]
+    b = select_b50("maimai", "p", entries)
+    b.played = {("Played", "Master"): 98.9, ("Done", "Master"): 99.6}
+    recs = tools.recommend(db, b, ["maimai でらっくす PRiSM PLUS"], 5, random.Random(0))
+    assert len(recs) == 1  # one chart per song; "Done" already beats the target
+    r = recs[0]
+    assert r.song.title == "Played" and r.target_score == 99.5
+    if r.chart.difficulty == "Master":
+        assert r.best == 98.9
+    assert r.expected is not None and abs(r.expected - 99.1) < 0.2
 
 
 def test_slim_seeds_load_the_same(tmp_path):

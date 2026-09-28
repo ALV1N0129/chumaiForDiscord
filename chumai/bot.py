@@ -372,7 +372,8 @@ async def check_playlog(
                 e.jacket_path = await _cached_image(bot, net, game, r.jacket_url)
                 entries.append(e)
             png = await asyncio.to_thread(
-                render_credit, game, player.name, entries, [r.new_record for r in credit], credit[0].date, icon
+                render_credit, game, player.name, entries, [r.new_record for r in credit], credit[0].date, icon,
+                player.rating,
             )
             images.append(png)
     if net.clal != token:

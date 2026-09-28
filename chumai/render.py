@@ -740,15 +740,16 @@ ROW_H = 132
 
 
 def render_credit(game: str, player: str, entries: list[Entry], new_flags: list[bool], date: str,
-                  icon: bytes | None = None) -> bytes:
-    """One credit as a narrow image: the tracks are regular B50 cards stacked vertically."""
+                  icon: bytes | None = None, rating: str | None = None) -> bytes:
+    """One credit as a fixed-size 2x2 grid, so every credit shows at the same size in Discord."""
     from types import SimpleNamespace
 
     theme = THEMES[game]
     st = STYLES["version"]
-    header = 124
-    width = MARGIN * 2 + CARD_W
-    height = header + len(entries) * (CARD_H + GAP_Y) + 34
+    cols, slots = 2, 4
+    header = 118
+    width = MARGIN * 2 + cols * CARD_W + (cols - 1) * GAP_X
+    height = header + (slots // cols) * (CARD_H + GAP_Y) + 26
     stub = SimpleNamespace(game=game, old=entries, new=[], icon=icon)
     canvas = _background(stub, (width, height), theme, st)
     draw = ImageDraw.Draw(canvas)
@@ -756,36 +757,51 @@ def render_credit(game: str, player: str, entries: list[Entry], new_flags: list[
     x = MARGIN
     ic = _open_image(icon)
     if ic is not None:
-        ic = ImageOps.fit(ic, (60, 60), Image.LANCZOS)
-        out = Image.new("RGBA", (60, 60), (0, 0, 0, 0))
-        out.paste(ic, (0, 0), _rounded_mask((60, 60), 12))
+        ic = ImageOps.fit(ic, (64, 64), Image.LANCZOS)
+        out = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        out.paste(ic, (0, 0), _rounded_mask((64, 64), 12))
         canvas.alpha_composite(out, (x, 30))
-        x += 74
-    draw.text((x, 30), f"{GAME_NAMES[game].upper()}  PLAY LOG", font=num(16, "SemiBold"), fill=theme["accent"])
+        x += 80
+    draw.text((x, 30), f"{GAME_NAMES[game].upper()}  PLAY LOG  ·  {date}", font=num(17, "SemiBold"),
+              fill=theme["accent"])
     name = unicodedata.normalize("NFKC", player)
-    draw.text((x, 48), _fit(draw, name, cjk(28), width - MARGIN - x), font=cjk(28), fill=WHITE)
-    draw.text((MARGIN, header - 18), date, font=num(18, "SemiBold"), fill=st["muted"], anchor="ls")
+    draw.text((x, 52), _fit(draw, name, cjk(34), 420), font=cjk(34), fill=WHITE)
 
+    right = width - MARGIN
+    if rating:
+        colors = _plate_colors(game, rating)
+        number = _gradient_text(rating, num(50), [tuple(min(255, c + 40) for c in col) for col in colors])
+        canvas.alpha_composite(number, (right - number.width + 8, 44))
+        draw.text((right, 24), "RATING", font=num(15, "SemiBold"), fill=st["muted"], anchor="ra")
+        right -= number.width + 10
     if len(entries) >= 4:  # extra track bought with C to C
-        bw, bh = 74, 24
-        bx, by = width - MARGIN - bw, header - 36
+        bw, bh = 78, 26
+        bx, by = right - bw, 56
         badge = _gradient_fill((bw, bh), [theme["accent"], theme["glow2"]])
-        badge.putalpha(_rounded_mask((bw, bh), 12))
+        badge.putalpha(_rounded_mask((bw, bh), 13))
         canvas.alpha_composite(badge, (bx, by))
-        draw.text((bx + bw // 2, by + bh // 2), "C to C", font=num(16), fill=(20, 18, 30), anchor="mm")
+        draw.text((bx + bw // 2, by + bh // 2), "C to C", font=num(17), fill=(20, 18, 30), anchor="mm")
 
-    y = header
-    for i, (e, is_new) in enumerate(zip(entries, new_flags)):
-        _draw_card(canvas, MARGIN, y, i + 1, e, theme, st)
-        if is_new:
+    for i in range(slots):
+        r, c = divmod(i, cols)
+        cx, cy = MARGIN + c * (CARD_W + GAP_X), header + r * (CARD_H + GAP_Y)
+        if i >= len(entries):
+            empty = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
+            empty.paste(Image.new("RGBA", (CARD_W, CARD_H), (10, 8, 18, 90)), (0, 0), _rounded_mask((CARD_W, CARD_H), RADIUS))
+            canvas.alpha_composite(empty, (cx, cy))
+            draw.text((cx + CARD_W // 2, cy + CARD_H // 2), f"TRACK {i + 1}", font=num(20, "SemiBold"),
+                      fill=(110, 112, 130), anchor="mm")
+            continue
+        _draw_card(canvas, cx, cy, i + 1, entries[i], theme, st)
+        if new_flags[i]:
             bw, bh = 50, 20
-            bx, by = MARGIN + CARD_W - 14 - bw, y + 40
+            bx, by = cx + CARD_W - 14 - bw, cy + 40
             badge = _gradient_fill((bw, bh), [(255, 120, 150), (255, 200, 90)])
             badge.putalpha(_rounded_mask((bw, bh), 10))
             canvas.alpha_composite(badge, (bx, by))
             ImageDraw.Draw(canvas).text((bx + bw // 2, by + bh // 2), "NEW", font=num(15), fill=(40, 20, 30),
                                         anchor="mm")
-        y += CARD_H + GAP_Y
+        draw = ImageDraw.Draw(canvas)
 
     buf = io.BytesIO()
     canvas.convert("RGB").save(buf, format="PNG", optimize=True)

@@ -933,19 +933,15 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
             continue
         badge = badges[i]
         right = cx + CARD_W - 14
-        # the badge goes beside the score; a long score (maimai) sends it up to the title row instead
-        on_title = False
-        if badge is not None:
-            score = f"{entries[i].score:.4f}%" if game == "maimai" else f"{int(entries[i].score):,}"
-            score_right = cx + 136 + draw.textlength(score, font=num(32))
-            on_title = right - _play_badge_width(game, badge) < score_right + 24
+        # same spots in both games: the badge at the end of the title row (a maimai achievement is
+        # too long to share its row), the rating gain at the end of the score row
         _draw_card(canvas, cx, cy, i + 1, entries[i], theme, st,
-                   title_reserve=_play_badge_width(game, badge) if on_title else 0)
+                   title_reserve=_play_badge_width(game, badge) if badge is not None else 0)
         if badge is not None:
-            _draw_play_badge(canvas, right, cy + 10 if on_title else cy + 40, game, badge)
+            _draw_play_badge(canvas, right, cy + 10, game, badge)
             if badge.gain:
                 gain = f"+{float(badge.gain):.3f}" if game == "chunithm" else f"+{int(badge.gain)}"
-                _up_pill(canvas, right, cy + 40 if on_title else cy + 64, gain, 15)
+                _up_pill(canvas, right, cy + 40, gain, 15)
         draw = ImageDraw.Draw(canvas)
 
     return encode(canvas)

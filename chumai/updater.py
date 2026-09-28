@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -14,9 +15,14 @@ REPO = Path(__file__).resolve().parent.parent
 
 async def _git(*args: str) -> tuple[int, str]:
     proc = await asyncio.create_subprocess_exec(
-        "git", *args, cwd=REPO, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        "git", *args, cwd=REPO, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
     )
-    out, _ = await proc.communicate()
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return 1, "git timed out (waiting for a login prompt?)"
     return proc.returncode, out.decode(errors="replace").strip()
 
 

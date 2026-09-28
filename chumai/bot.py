@@ -60,6 +60,7 @@ class ChumaiBot(discord.Client):
             await self.tree.sync()
 
     restart_requested = False
+    owner_ids: set[int] | None = None
     # (discord_id, game) -> (next check time, last time new plays were seen)
     _playlog_schedule: dict[tuple[int, str], tuple[float, float]] = {}
 
@@ -218,16 +219,24 @@ def register_commands(bot: ChumaiBot) -> None:
 
     @tree.command(name="update", description="GitHub에서 최신 코드를 바로 받아서 봇을 재시작합니다 (봇 주인만)")
     async def update_cmd(interaction: discord.Interaction) -> None:
-        app = await bot.application_info()
-        owners = {m.id for m in app.team.members} if app.team else {app.owner.id}
-        if interaction.user.id not in owners:
-            await interaction.response.send_message("봇 주인만 쓸 수 있어요.", ephemeral=True)
+        # answer Discord first (it gives up after 3 seconds), then do the slow parts
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if bot.owner_ids is None:
+            app = await bot.application_info()
+            bot.owner_ids = {m.id for m in app.team.members} if app.team else {app.owner.id}
+        if interaction.user.id not in bot.owner_ids:
+            await interaction.followup.send("봇 주인만 쓸 수 있어요.", ephemeral=True)
             return
         if not updater.enabled():
-            await interaction.response.send_message("git으로 받은 폴더가 아니라서 업데이트할 수 없어요.", ephemeral=True)
+            await interaction.followup.send("git으로 받은 폴더가 아니라서 업데이트할 수 없어요.", ephemeral=True)
             return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        if not await updater.pull_if_updated():
+        try:
+            pulled = await updater.pull_if_updated()
+        except Exception as e:
+            log.exception("update failed")
+            await interaction.followup.send(f"업데이트에 실패했어요: {e}", ephemeral=True)
+            return
+        if not pulled:
             await interaction.followup.send("이미 최신 버전이에요.", ephemeral=True)
             return
         await interaction.followup.send("새 버전을 받았어요. 몇 초 뒤 재시작돼요.", ephemeral=True)

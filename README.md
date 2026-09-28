@@ -26,6 +26,9 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
   처음 실행할 때 받아서 씁니다(`data/logos`에 저장). 비워두면 글자 로고를 그립니다.
   `chumai/assets/logos/maimai.png`처럼 파일을 직접 넣어도 됩니다.
 - 곡 자켓은 SEGA 공식 곡 목록(`music.json`, `maimai_songs.json`)에서 찾아 내려받고 `JACKET_DIR`에 캐시합니다.
+- 채보 맞히기의 채보 이미지는 팬 사이트 [sdvx.in](https://sdvx.in)에서 필요할 때 받아 `CHART_DIR`에 캐시하고,
+  어떤 곡이 sdvx.in의 어느 페이지인지는 [chuni-penguin](https://github.com/beer-psi/chuni-penguin)의 곡 데이터(0BSD)를 씁니다.
+  sdvx.in은 이미지 무단 전재를 금지하므로 개인 서버에서만 쓰세요. maimai는 이 데이터가 없어 지원하지 않습니다.
 - 국제판(SEGA ID) 전용입니다. 일본판은 로그인 방식이 달라 지원하지 않습니다.
 
 > Discord 입력창(Modal)은 비밀번호 가리기(`***`)를 지원하지 않아서 입력하는 동안 본인 화면에는 비밀번호가 보입니다.
@@ -59,6 +62,7 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/recommend game:` | `!rec` | 레이팅 올리기 좋은 곡 추천 (어떤 곡을 밀어내고 레이팅이 얼마에서 얼마로 오르는지) |
 | `/calc game: const: score:` | `!cal` | 단일 곡 레이팅 계산 + 점수별 레이팅 표 (maimai는 달성률 %, CHUNITHM은 점수) |
 | `/guess game:` / `/answer title:` | `!g` / `!a` | 자켓 일부를 보고 곡 맞히기 |
+| `/chartguess [level:]` / `/answer title:` | `!cg` / `!a` | 채보 일부를 보고 곡 맞히기 (CHUNITHM, 기본은 모든 MASTER) |
 | `/help` | `!h` | 명령어 목록 |
 
 ### 플레이 기록 자동 업로드

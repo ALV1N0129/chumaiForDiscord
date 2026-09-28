@@ -9,13 +9,14 @@ import logging
 import random
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import discord
 from discord import app_commands
 from PIL import Image
 
-from . import net_parsers, rating, render, tools
+from . import charts, net_parsers, rating, render, tools
 from .b50 import B50
 from .segaid import NetClient, SegaError
 from .songdb import CatalogSong, normalize_title, search
@@ -129,9 +130,13 @@ def _find_song(bot: ChumaiBot, game: str, query: str) -> CatalogSong | None:
 class GuessRound:
     game: str
     song: CatalogSong
-    jacket: str
+    jacket: str | None  # shown with the answer
+    label: str = ""  # e.g. " (MASTER 14.8)" for the chart game
     started: float = field(default_factory=time.time)
     answered: bool = False
+
+    def reveal(self) -> dict:
+        return {"file": discord.File(self.jacket, filename="answer.png")} if self.jacket else {}
 
 
 def _answer_matches(song: CatalogSong, answer: str) -> bool:
@@ -151,6 +156,14 @@ def _crop_hint(path: str, rng: random.Random) -> bytes:
     y = rng.randint(0, im.height - size)
     hint = im.crop((x, y, x + size, y + size)).resize((300, 300), Image.LANCZOS)
     return render.encode(hint)
+
+
+def _chart_hint(view_path: Path, notes_path: Path, rng: random.Random) -> bytes:
+    with Image.open(view_path) as im:
+        view = im.convert("RGB")
+    with Image.open(notes_path) as im:
+        notes = charts.fit_layer(im.convert("RGBA"), view.size)
+    return render.encode(charts.crop_hint(view, notes, rng))
 
 
 GUESS_SECONDS = 60
@@ -380,6 +393,26 @@ def register(bot: ChumaiBot) -> None:
 
     # ----------------------------------------------------------------- guessing
 
+    def _busy(channel_id: int) -> bool:
+        current = rounds.get(channel_id)
+        return bool(current and not current.answered and time.time() - current.started < GUESS_SECONDS)
+
+    async def _start_round(interaction: discord.Interaction, rnd: GuessRound, hint: bytes, question: str) -> None:
+        channel_id = interaction.channel_id
+        rounds[channel_id] = rnd
+        await interaction.followup.send(f"{question} `/answer` 로 답해 주세요. ({GUESS_SECONDS}초)",
+                                        file=_image(hint, "guess"))
+
+        async def timeout() -> None:
+            await asyncio.sleep(GUESS_SECONDS)
+            if rounds.get(channel_id) is rnd and not rnd.answered:
+                rnd.answered = True
+                channel = bot.get_channel(channel_id)
+                if channel is not None:
+                    await channel.send(f"시간 종료! 정답은 **{rnd.song.title}**{rnd.label} 였어요.", **rnd.reveal())
+
+        asyncio.create_task(timeout())
+
     @tree.command(name="guess", description="자켓 일부를 보고 곡을 맞히는 게임을 시작합니다")
     @app_commands.describe(game="게임", level=f"문제로 낼 곡의 {tools.LEVEL_HELP} (선택)")
     async def guess(interaction: discord.Interaction, game: GameChoice, level: str | None = None) -> None:
@@ -388,9 +421,7 @@ def register(bot: ChumaiBot) -> None:
         except ValueError as e:
             await interaction.response.send_message(str(e), ephemeral=True)
             return
-        channel_id = interaction.channel_id
-        current = rounds.get(channel_id)
-        if current and not current.answered and time.time() - current.started < GUESS_SECONDS:
+        if _busy(interaction.channel_id):
             await interaction.response.send_message("이 채널에서 이미 게임이 진행 중이에요.", ephemeral=True)
             return
         await interaction.response.defer(thinking=True)
@@ -405,24 +436,45 @@ def register(bot: ChumaiBot) -> None:
             await interaction.followup.send("자켓을 불러오지 못했어요. 잠시 후 다시 해 주세요.")
             return
         rnd = GuessRound(game, song, str(paths[0]))
-        rounds[channel_id] = rnd
         hint = await asyncio.to_thread(_crop_hint, rnd.jacket, rng)
-        await interaction.followup.send(
-            f"이 자켓의 곡은? `/answer` 로 답해 주세요. ({GUESS_SECONDS}초)",
-            file=discord.File(io.BytesIO(hint), filename=render.filename("guess")))
+        await _start_round(interaction, rnd, hint, "이 자켓의 곡은?")
 
-        async def timeout() -> None:
-            await asyncio.sleep(GUESS_SECONDS)
-            if rounds.get(channel_id) is rnd and not rnd.answered:
-                rnd.answered = True
-                channel = bot.get_channel(channel_id)
-                if channel is not None:
-                    await channel.send(f"시간 종료! 정답은 **{rnd.song.title}** 였어요.",
-                                       file=discord.File(rnd.jacket, filename="answer.png"))
+    @tree.command(name="chartguess", description="채보 일부를 보고 곡을 맞히는 게임을 시작합니다 (CHUNITHM, 접두어: !cg)")
+    @app_commands.describe(level=f"문제로 낼 보면의 {tools.LEVEL_HELP} (선택, 기본: 모든 MASTER)")
+    async def chartguess(interaction: discord.Interaction, level: str | None = None) -> None:
+        game = "chunithm"
+        try:
+            lo, hi = tools.parse_level(level, game) if level else (1.0, 16.0)
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+        if _busy(interaction.channel_id):
+            await interaction.response.send_message("이 채널에서 이미 게임이 진행 중이에요.", ephemeral=True)
+            return
+        diffs = {"EXPERT", "MASTER", "ULTIMA"} if level else {"MASTER"}
+        pool = [(s, c) for s, c in tools.charts_in_range(bot.songdb, game, lo, hi)
+                if c.difficulty in diffs and bot.charts.sdvx_id(s.music_id, c.difficulty)]
+        if not pool:
+            await interaction.response.send_message(
+                "문제로 낼 채보가 없어요. (봇이 막 켜졌다면 채보 목록을 받는 중일 수 있어요)", ephemeral=True)
+            return
+        await interaction.response.defer(thinking=True)
+        rng = random.Random()
+        rng.shuffle(pool)
+        for song, chart in pool[:5]:
+            paths = await bot.charts.fetch(song.music_id, chart.difficulty)
+            if paths:
+                break
+        else:
+            await interaction.followup.send("sdvx.in 에서 채보를 불러오지 못했어요. 잠시 후 다시 해 주세요.")
+            return
+        jacket = (await _jackets(bot, game, [song.jacket_key])).get(0)
+        label = f" ({chart.difficulty} {chart.level_const:.1f})"
+        rnd = GuessRound(game, song, str(jacket) if jacket else None, label)
+        hint = await asyncio.to_thread(_chart_hint, *paths, rng)
+        await _start_round(interaction, rnd, hint, "이 채보의 곡은?")
 
-        asyncio.create_task(timeout())
-
-    @tree.command(name="answer", description="자켓 맞히기 게임의 정답을 입력합니다")
+    @tree.command(name="answer", description="자켓·채보 맞히기 게임의 정답을 입력합니다")
     @app_commands.describe(title="곡 제목")
     async def answer(interaction: discord.Interaction, title: str) -> None:
         rnd = rounds.get(interaction.channel_id)
@@ -433,8 +485,7 @@ def register(bot: ChumaiBot) -> None:
             rnd.answered = True
             took = time.time() - rnd.started
             await interaction.response.send_message(
-                f"{interaction.user.mention} 정답! **{rnd.song.title}** ({took:.1f}초)",
-                file=discord.File(rnd.jacket, filename="answer.png"))
+                f"{interaction.user.mention} 정답! **{rnd.song.title}**{rnd.label} ({took:.1f}초)", **rnd.reveal())
         else:
             await interaction.response.send_message(f"`{title}` 은(는) 아니에요.", ephemeral=True)
 
@@ -451,7 +502,7 @@ def register(bot: ChumaiBot) -> None:
             "곡": [("info", "곡 정보"), ("jacket", "자켓"), ("const", "상수별 보면 목록"), ("random", "랜덤 선곡")],
             "계산": [("calc", "곡 레이팅 계산"), ("reach", "목표 레이팅에 필요한 점수"),
                    ("whatif", "이 점수면 레이팅이 얼마나 오르나"), ("recommend", "추천 곡")],
-            "놀이": [("guess", "자켓 맞히기"), ("answer", "정답 입력")],
+            "놀이": [("guess", "자켓 맞히기"), ("chartguess", "채보 맞히기 (CHUNITHM)"), ("answer", "정답 입력")],
         }
         p = bot.config.prefix
         short = {full: alias for alias, full in ALIASES.items()}

@@ -15,6 +15,7 @@ from discord.ext import tasks
 
 from . import features, net_parsers, prefix, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
+from .charts import ChartViews
 from .config import Config
 from .jackets import JacketStore
 from .logos import download_logos
@@ -43,6 +44,7 @@ class ChumaiBot(discord.Client):
         self.links = LinkStore(config.db_path, config.token_key)
         self.songdb = SongDB()
         self.jackets = JacketStore(config.jacket_dir)
+        self.charts = ChartViews(config.chart_dir)
         register_commands(self)
         features.register(self)
 
@@ -54,6 +56,7 @@ class ChumaiBot(discord.Client):
     async def setup_hook(self) -> None:
         await self.songdb.load_or_update(self.config.songdb_dir)
         await self.jackets.load_or_update()
+        self._charts_task = asyncio.create_task(self.charts.load_or_update())  # large download; don't wait
         render.LOGO_DIR = Path(self.config.logo_dir)
         await download_logos(self.config.logo_dir, self.config.logo_urls)
         self.refresh_songdb.start()
@@ -109,6 +112,7 @@ class ChumaiBot(discord.Client):
     async def refresh_songdb(self) -> None:
         await self.songdb.load_or_update(self.config.songdb_dir)
         await self.jackets.load_or_update()
+        await self.charts.load_or_update()
 
     @refresh_songdb.before_loop
     async def _skip_first_refresh(self) -> None:

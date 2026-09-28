@@ -1072,6 +1072,7 @@ def _const_text(level: str, const: float) -> str:
 # ------------------------------------------------------------ random picks
 
 PICK_W, PICK_JACKET = 260, 228
+RANDOM_SLOTS = 4  # /random picks at most this many
 
 
 def _wrap(draw: ImageDraw.ImageDraw, text: str, f, width: int, max_lines: int) -> list[str]:
@@ -1098,8 +1099,8 @@ def render_random(game: str, picks: list[dict], level_label: str) -> bytes:
     """
     theme = THEMES[game]
     gap, header, card_h = 18, 104, 432
-    width = MARGIN * 2 + len(picks) * PICK_W + (len(picks) - 1) * gap
-    width = max(width, 560)
+    # always as wide as four cards, so every result shows at the same size in Discord
+    width = MARGIN * 2 + RANDOM_SLOTS * PICK_W + (RANDOM_SLOTS - 1) * gap
     height = header + card_h + 34
     canvas = _page(game, (width, height))
     _page_header(canvas, game, "RANDOM", level_label)

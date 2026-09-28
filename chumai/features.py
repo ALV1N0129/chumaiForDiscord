@@ -202,6 +202,13 @@ class GiveUpView(discord.ui.View):
 CONST_LIMIT = 45 if render.LOW_MEMORY else 90  # charts shown in one /const image
 
 
+# maimai folders, short enough to sit under the rating gain on a /recommend tile
+SHORT_GENRES = {
+    "POPS＆アニメ": "POPS", "niconico＆ボーカロイド": "niconico", "東方Project": "東方",
+    "ゲーム＆バラエティ": "GAME", "オンゲキ＆CHUNITHM": "オンゲキ", "宴会場": "宴",
+}
+
+
 def register(bot: ChumaiBot) -> None:
     tree = bot.tree
     rounds: dict[int, GuessRound] = {}
@@ -422,25 +429,21 @@ def register(bot: ChumaiBot) -> None:
                 right = f"+{tools.fmt_rating(game, r.after - r.before)}"
                 right_sub = f"{tools.fmt_rating(game, r.before)} » {tools.fmt_rating(game, r.after)}"
             sub_line = f"목표 {_rank(game, r.target_score)} {tools.fmt_score(game, r.target_score)}"
-            if game == "maimai":  # rank borders are round numbers: keep it short
-                sub_line = f"목표 {_rank(game, r.target_score)}"  # the rank says the border (SS+ = 99.5%)
+            if game == "maimai":  # just what to play and what to aim for
+                sub_line = f"목표 {_rank(game, r.target_score)}"
                 if r.honey is not None and abs(r.honey) >= 0.1:  # plays like another constant
                     sub_line += f" · 체감 {r.chart.level_const - r.honey:.1f}"
-                # numbers first: a long title is what gets cut
-                parts = [f"현재 {r.best:.4f}%" if r.best is not None else
-                         f"예상 {r.expected:.2f}%" if r.expected is not None else None]
-                if gone:
-                    parts.append(f"이 곡 {tools.fmt_rating(game, r.song_rating)} ← "
-                                 f"{'NEW' if r.is_new else 'BEST'} 최하위 {gone.rating_text} {gone.title}")
-                note = " · ".join(p for p in parts if p) or None
+                if r.best is not None:
+                    sub_line += f" · 현재 {r.best:.2f}%"
+                right_sub, note = None, None
             rows.append(_chart_row(
                 r.song, r.chart, jackets.get(i), right=right, right_sub=right_sub,
-                sub_line=sub_line, note=note, genre=r.song.genre))
+                sub_line=sub_line, note=note,
+                genre=SHORT_GENRES.get(r.song.genre, r.song.genre) if game == "maimai" else r.song.genre))
         if game == "chunithm":
             sub = f"현재 {tools.fmt_rating(game, b50.total)} · {tools.chunithm_advice(float(b50.total))}"
         else:
-            reach = tools.maimai_skill(b50, bot.songdb, honey).reach()
-            sub = f"현재 {tools.fmt_rating(game, b50.total)} · 예상 {tools.maimai_reach_text(reach)}"
+            sub = f"현재 {tools.fmt_rating(game, b50.total)}" + (" · 체감 상수가 낮은 꿀곡 위주" if honey else "")
         png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows, sub, None, 2)
         await interaction.followup.send(file=_image(png, f"recommend_{game}"))
 

@@ -27,7 +27,8 @@ from .storage import LinkStore
 log = logging.getLogger("chumai")
 
 GameChoice = Literal["maimai", "chunithm"]
-PLAYLOG_INTERVAL = 55  # checked by a 1-minute loop, so this means "every minute"
+PLAYLOG_ACTIVE_INTERVAL = 5 * 60
+PLAYLOG_IDLE_INTERVAL = 15 * 60
 PLAYLOG_PATHS = {"chunithm": "/mobile/record/playlog", "maimai": "/maimai-mobile/record/"}
 
 
@@ -75,7 +76,9 @@ class ChumaiBot(discord.Client):
                 found = False
             if found:
                 active = now
-            self._playlog_schedule[(discord_id, game)] = (time.time() + PLAYLOG_INTERVAL, active)
+            # 5 minutes for an hour after activity, otherwise 15 minutes
+            interval = PLAYLOG_ACTIVE_INTERVAL if now - active < 3600 else PLAYLOG_IDLE_INTERVAL
+            self._playlog_schedule[(discord_id, game)] = (time.time() + interval, active)
 
     @poll_playlogs.before_loop
     async def _wait_ready(self) -> None:
@@ -174,7 +177,7 @@ def register_commands(bot: ChumaiBot) -> None:
         bot._playlog_schedule.pop((interaction.user.id, game), None)
         await interaction.followup.send(
             f"이제 {'maimai DX' if game == 'maimai' else 'CHUNITHM'} 플레이 기록을 이 채널에 올릴게요. "
-            "크레딧이 끝나고 공식 사이트에 반영된 뒤 1분 안에 올라와요. 바로 확인하려면 `/playlog check`.",
+            "크레딧이 끝나고 공식 사이트에 반영된 뒤 5~15분 안에 올라와요.",
             ephemeral=True,
         )
 
@@ -210,22 +213,6 @@ def register_commands(bot: ChumaiBot) -> None:
             await interaction.followup.send("테스트 중 오류가 났어요. 봇 창의 로그를 확인해 주세요.", ephemeral=True)
             return
         await interaction.followup.send("최근 크레딧을 올렸어요.", ephemeral=True)
-
-    @playlog.command(name="check", description="새 플레이 기록이 있는지 지금 바로 확인해서 올립니다")
-    @app_commands.describe(game="게임")
-    async def playlog_check(interaction: discord.Interaction, game: GameChoice) -> None:
-        sub = next((row for row in bot.links.playlogs() if row[0] == interaction.user.id and row[1] == game), None)
-        if sub is None:
-            await interaction.response.send_message("먼저 `/playlog on` 으로 켜 주세요.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        try:
-            found = await check_playlog(bot, *sub)
-        except SegaError as e:
-            await interaction.followup.send(str(e), ephemeral=True)
-            return
-        bot._playlog_schedule[(interaction.user.id, game)] = (time.time() + PLAYLOG_INTERVAL, time.time())
-        await interaction.followup.send("새 기록을 올렸어요." if found else "새 플레이 기록이 없어요.", ephemeral=True)
 
     tree.add_command(playlog)
 

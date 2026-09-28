@@ -372,7 +372,7 @@ def register(bot: ChumaiBot) -> None:
         b50 = await _load_b50(interaction, game)
         if b50 is None:
             return
-        recs = tools.recommend(bot.songdb, b50, bot.config.new_versions[game], 5)
+        recs = tools.recommend(bot.songdb, b50, bot.config.new_versions[game], 6)
         if not recs:
             await interaction.followup.send("추천할 곡을 찾지 못했어요.")
             return

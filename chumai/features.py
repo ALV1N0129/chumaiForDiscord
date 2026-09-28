@@ -423,7 +423,7 @@ def register(bot: ChumaiBot) -> None:
                 right_sub = f"{tools.fmt_rating(game, r.before)} » {tools.fmt_rating(game, r.after)}"
             sub_line = f"목표 {_rank(game, r.target_score)} {tools.fmt_score(game, r.target_score)}"
             if game == "maimai":  # rank borders are round numbers: keep it short
-                sub_line = f"목표 {_rank(game, r.target_score)} {r.target_score:.1f}%"
+                sub_line = f"목표 {_rank(game, r.target_score)}"  # the rank says the border (SS+ = 99.5%)
                 if r.honey is not None and abs(r.honey) >= 0.1:  # plays like another constant
                     sub_line += f" · 체감 {r.chart.level_const - r.honey:.1f}"
                 # numbers first: a long title is what gets cut

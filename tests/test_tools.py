@@ -109,3 +109,44 @@ def test_parse_level():
         tools.parse_level("abc", "chunithm")
     with pytest.raises(ValueError):
         tools.parse_level("15-14", "chunithm")
+
+
+def test_recommend_stays_near_usual_difficulty():
+    db = _db()
+    # a B50 of 14.3~14.6 charts with one 14.8 outlier: AXION (14.7) is a fair suggestion, Aleph-0 (14.9) is not
+    entries = [make_entry("chunithm", f"S{i}", "MASTER", "14", 14.3 + (i % 4) / 10, 1_000_000, None, False)
+               for i in range(29)]
+    entries.append(make_entry("chunithm", "Hard", "MASTER", "14+", 14.8, 1_000_000, None, False))
+    entries += [make_entry("chunithm", f"N{i}", "MASTER", "14", 14.3 + (i % 4) / 10, 1_000_000, None, True)
+                for i in range(20)]
+    b = select_b50("chunithm", "p", entries)
+    recs = tools.recommend(db, b, ["CHUNITHM X-VERSE-X"], 5, random.Random(0))
+    assert [r.song.title for r in recs] == ["AXION"]
+
+
+def test_font_download(tmp_path):
+    import asyncio
+
+    from aiohttp import web
+
+    from chumai import fonts
+
+    async def main():
+        app = web.Application()
+        app.router.add_get("/font.otf", lambda r: web.Response(body=b"OTTO" + b"x" * 1000))
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        try:
+            first = await fonts.ensure_font(tmp_path, f"http://127.0.0.1:{port}/font.otf")
+            again = await fonts.ensure_font(tmp_path, "http://127.0.0.1:1/unreachable")  # cached: no download
+            missing = await fonts.ensure_font(tmp_path / "other", "http://127.0.0.1:1/unreachable")
+        finally:
+            await runner.cleanup()
+        return first, again, missing
+
+    first, again, missing = asyncio.run(main())
+    assert first == again and first.read_bytes().startswith(b"OTTO")
+    assert missing is None and not list((tmp_path / "other").iterdir())

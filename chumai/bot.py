@@ -18,6 +18,7 @@ from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .charts import ChartViews
 from .config import Config
 from .jackets import JacketStore
+from .fonts import ensure_font
 from .logos import download_logos
 from .playlog import badges as play_badges, to_entry
 from .render import render_b50, render_credit
@@ -59,6 +60,8 @@ class ChumaiBot(discord.Client):
         self._charts_task = asyncio.create_task(self.charts.load_or_update())  # large download; don't wait
         render.LOGO_DIR = Path(self.config.logo_dir)
         await download_logos(self.config.logo_dir, self.config.logo_urls)
+        if await ensure_font(render.FONT_DIR):
+            render.cjk.cache_clear()
         self.refresh_songdb.start()
         if updater.enabled():
             self.check_update.start()

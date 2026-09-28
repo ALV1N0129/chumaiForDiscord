@@ -140,11 +140,16 @@ def filename(stem: str) -> str:
 
 # ------------------------------------------------------------------ fonts
 
+FONT_DIR = Path(os.environ.get("FONT_DIR", "data/fonts"))
+
+# fonts with Korean *and* Japanese first; Windows' Japanese fonts have no Hangul
 CJK_BOLD = [
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
     "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc",
     "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Bold.ttc",
     "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+    "C:/Windows/Fonts/malgunbd.ttf",
     "C:/Windows/Fonts/YuGothB.ttc",
     "C:/Windows/Fonts/meiryob.ttc",
     "C:/Windows/Fonts/msgothic.ttc",
@@ -166,7 +171,8 @@ def _first_existing(candidates: list[str]) -> str | None:
 
 
 def _cjk_font_file() -> str | None:
-    return _first_existing([os.environ.get("FONT_PATH", ""), str(ASSETS / "fonts"), *CJK_BOLD])
+    return _first_existing([os.environ.get("FONT_PATH", ""), str(ASSETS / "fonts"),
+                            str(FONT_DIR / "NotoSansCJKkr-Bold.otf"), *CJK_BOLD])
 
 
 @lru_cache(maxsize=None)

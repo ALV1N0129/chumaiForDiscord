@@ -232,8 +232,10 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
             gain = chart_rating(game, chart.level_const, usual) - floors[new]
             if gain > 0:
                 candidates.append(Recommendation(song, chart, usual, gain, is_new=new))
-    # biggest gains among charts no harder than what is already in the B50, with a little variety
-    ceiling = max(e.level_const for e in entries) + 0.2
+    # biggest gains among charts around the usual difficulty of the B50 (the median score is only
+    # realistic there), with a little variety
+    consts = sorted(e.level_const for e in entries)
+    ceiling = consts[(len(consts) * 3) // 4] + 0.1 + 1e-9
     reachable = [r for r in candidates if r.chart.level_const <= ceiling] or candidates
     reachable.sort(key=lambda r: (-r.gain, r.chart.level_const))
     head = reachable[: max(count * 3, count)]

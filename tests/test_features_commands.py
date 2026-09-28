@@ -74,10 +74,7 @@ def test_info_const_reach_random(tmp_path, monkeypatch):
     assert "1,007,500" in log[-1][1]
 
     log = _call(bot, "random", game="chunithm", level="12-15", count=2)
-    embeds = log[-1][2]["embeds"]
-    assert len(embeds) == 2 and len(log[-1][2]["files"]) == 2
-    assert {e.fields[1].name for e in embeds} <= {"MASTER", "EXPERT"}
-    assert embeds[0].thumbnail.url.startswith("attachment://jacket")
+    assert log[-1][2]["file"].filename == "random_chunithm.png"
 
     log = _call(bot, "info", game="chunithm", song="zzzzzz no such song")
     assert "찾지 못했어요" in log[-1][1]

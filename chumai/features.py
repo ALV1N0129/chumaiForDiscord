@@ -17,6 +17,7 @@ from PIL import Image
 
 from . import net_parsers, tools
 from .b50 import B50
+from .render import render_random
 from .segaid import NetClient, SegaError
 from .songdb import CatalogSong, normalize_title, search
 
@@ -259,15 +260,13 @@ def register(bot: ChumaiBot) -> None:
         except Exception:
             log.warning("jacket fetch failed", exc_info=True)
             jackets = {}
-        embeds, files = [], []
-        for i, (song, chart) in enumerate(picks):
-            embed = chart_embed(game, song, chart)
-            if i in jackets:
-                name = f"jacket{i}.png"
-                files.append(discord.File(str(jackets[i]), filename=name))
-                embed.set_thumbnail(url=f"attachment://{name}")
-            embeds.append(embed)
-        await interaction.followup.send(embeds=embeds, files=files)
+        cards = [
+            {"title": song.title, "artist": song.artist, "genre": song.genre, "difficulty": chart.difficulty,
+             "level": chart.level, "const": chart.level_const, "jacket": jackets.get(i)}
+            for i, (song, chart) in enumerate(picks)
+        ]
+        png = await asyncio.to_thread(render_random, game, cards, tools.describe_level(level, lo, hi))
+        await interaction.followup.send(file=discord.File(io.BytesIO(png), filename=f"random_{game}.png"))
 
     # -------------------------------------------------------------- reach / what-if
 

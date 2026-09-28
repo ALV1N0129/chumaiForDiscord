@@ -77,4 +77,4 @@ def test_prefix_level_and_count(tmp_path, monkeypatch):
 def test_r_alias(tmp_path, monkeypatch):
     bot = _bot(tmp_path, monkeypatch)
     r = _run(bot, "!r chuni 14+ 2")
-    assert len(r[-1][1]["embeds"]) == 2
+    assert r[-1][1]["file"].filename == "random_chunithm.png"

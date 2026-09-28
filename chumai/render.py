@@ -878,3 +878,111 @@ def render_profile(game: str, name: str, rating: str | None, title: str | None, 
     buf = io.BytesIO()
     canvas.convert("RGB").save(buf, format="PNG", optimize=True)
     return buf.getvalue()
+
+
+# ------------------------------------------------------------ random picks
+
+PICK_W, PICK_JACKET = 260, 228
+
+
+def _wrap(draw: ImageDraw.ImageDraw, text: str, f, width: int, max_lines: int) -> list[str]:
+    lines, line = [], ""
+    for ch in text:
+        if draw.textlength(line + ch, font=f) > width:
+            lines.append(line)
+            line = ch.lstrip()
+            if len(lines) == max_lines:
+                break
+        else:
+            line += ch
+    else:
+        lines.append(line)
+        return lines
+    lines[-1] = _fit(draw, lines[-1] + line, f, width)
+    return lines
+
+
+def render_random(game: str, picks: list[dict], level_label: str) -> bytes:
+    """Random picks as tall cards side by side.
+
+    Each pick: title, artist, genre, difficulty, level, const, jacket (path or None).
+    """
+    from types import SimpleNamespace
+
+    theme = THEMES[game]
+    st = STYLES["version"]
+    gap, header, card_h = 18, 104, 432
+    width = MARGIN * 2 + len(picks) * PICK_W + (len(picks) - 1) * gap
+    width = max(width, 560)
+    height = header + card_h + 34
+    canvas = _background(SimpleNamespace(game=game, old=[], new=[], icon=None), (width, height), theme, st)
+    draw = ImageDraw.Draw(canvas)
+    draw.text((MARGIN, 30), f"{GAME_NAMES[game].upper()}  RANDOM", font=num(18, "SemiBold"), fill=theme["accent"])
+    draw.text((MARGIN, 52), level_label, font=num(40), fill=WHITE)
+
+    x0 = (width - (len(picks) * PICK_W + (len(picks) - 1) * gap)) // 2
+    for i, p in enumerate(picks):
+        x, y = x0 + i * (PICK_W + gap), header
+        card = Image.new("RGBA", (PICK_W, card_h), (0, 0, 0, 0))
+        card.paste(Image.new("RGBA", (PICK_W, card_h), (*theme["card"], 235)), (0, 0), _rounded_mask((PICK_W, card_h), 18))
+        ImageDraw.Draw(card).rounded_rectangle((0, 0, PICK_W - 1, card_h - 1), radius=18, outline=(255, 255, 255, 40),
+                                               width=2)
+        canvas.alpha_composite(card, (x, y))
+        draw = ImageDraw.Draw(canvas)
+
+        label, color, is_dx = _diff(SimpleNamespace(difficulty=p["difficulty"]))
+        ultima = label == "ULT"
+        jx, jy = x + (PICK_W - PICK_JACKET) // 2, y + 16
+        if ultima:
+            draw.rounded_rectangle((jx - 6, jy - 6, jx + PICK_JACKET + 5, jy + PICK_JACKET + 5), radius=14,
+                                   fill=(210, 20, 50))
+            draw.rounded_rectangle((jx - 4, jy - 4, jx + PICK_JACKET + 3, jy + PICK_JACKET + 3), radius=12,
+                                   fill=(12, 12, 14))
+        else:
+            draw.rounded_rectangle((jx - 4, jy - 4, jx + PICK_JACKET + 3, jy + PICK_JACKET + 3), radius=12, fill=color)
+        jacket = None
+        if p.get("jacket"):
+            try:
+                with Image.open(p["jacket"]) as im:
+                    jacket = ImageOps.fit(im.convert("RGB"), (PICK_JACKET, PICK_JACKET), Image.LANCZOS)
+            except Exception:
+                jacket = None
+        if jacket is None:
+            jacket = Image.new("RGB", (PICK_JACKET, PICK_JACKET), (24, 24, 32))
+            ImageDraw.Draw(jacket).text((PICK_JACKET // 2, PICK_JACKET // 2), "NO IMAGE", font=num(22, "SemiBold"),
+                                        fill=FAINT, anchor="mm")
+        canvas.paste(jacket, (jx, jy), _rounded_mask((PICK_JACKET, PICK_JACKET), 10))
+        if is_dx:
+            draw.rounded_rectangle((jx + 8, jy + 8, jx + 44, jy + 30), radius=5, fill=WHITE)
+            draw.text((jx + 26, jy + 19), "DX", font=num(18), fill=(230, 70, 110), anchor="mm")
+
+        # difficulty bar under the jacket
+        by = jy + PICK_JACKET + 14
+        bar_fill = (12, 12, 14) if ultima else color
+        text_fill = (255, 60, 80) if ultima else (60, 24, 96) if sum(color) > 560 else WHITE
+        draw.rounded_rectangle((jx - 4, by, jx + PICK_JACKET + 3, by + 40), radius=10, fill=bar_fill)
+        name = {"BAS": "BASIC", "ADV": "ADVANCED", "EXP": "EXPERT", "MAS": "MASTER", "Re:M": "Re:MASTER",
+                "ULT": "ULTIMA"}.get(label, label)
+        draw.text((jx + 8, by + 20), name, font=num(20), fill=text_fill, anchor="lm")
+        draw.text((jx + PICK_JACKET - 6, by + 20), f"{p['level']}  {p['const']:.1f}", font=num(24), fill=text_fill,
+                  anchor="rm")
+
+        ty = by + 54
+        for line in _wrap(draw, p["title"], cjk(20), PICK_W - 32, 2):
+            draw.text((x + 16, ty), line, font=cjk(20), fill=WHITE)
+            ty += 27
+        draw.text((x + 16, ty + 2), _fit(draw, p.get("artist") or "", cjk(15), PICK_W - 32), font=cjk(15),
+                  fill=st["muted"])
+        genre = p.get("genre") or ""
+        if genre:
+            gw = int(draw.textlength(genre, font=cjk(13))) + 18
+            gy = y + card_h - 36
+            chip = Image.new("RGBA", (gw, 24), (0, 0, 0, 0))
+            chip.paste(Image.new("RGBA", (gw, 24), (255, 255, 255, 30)), (0, 0), _rounded_mask((gw, 24), 12))
+            canvas.alpha_composite(chip, (x + 16, gy))
+            draw = ImageDraw.Draw(canvas)
+            draw.text((x + 16 + gw // 2, gy + 12), genre, font=cjk(13), fill=st["muted"], anchor="mm")
+
+    buf = io.BytesIO()
+    canvas.convert("RGB").save(buf, format="PNG", optimize=True)
+    return buf.getvalue()

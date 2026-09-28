@@ -198,7 +198,7 @@ def test_whatif_and_recommend(tmp_path, monkeypatch):
     entries += [make_entry("chunithm", f"N{i}", "MASTER", "13+", 13.5, 1_007_500, None, True) for i in range(20)]
     b50 = select_b50("chunithm", "p", entries)
 
-    async def fake_b50(bot, game, discord_id, token):
+    async def fake_b50(bot, game, discord_id, token, images=True):
         return b50
 
     monkeypatch.setattr(botmod, "sega_b50", fake_b50)
@@ -217,3 +217,43 @@ def test_whatif_and_recommend(tmp_path, monkeypatch):
     rows, sub = calls[-1][1][3], calls[-1][1][4]
     assert rows and all(r["right"].startswith("+") and r["sub_line"].startswith("목표 S") for r in rows)
     assert "현재 15.89" in sub and "13+ SSS" in sub  # the roadmap's advice for 15.25~16.00
+
+
+def test_sega_b50_loads_pages_once_for_recommend(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from chumai import bot as botmod
+
+    fix = Path(__file__).parent / "fixtures" / "chunithm_net"
+    requested = []
+
+    class FakeNet:
+        pages = {
+            "/mobile/home/playerData/": (fix / "player_data.html").read_bytes(),
+            "/mobile/home/playerData/ratingDetailBest/": (fix / "best30.html").read_bytes(),
+            "/mobile/home/playerData/ratingDetailRecent/": (fix / "recent10.html").read_bytes(),
+        }
+
+        def __init__(self, game, clal):
+            self.clal = clal
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            pass
+
+        async def get(self, path):
+            requested.append(path)
+            return self.pages[path]
+
+        async def get_bytes(self, url):
+            requested.append(url)
+            return None
+
+    monkeypatch.setattr(botmod, "NetClient", FakeNet)
+    bot = _bot(tmp_path, monkeypatch)
+    first = asyncio.run(botmod.sega_b50(bot, "chunithm", 1, "tok", images=False))
+    again = asyncio.run(botmod.sega_b50(bot, "chunithm", 1, "tok", images=False))
+    assert first is again and len(first.old) == 30
+    assert len(requested) == 3  # no nameplate / icon pages, and the second call used the cache

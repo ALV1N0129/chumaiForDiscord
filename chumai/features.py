@@ -281,7 +281,7 @@ def register(bot: ChumaiBot) -> None:
         await interaction.response.defer(thinking=True)
         shown = charts[:CONST_LIMIT]
         jackets = await _jackets(bot, game, [s.jacket_key for s, _ in shown])
-        rows = [_chart_row(s, c, jackets.get(i)) for i, (s, c) in enumerate(shown)]
+        rows = [_chart_row(s, c, jackets.get(i), sub_line=s.genre) for i, (s, c) in enumerate(shown)]
         footer = f"외 {len(charts) - len(shown)}개 · 범위를 좁혀서 다시 검색해 보세요" if len(charts) > len(shown) else None
         png = await asyncio.to_thread(render.render_chart_list, game, "CONST", tools.describe_level(level, lo, hi),
                                       rows, f"{len(charts)}개", footer, 3, True)
@@ -333,7 +333,7 @@ def register(bot: ChumaiBot) -> None:
         if token is None:
             await interaction.followup.send("`/login` 으로 먼저 SEGA ID 로그인을 해 주세요.")
             return None
-        result = await sega_b50(bot, game, interaction.user.id, token)
+        result = await sega_b50(bot, game, interaction.user.id, token, images=False)
         if isinstance(result, str):
             await interaction.followup.send(result)
             return None
@@ -394,7 +394,8 @@ def register(bot: ChumaiBot) -> None:
                 right_sub = f"{tools.fmt_rating(game, r.before)} » {tools.fmt_rating(game, r.after)}"
             rows.append(_chart_row(
                 r.song, r.chart, jackets.get(i), right=right, right_sub=right_sub,
-                sub_line=f"목표 {_rank(game, r.target_score)} {tools.fmt_score(game, r.target_score)}", note=note))
+                sub_line=f"목표 {_rank(game, r.target_score)} {tools.fmt_score(game, r.target_score)}", note=note,
+                genre=r.song.genre))
         if game == "chunithm":
             sub = f"현재 {tools.fmt_rating(game, b50.total)} · {tools.chunithm_advice(float(b50.total))}"
         else:

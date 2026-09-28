@@ -1176,7 +1176,8 @@ def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub:
     """Charts as tiles: jacket, title, difficulty/level and a value on the right.
 
     rows: title, difficulty, level, const, jacket, right (big text), and optionally right_sub (small text
-    under it), sub_line (after the difficulty) and note (a line along the bottom of the tile).
+    under it), sub_line (after the difficulty), note (a line along the bottom of the tile) and genre
+    (a chip at the end of the note).
     group=True puts a heading above each run of charts with the same constant.
     """
     theme = THEMES[game]
@@ -1254,7 +1255,15 @@ def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub:
             _panel(canvas, (x + 10, ny, x + tile_w - 10, ny + note_h - 10), (0, 0, 0), alpha=70, radius=10,
                    outline=False)
             draw = ImageDraw.Draw(canvas)
-            draw.text((x + 22, ny + (note_h - 10) // 2), _fit(draw, row["note"], cjk(14), tile_w - 44), font=cjk(14),
+            note_w = tile_w - 44
+            if row.get("genre"):  # the in-game folder, to find the song quickly
+                gw = int(draw.textlength(row["genre"], font=cjk(13))) + 18
+                gx, gy = x + tile_w - 16 - gw, ny + (note_h - 10) // 2 - 11
+                _panel(canvas, (gx, gy, gx + gw, gy + 22), theme["accent"], alpha=45, radius=11, outline=False)
+                draw = ImageDraw.Draw(canvas)
+                draw.text((gx + gw // 2, gy + 11), row["genre"], font=cjk(13), fill=WHITE, anchor="mm")
+                note_w -= gw + 10
+            draw.text((x + 22, ny + (note_h - 10) // 2), _fit(draw, row["note"], cjk(14), note_w), font=cjk(14),
                       fill=MUTED, anchor="lm")
     if footer:
         ImageDraw.Draw(canvas).text((width - MARGIN, height - 26), footer, font=cjk(15), fill=MUTED, anchor="rm")

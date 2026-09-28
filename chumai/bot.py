@@ -46,6 +46,7 @@ class ChumaiBot(discord.Client):
         self.songdb = SongDB()
         self.jackets = JacketStore(config.jacket_dir)
         self.charts = ChartViews(config.chart_dir)
+        self.b50_cache: dict[tuple[int, str], tuple[float, B50]] = {}  # reused by /recommend and /whatif
         register_commands(self)
         features.register(self)
 
@@ -314,35 +315,48 @@ async def _fetch_image(net: NetClient, url: str | None) -> bytes | None:
         return None
 
 
-async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str) -> B50 | str:
+B50_CACHE_SECONDS = 180
+
+
+async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str, images: bool = True) -> B50 | str:
+    """Fetch the B50 from the official site.
+
+    images=False skips the profile icon and nameplate (not needed by /recommend and /whatif) and
+    may reuse a B50 fetched in the last few minutes. Pages are loaded in parallel.
+    """
+    key = (discord_id, game)
+    cached = bot.b50_cache.get(key)
+    if not images and cached and time.time() - cached[0] < B50_CACHE_SECONDS:
+        return cached[1]
     try:
         async with NetClient(game, token) as net:
             if game == "chunithm":
+                # the first page also logs in; the rest can then load together
                 player = net_parsers.parse_chunithm_player(await net.get("/mobile/home/playerData/"))
-                best = net_parsers.parse_chunithm_rating_list(
-                    await net.get("/mobile/home/playerData/ratingDetailBest/")
-                )
-                new = net_parsers.parse_chunithm_rating_list(
-                    await net.get("/mobile/home/playerData/ratingDetailRecent/")
-                )
-                try:
-                    player.plate_url = net_parsers.parse_chunithm_nameplate(
-                        await net.get("/mobile/collection/customise/")
-                    )
-                except Exception:
-                    log.warning("could not load CHUNITHM nameplate", exc_info=True)
+                paths = ["/mobile/home/playerData/ratingDetailBest/", "/mobile/home/playerData/ratingDetailRecent/"]
+                pages = await asyncio.gather(*(net.get(p) for p in paths))
+                best, new = (net_parsers.parse_chunithm_rating_list(p) for p in pages)
+                if images:
+                    try:
+                        player.plate_url = net_parsers.parse_chunithm_nameplate(
+                            await net.get("/mobile/collection/customise/")
+                        )
+                    except Exception:
+                        log.warning("could not load CHUNITHM nameplate", exc_info=True)
                 result = b50_from_chunithm_net(player, best, new, bot.songdb)
             else:
                 player = net_parsers.parse_maimai_player(await net.get("/maimai-mobile/home/"))
-                records = []
-                for diff in range(5):
-                    html = await net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={diff}")
-                    records += net_parsers.parse_maimai_scores(html, diff)
+                pages = await asyncio.gather(*(
+                    net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={diff}") for diff in range(5)
+                ))
+                records = [r for diff, html in enumerate(pages) for r in net_parsers.parse_maimai_scores(html, diff)]
                 result = b50_from_maimai_net(player, records, bot.songdb, bot.config.new_versions[game])
-            result.icon = await _fetch_image(net, player.icon_url)
-            result.plate = await _fetch_image(net, player.plate_url)
+            if images:
+                result.icon, result.plate = await asyncio.gather(
+                    _fetch_image(net, player.icon_url), _fetch_image(net, player.plate_url))
         if net.clal != token:
             bot.links.set_sega_token(discord_id, net.clal)
+        bot.b50_cache[key] = (time.time(), result)
         return result
     except SegaError as e:
         return str(e)
@@ -379,11 +393,11 @@ async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None) 
     out: dict[tuple[str, str], float] = {}
     if game == "chunithm":
         try:
-            for d in CHUNITHM_RECORD_DIFFS:
-                if diffs is None or d in diffs:
-                    html = await net.post(f"/mobile/record/musicGenre/send{d.capitalize()}", {"genre": "99"})
-                    out.update({(r.title, r.difficulty): r.score
-                                for r in net_parsers.parse_chunithm_rating_list(html)})
+            wanted = [d for d in CHUNITHM_RECORD_DIFFS if diffs is None or d in diffs]
+            pages = await asyncio.gather(*(
+                net.post(f"/mobile/record/musicGenre/send{d.capitalize()}", {"genre": "99"}) for d in wanted))
+            for html in pages:
+                out.update({(r.title, r.difficulty): r.score for r in net_parsers.parse_chunithm_rating_list(html)})
         except SegaError:
             # fall back to the B50 lists (only the 50 rated charts, but the same pages /b50 uses)
             log.warning("CHUNITHM record pages failed; using the rating lists", exc_info=True)
@@ -391,10 +405,12 @@ async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None) 
                 out.update({(r.title, r.difficulty): r.score
                             for r in net_parsers.parse_chunithm_rating_list(await net.get(path))})
     else:
-        for i, base in enumerate(net_parsers.MAIMAI_DIFFS):
-            if diffs is None or base in diffs or f"DX {base}" in diffs:
-                html = await net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={i}")
-                out.update({(r.title, r.difficulty): r.achievement for r in net_parsers.parse_maimai_scores(html, i)})
+        wanted = [i for i, base in enumerate(net_parsers.MAIMAI_DIFFS)
+                  if diffs is None or base in diffs or f"DX {base}" in diffs]
+        pages = await asyncio.gather(*(
+            net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={i}") for i in wanted))
+        for i, html in zip(wanted, pages):
+            out.update({(r.title, r.difficulty): r.achievement for r in net_parsers.parse_maimai_scores(html, i)})
     return out
 
 
@@ -440,11 +456,10 @@ async def render_credits(bot: ChumaiBot, discord_id: int, game: str, select,
 
         images = []
         for credit in net_parsers.group_credits(chosen):
-            entries = []
-            for r in credit:
-                e = to_entry(game, r, bot.songdb)
-                e.jacket_path = await _cached_image(bot, net, game, r.jacket_url)
-                entries.append(e)
+            entries = [to_entry(game, r, bot.songdb) for r in credit]
+            paths = await asyncio.gather(*(_cached_image(bot, net, game, r.jacket_url) for r in credit))
+            for e, path in zip(entries, paths):
+                e.jacket_path = path
             png = await asyncio.to_thread(
                 render_credit, game, player.name, entries, [marks.get(r.key) for r in credit], credit[0].date, icon,
                 player.rating,

@@ -76,6 +76,10 @@ SCORE_STEPS = {
 }
 
 
+def _rank(game: str, score: float) -> str:
+    return rating.maimai_rank(score) if game == "maimai" else rating.chunithm_rank(int(score))
+
+
 def score_rows(game: str, const: float, mine: float | None = None,
                reach: float | None = None) -> list[tuple[str, str, str, bool]]:
     """Score -> rating table for a chart constant. `mine` is added and highlighted; with `reach`,
@@ -385,10 +389,12 @@ def register(bot: ChumaiBot) -> None:
             rows.append(_chart_row(
                 r.song, r.chart, jackets.get(i), right=f"+{tools.fmt_rating(game, r.after - r.before)}",
                 right_sub=f"{tools.fmt_rating(game, r.before)} » {tools.fmt_rating(game, r.after)}",
-                sub_line=f"목표 {tools.fmt_score(game, r.target_score)}", note=note))
-        png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows,
-                                      f"현재 {tools.fmt_rating(game, b50.total)} · 평소 점수(B50 중앙값)로 쳤을 때",
-                                      None, 2)
+                sub_line=f"목표 {_rank(game, r.target_score)} {tools.fmt_score(game, r.target_score)}", note=note))
+        if game == "chunithm":
+            sub = f"현재 {tools.fmt_rating(game, b50.total)} · {tools.chunithm_advice(float(b50.total))}"
+        else:
+            sub = f"현재 {tools.fmt_rating(game, b50.total)} · 평소 점수(B50 중앙값)로 쳤을 때"
+        png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows, sub, None, 2)
         await interaction.followup.send(file=_image(png, f"recommend_{game}"))
 
     # -------------------------------------------------------------- chart view

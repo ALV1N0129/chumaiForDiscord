@@ -75,10 +75,16 @@ def test_what_if_and_recommend():
     low = tools.what_if(b, aleph, tools.find_chart(aleph, "MAS"), 500_000, False)
     assert not low.counted and low.after == low.before
 
-    recs = tools.recommend(db, b, ["CHUNITHM X-VERSE-X"], 5, random.Random(0))
-    titles = {r.song.title for r in recs}
-    assert titles == {"Aleph-0", "AXION"}  # Easy Song (12.0) would not beat the floor
-    assert all(r.gain > 0 for r in recs)
+    assert tools.recommend(db, b, ["CHUNITHM X-VERSE-X"], 5, random.Random(0)) == []  # 15.x charts: too hard
+
+    # a stronger player (about 15.9): the 14.x charts become fair targets
+    strong = [make_entry("chunithm", f"S{i}", "MASTER", "14", 14.0, 1_009_000, None, False) for i in range(30)]
+    strong += [make_entry("chunithm", f"N{i}", "MASTER", "13+", 13.5, 1_007_500, None, True) for i in range(20)]
+    sb = select_b50("chunithm", "p", strong)
+    recs = tools.recommend(db, sb, ["CHUNITHM X-VERSE-X"], 5, random.Random(0))
+    assert recs and all(r.gain > 0 and r.after >= r.before for r in recs)
+    for r in recs:
+        assert r.target_score == tools.chunithm_target(float(sb.total), r.chart.level_const)
 
 
 def test_guess_helpers(tmp_path):
@@ -111,17 +117,33 @@ def test_parse_level():
         tools.parse_level("15-14", "chunithm")
 
 
-def test_recommend_stays_near_usual_difficulty():
+def test_chunithm_target_follows_the_roadmap():
+    t = tools.chunithm_target
+    assert t(16.07, 15.6) is None  # half a level below your rating: too hard to plan for
+    assert t(12.6, 12.0) == 1_000_000  # low ratings: SS 0.6 below
+    assert t(12.6, 11.0) >= 1_007_000  # ~SSS 1.6 below
+    assert 1_005_000 <= t(16.5, 15.2) < 1_007_500  # high ratings: SS+ 1.3 below
+    assert t(17.3, 15.5) == 1_007_500  # SSS 1.8 below
+    assert t(15.0, 10.0) == 1_009_000
+    scores = [t(16.07, c / 10) for c in range(135, 152)]
+    assert all(a >= b for a, b in zip(scores, scores[1:]) if b is not None)  # easier chart, higher target
+    assert tools.chunithm_advice(16.07).startswith("14 비중")
+    assert tools.chunithm_advice(17.53) == "15를 SSS+로 · 점수작"
+    assert tools.chunithm_advice(9.0).startswith("적정 레벨")
+
+
+def test_recommend_maimai_stays_near_usual_difficulty():
+    from chumai.songdb import CatalogChart, CatalogSong
+
     db = _db()
-    # a B50 of 14.3~14.6 charts with one 14.8 outlier: AXION (14.7) is a fair suggestion, Aleph-0 (14.9) is not
-    entries = [make_entry("chunithm", f"S{i}", "MASTER", "14", 14.3 + (i % 4) / 10, 1_000_000, None, False)
-               for i in range(29)]
-    entries.append(make_entry("chunithm", "Hard", "MASTER", "14+", 14.8, 1_000_000, None, False))
-    entries += [make_entry("chunithm", f"N{i}", "MASTER", "14", 14.3 + (i % 4) / 10, 1_000_000, None, True)
-                for i in range(20)]
-    b = select_b50("chunithm", "p", entries)
-    recs = tools.recommend(db, b, ["CHUNITHM X-VERSE-X"], 5, random.Random(0))
-    assert [r.song.title for r in recs] == ["AXION"]
+    db.catalog["maimai"] = [CatalogSong("maimai", f"M{c}", "", "maimai", [f"m{c}"],
+                                        [CatalogChart("Master", "13", c / 10, "maimai")]) for c in (123, 128, 132)]
+    entries = [make_entry("maimai", f"S{i}", "Master", "12", 12.0 + (i % 5) / 10, 100.0, None, False)
+               for i in range(35)]
+    entries += [make_entry("maimai", f"N{i}", "Master", "12", 11.5, 100.0, None, True) for i in range(15)]
+    b = select_b50("maimai", "p", entries)
+    recs = tools.recommend(db, b, ["maimai でらっくす PRiSM PLUS"], 5, random.Random(0))
+    assert {r.song.title for r in recs} == {"M123"}  # 12.8 / 13.2 are above the usual difficulty
 
 
 def test_font_download(tmp_path):

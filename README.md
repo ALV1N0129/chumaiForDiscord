@@ -60,11 +60,20 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/random game: level: [count:]` | `!r` | 레벨·상수·범위에서 랜덤 선곡 (기본 3곡) |
 | `/reach game: const: target:` | `!rh` | 목표 곡 레이팅에 필요한 점수 + 점수별 레이팅 표 |
 | `/whatif game: song: difficulty: score:` | `!w` | 그 점수를 받으면 레이팅이 어떻게 바뀌는지 |
-| `/recommend game:` | `!rec` | 레이팅 올리기 좋은 곡 추천 (어떤 곡을 밀어내고 레이팅이 얼마에서 얼마로 오르는지) |
+| `/recommend game:` | `!rec` | 레이팅 올리기 좋은 곡 6개 추천 (어떤 곡을 밀어내고 레이팅이 얼마에서 얼마로 오르는지). CHUNITHM은 아래 로드맵 기준 |
 | `/calc game: const: score:` | `!cal` | 단일 곡 레이팅 계산 + 점수별 레이팅 표 (maimai는 달성률 %, CHUNITHM은 점수) |
 | `/guess game:` / `/answer title:` | `!g` / `!a` | 자켓 일부를 보고 곡 맞히기 |
 | `/chartguess [level:]` / `/answer title:` | `!cg` / `!a` | 채보 일부를 보고 곡 맞히기 (CHUNITHM, 기본은 모든 MASTER) |
 | `/help` | `!h` | 명령어 목록 |
+
+### 추천 기준 (CHUNITHM)
+
+[츄니즘 갤러리의 레이팅 로드맵 번역글](https://gall.dcinside.com/mgallery/board/view/?id=cnt&no=54113)
+(원문: [巴哈姆特](https://home.gamer.com.tw/artwork.php?sn=5398406))의 "내 레이팅보다 1.0~2.0 낮은 보면에서 SS~SSS"를 따릅니다.
+보면 상수가 내 레이팅보다 얼마나 낮은지에 따라 목표 점수를 정하고(낮을수록 SS → SS+ → SSS → SSS+),
+그 점수로 B50의 최하위 곡을 밀어낼 수 있는 보면을 상수가 겹치지 않게 골라 줍니다.
+레이팅이 높을수록 같은 랭크에 더 큰 차이가 필요하게 잡았고, 이미지 위쪽에 레이팅 구간별 조언이 나옵니다.
+maimai는 B50 점수 중앙값으로, B50에서 자주 치는 난이도 근처의 보면을 추천합니다.
 
 ### 플레이 기록 자동 업로드
 

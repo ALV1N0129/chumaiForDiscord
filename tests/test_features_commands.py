@@ -194,8 +194,8 @@ def test_whatif_and_recommend(tmp_path, monkeypatch):
     from chumai import bot as botmod
     from chumai.b50 import make_entry, select_b50
 
-    entries = [make_entry("chunithm", f"S{i}", "MASTER", "14", 14.0, 1_000_000, None, False) for i in range(30)]
-    entries += [make_entry("chunithm", f"N{i}", "MASTER", "14", 13.5, 1_000_000, None, True) for i in range(20)]
+    entries = [make_entry("chunithm", f"S{i}", "MASTER", "14", 14.0, 1_009_000, None, False) for i in range(30)]
+    entries += [make_entry("chunithm", f"N{i}", "MASTER", "13+", 13.5, 1_007_500, None, True) for i in range(20)]
     b50 = select_b50("chunithm", "p", entries)
 
     async def fake_b50(bot, game, discord_id, token):
@@ -214,4 +214,6 @@ def test_whatif_and_recommend(tmp_path, monkeypatch):
 
     log = _call(bot, "recommend", game="chunithm")
     assert log[-1][2]["file"].filename == render.filename("recommend_chunithm")
-    assert any(r["title"] == "Aleph-0" and r["right"].startswith("+") for r in calls[-1][1][3])
+    rows, sub = calls[-1][1][3], calls[-1][1][4]
+    assert rows and all(r["right"].startswith("+") and r["sub_line"].startswith("목표 S") for r in rows)
+    assert "현재 15.89" in sub and "13+ SSS" in sub  # the roadmap's advice for 15.25~16.00

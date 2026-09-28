@@ -210,40 +210,110 @@ class Recommendation:
     after: Fraction | None = None  # B50 total with this score
 
 
+# CHUNITHM: a realistic score for a chart, from how far its constant is below your rating
+# ("gap"). Based on the rating roadmap translated on the CHUNITHM gallery
+# (gall.dcinside.com/mgallery/board/view/?id=cnt&no=54113, originally home.gamer.com.tw
+# artwork 5398406): play charts 1.0~2.0 below your rating aiming for SS~SSS. Lower ratings
+# reach a rank at a smaller gap than higher ones, so the two anchor sets are blended.
+TARGETS_LOW = [(0.6, 1_000_000), (1.1, 1_005_000), (1.7, 1_007_500), (2.3, 1_009_000)]  # rating <= 14
+TARGETS_HIGH = [(1.0, 990_000), (1.3, 1_005_000), (1.8, 1_007_500), (2.3, 1_009_000)]  # rating >= 16.5
+
+
+def _interp(anchors: list[tuple[float, int]], gap: float) -> float:
+    for (g0, s0), (g1, s1) in zip(anchors, anchors[1:]):
+        if gap <= g1:
+            return s0 + (s1 - s0) * (gap - g0) / (g1 - g0)
+    return anchors[-1][1]
+
+
+def chunithm_target(rating: float, const: float) -> int | None:
+    """Score to aim for on a chart of `const` at `rating`, or None if it is still too hard."""
+    t = min(1.0, max(0.0, (rating - 14.0) / 2.5))
+    gap = rating - const
+    if gap < TARGETS_LOW[0][0] * (1 - t) + TARGETS_HIGH[0][0] * t - 1e-9:
+        return None
+    low = _interp(TARGETS_LOW, max(gap, TARGETS_LOW[0][0]))
+    high = _interp(TARGETS_HIGH, max(gap, TARGETS_HIGH[0][0]))
+    return int(low * (1 - t) + high * t) // 100 * 100
+
+
+# what the roadmap suggests at each rating (CHUNITHM)
+CHUNITHM_ADVICE = [
+    (17.30, "15를 SSS+로 · 점수작"),
+    (17.20, "15 SSS 이상 · 채보 연구와 점수작"),
+    (17.10, "B30을 15 SSS로 채우기"),
+    (17.00, "14+는 마지노선 · 15.0부터 SSS"),
+    (16.75, "B30을 14+ SSS 이상으로"),
+    (16.50, "14.8~14.9 SSS · 15 SS+"),
+    (16.25, "14 상위 · 14+ 중하위를 SSS로"),
+    (16.00, "14 비중 늘리기 · 14+ 주력곡 · 15는 S+까지"),
+    (15.25, "14 SS+~SSS · 14+ SS~SS+ · 13+ SSS"),
+    (14.50, "13 SS+~SSS · 13+ SS · 14 S+~SS+"),
+    (13.25, "12 SSS · 12+ SS+ · 13 SS · 14 최하위 도전"),
+    (12.00, "11 SSS · 11+ SS+ · 12 SS · MASTER 입문"),
+    (0.00, "적정 레벨 찾기 · EXPERT S 이상"),
+]
+
+
+def chunithm_advice(rating: float) -> str:
+    return next(text for floor, text in CHUNITHM_ADVICE if rating >= floor)
+
+
 def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
               rng: random.Random | None = None) -> list[Recommendation]:
-    """Charts outside the B50 where your usual score would push out the weakest entry."""
+    """Charts outside the B50 where a realistic score would push out the weakest entry.
+
+    CHUNITHM: the target score comes from chunithm_target (how far the chart is below your
+    rating). maimai: your median B50 score, on charts around the usual difficulty of the B50.
+    """
     game = b50.game
     entries = b50.old + b50.new
     if not entries:
         return []
     usual = statistics.median(e.score for e in entries)
+    current = float(b50.total)
     have = {(normalize_title(e.title), e.difficulty) for e in entries}
     floors = {
         False: min((e.rating for e in b50.old), default=Fraction(0)),
         True: min((e.rating for e in b50.new), default=Fraction(0)),
     }
+    consts = sorted(e.level_const for e in entries)
+    ceiling = consts[(len(consts) * 3) // 4] + 0.1 + 1e-9
     candidates = []
     for song in db.catalog.get(game, []):
         for chart in song.charts:
             if not playable(chart) or (normalize_title(song.title), chart.difficulty) in have:
                 continue
+            if game == "chunithm":
+                target = chunithm_target(current, chart.level_const)
+            else:
+                target = usual if chart.level_const <= ceiling else None
+            if target is None:
+                continue
             new = is_new_version(chart, new_versions)
-            gain = chart_rating(game, chart.level_const, usual) - floors[new]
+            gain = chart_rating(game, chart.level_const, target) - floors[new]
             if gain > 0:
-                candidates.append(Recommendation(song, chart, usual, gain, is_new=new))
-    # biggest gains among charts around the usual difficulty of the B50 (the median score is only
-    # realistic there), with a little variety
-    consts = sorted(e.level_const for e in entries)
-    ceiling = consts[(len(consts) * 3) // 4] + 0.1 + 1e-9
-    reachable = [r for r in candidates if r.chart.level_const <= ceiling] or candidates
-    reachable.sort(key=lambda r: (-r.gain, r.chart.level_const))
-    head = reachable[: max(count * 3, count)]
+                candidates.append(Recommendation(song, chart, target, gain, is_new=new))
+    # spread over difficulties: a random chart from each of the constants that gain the most,
+    # then fill up from those constants if there are fewer of them than `count`
     rng = rng or random.Random()
-    picked = rng.sample(head, min(count, len(head)))
+    by_const: dict[float, list[Recommendation]] = {}
+    for r in candidates:
+        by_const.setdefault(r.chart.level_const, []).append(r)
+    for group in by_const.values():
+        group.sort(key=lambda r: -r.gain)
+        best = group[0].gain
+        top = [r for r in group if r.gain == best]
+        rng.shuffle(top)
+        group[: len(top)] = top
+    ranked = sorted(by_const.values(), key=lambda g: (-g[0].gain, g[0].chart.level_const))[:count]
+    picked = [g[0] for g in ranked]
+    rest = [r for g in ranked for r in g[1:]]
+    rng.shuffle(rest)
+    picked += rest[: count - len(picked)]
     for r in picked:
         section = b50.new if r.is_new else b50.old
         r.replaces = min(section, key=lambda e: e.rating, default=None)
-        result = what_if(b50, r.song, r.chart, usual, r.is_new)
+        result = what_if(b50, r.song, r.chart, r.target_score, r.is_new)
         r.song_rating, r.before, r.after = result.entry.rating, result.before, result.after
     return sorted(picked, key=lambda r: (-(r.after - r.before), -r.gain))

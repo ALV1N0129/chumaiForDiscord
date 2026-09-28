@@ -55,9 +55,13 @@ class ChumaiBot(discord.Client):
         if self.config.guild_id:
             guild = discord.Object(id=self.config.guild_id)
             self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
+            synced = await self.tree.sync(guild=guild)
+            log.info("synced %d commands to server %s: %s", len(synced), self.config.guild_id,
+                     ", ".join(c.name for c in synced))
         else:
-            await self.tree.sync()
+            synced = await self.tree.sync()
+            log.info("synced %d global commands (GUILD_ID not set; may take a while to show up): %s",
+                     len(synced), ", ".join(c.name for c in synced))
 
     restart_requested = False
     owner_ids: set[int] | None = None

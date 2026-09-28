@@ -62,6 +62,14 @@ def fit_layer(img: Image.Image, size: tuple[int, int]) -> Image.Image:
     return box
 
 
+def page_url(sdvx_id: str, difficulty: str) -> str:
+    """The chart's page on sdvx.in."""
+    if difficulty == "ULT":
+        return f"{SDVX}/ult/{sdvx_id}ult.htm"
+    name = {"MAS": "mst", "BAS": "bsc"}.get(difficulty, difficulty.lower())
+    return f"{SDVX}/{sdvx_id[:2]}/{sdvx_id}{name}.htm"
+
+
 def _layer(data: bytes, size: tuple[int, int] | None = None) -> Image.Image:
     with Image.open(io.BytesIO(data)) as im:
         img = im.convert("RGBA")

@@ -55,6 +55,7 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/recent game:` | `!rc` | 가장 최근 크레딧 |
 | `/info game: song:` | `!i` | 곡 정보 이미지 (자켓, 난이도별 레벨·상수, 아티스트, 장르, 버전) |
 | `/jacket game: song:` | `!j` | 자켓 이미지 |
+| `/chart song: [difficulty:]` | `!ch` | CHUNITHM 채보 이미지 (sdvx.in, 기본 MASTER) |
 | `/const game: level:` | `!c` | 레벨(14+)·상수(14.5)·범위(14.0-14.8)에 해당하는 보면 목록 이미지 (상수별로 묶어서, 최대 90개) |
 | `/random game: level: [count:]` | `!r` | 레벨·상수·범위에서 랜덤 선곡 (기본 3곡) |
 | `/reach game: const: target:` | `!rh` | 목표 곡 레이팅에 필요한 점수 + 점수별 레이팅 표 |

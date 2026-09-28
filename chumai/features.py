@@ -391,6 +391,36 @@ def register(bot: ChumaiBot) -> None:
                                       None, 2)
         await interaction.followup.send(file=_image(png, f"recommend_{game}"))
 
+    # -------------------------------------------------------------- chart view
+
+    @tree.command(name="chart", description="CHUNITHM 채보를 보여줍니다 (sdvx.in, 접두어: !ch)")
+    @app_commands.describe(song="곡 제목", difficulty="난이도 (기본 MAS, 예: EXP, ULT)")
+    @app_commands.autocomplete(song=song_autocomplete)
+    async def chart_cmd(interaction: discord.Interaction, song: str, difficulty: str = "MAS") -> None:
+        game = "chunithm"
+        if tools.find_chart_name(difficulty) is None:  # `!ch aleph zero`: the last word was part of the title
+            song, difficulty = f"{song} {difficulty}", "MAS"
+        found = _find_song(bot, game, song)
+        chart = tools.find_chart(found, difficulty) if found else None
+        if chart is None:
+            await interaction.response.send_message("곡 또는 난이도를 찾지 못했어요.", ephemeral=True)
+            return
+        sid = bot.charts.sdvx_id(found.music_id, chart.difficulty)
+        if sid is None:
+            await interaction.response.send_message(
+                f"**{found.title}** {chart.difficulty} 채보는 아직 sdvx.in 에 없어요.", ephemeral=True)
+            return
+        await interaction.response.defer(thinking=True)
+        paths = await bot.charts.fetch(found.music_id, chart.difficulty)
+        if paths is None:
+            await interaction.followup.send("sdvx.in 에서 채보를 불러오지 못했어요. 잠시 후 다시 해 주세요.")
+            return
+        short = charts.DIFFS[chart.difficulty]
+        await interaction.followup.send(
+            f"**{found.title}** {chart.difficulty} {chart.level} ({chart.level_const:.1f}) · "
+            f"<{charts.page_url(sid, short)}>",
+            file=discord.File(str(paths[0]), filename=f"chart_{sid}{short.lower()}.jpg"))
+
     # ----------------------------------------------------------------- guessing
 
     def _busy(channel_id: int) -> bool:
@@ -499,7 +529,8 @@ def register(bot: ChumaiBot) -> None:
             "계정": [("login", "SEGA ID 로그인"), ("logout", "로그인 정보 삭제"), ("privacy", "다른 사람에게 공개 여부")],
             "기록": [("b50", "베스트 50 레이팅표"), ("profile", "프로필 카드"), ("recent", "최근 크레딧"),
                    ("playlog", "on|off|test — 플레이 기록 자동 업로드")],
-            "곡": [("info", "곡 정보"), ("jacket", "자켓"), ("const", "상수별 보면 목록"), ("random", "랜덤 선곡")],
+            "곡": [("info", "곡 정보"), ("jacket", "자켓"), ("const", "상수별 보면 목록"), ("random", "랜덤 선곡"),
+                  ("chart", "채보 보기 (CHUNITHM)")],
             "계산": [("calc", "곡 레이팅 계산"), ("reach", "목표 레이팅에 필요한 점수"),
                    ("whatif", "이 점수면 레이팅이 얼마나 오르나"), ("recommend", "추천 곡")],
             "놀이": [("guess", "자켓 맞히기"), ("chartguess", "채보 맞히기 (CHUNITHM)"), ("answer", "정답 입력")],

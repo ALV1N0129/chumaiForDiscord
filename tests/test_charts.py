@@ -111,3 +111,27 @@ def test_chartguess_command(tmp_path, monkeypatch):
     assert "채보" in log[-1][1] and log[-1][2]["file"]
     assert "정답" in alog[-1][1] and "MASTER" in alog[-1][1]
     assert _call(bot, "chartguess", level="1") [-1][2]["ephemeral"]  # no chart views at that level
+
+
+def test_chart_command_and_prefix(tmp_path, monkeypatch):
+    from test_prefix import _run
+
+    bot = _bot(tmp_path, monkeypatch)
+    song = next(s for s in bot.songdb.catalog["chunithm"] if s.title == "Aleph-0")
+    bot.charts.index = {f"{song.music_id}/MAS": "08015"}
+    view = tmp_path / "v.jpg"
+    Image.new("RGB", (80, 30)).save(view)
+
+    async def fetch(music_id, difficulty):
+        return (view, view) if difficulty == "MASTER" else None
+
+    bot.charts.fetch = fetch
+    log = _call(bot, "chart", song="aleph", difficulty="MAS")
+    assert "Aleph-0" in log[-1][1] and "sdvx.in/chunithm/08/08015mst.htm" in log[-1][1]
+    assert log[-1][2]["file"].filename == "chart_08015mas.jpg"
+    r = _run(bot, "!ch aleph 0")  # "0" is not a difficulty, so it belongs to the title
+    assert "Aleph-0" in r[-1][0]
+    bot.charts.index = {}
+    log = _call(bot, "chart", song="aleph", difficulty="MAS")
+    assert "sdvx.in 에 없어요" in log[-1][1]
+    assert charts.page_url("08015", "ULT") == "https://sdvx.in/chunithm/ult/08015ult.htm"

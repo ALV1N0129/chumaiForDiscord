@@ -146,12 +146,22 @@ def random_charts(db: SongDB, game: str, lo: float, hi: float, count: int,
     return rng.sample(pool, min(count, len(pool)))
 
 
+def _diff_key(name: str) -> str:
+    return name.replace(" ", "").replace(":", "").lower()
+
+
+def find_chart_name(difficulty: str) -> str | None:
+    """The full difficulty name for "MAS", "master", "DX MAS", "Re:MAS"... or None."""
+    want = _diff_key(difficulty)
+    return next((d for d in DIFF_ORDER if want in (_diff_key(d), _diff_key(short(d)))), None)
+
+
 def find_chart(song: CatalogSong, difficulty: str) -> CatalogChart | None:
     """Match a difficulty loosely: "MAS", "master", "DX MAS", "Re:MAS"..."""
-    want = difficulty.replace(" ", "").replace(":", "").lower()
+    want = _diff_key(difficulty)
     for chart in song.charts:
         names = {chart.difficulty, short(chart.difficulty)}
-        if any(n.replace(" ", "").replace(":", "").lower() == want for n in names):
+        if any(_diff_key(n) == want for n in names):
             return chart
     return None
 

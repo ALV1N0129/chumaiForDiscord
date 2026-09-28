@@ -97,3 +97,9 @@ def test_r_alias(tmp_path, monkeypatch):
     bot = _bot(tmp_path, monkeypatch)
     r = _run(bot, "!r chuni 14+ 2")
     assert r[-1][1]["file"].filename == render.filename("random_chunithm")
+
+
+def test_give_up_aliases(tmp_path, monkeypatch):
+    bot = _bot(tmp_path, monkeypatch)
+    assert "진행 중인 게임이 없어요" in _run(bot, "!포기")[-1][0]
+    assert "진행 중인 게임이 없어요" in _run(bot, "!gu")[-1][0]

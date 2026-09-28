@@ -67,6 +67,7 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/calc game: const: score:` | `!cal` | 단일 곡 레이팅 계산 + 점수별 레이팅 표 (maimai는 달성률 %, CHUNITHM은 점수) |
 | `/guess game:` / `/answer title:` | `!g` / `!a` | 자켓 일부를 보고 곡 맞히기 |
 | `/chartguess [level:]` / `/answer title:` | `!cg` / `!a` | 채보 일부를 보고 곡 맞히기 (CHUNITHM, 기본은 모든 MASTER) |
+| `/giveup` | `!포기` / `!gu` | 맞히기를 포기하고 정답 보기 (문제 아래 버튼으로도 가능) |
 | `/help` | `!h` | 명령어 목록 |
 
 ### 추천 기준 (CHUNITHM)

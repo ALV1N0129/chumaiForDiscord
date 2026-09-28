@@ -20,6 +20,7 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 - 공식 사이트는 보면 상수를 보여주지 않으므로, 상수는 공개된 곡 데이터 파일
   ([Tachi](https://github.com/TNG-dev/Tachi)의 seeds)을 GitHub에서 내려받아 사용합니다.
   계정이나 로그인은 필요 없고, 하루에 한 번 갱신되며 `SONGDB_DIR`에 캐시됩니다.
+- 결과 이미지는 기본으로 WebP(PNG의 약 1/3 크기)로 보냅니다. `.env`의 `IMAGE_FORMAT`으로 `jpeg` / `png`를 고를 수 있어요.
 - 이미지 스타일은 `.env`의 `B50_STYLE`로 고릅니다: `collage`(기본, 1위 곡 자켓 배경), `glow`, `light`.
 - 상단 가운데 로고는 `.env`의 `MAIMAI_LOGO_URL` / `CHUNITHM_LOGO_URL`에 공식 로고 이미지 주소를 넣으면
   처음 실행할 때 받아서 씁니다(`data/logos`에 저장). 비워두면 글자 로고를 그립니다.
@@ -33,33 +34,32 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 ## 명령어
 
 모든 명령어는 슬래시(`/b50`)와 접두어(`!b50 chuni`) 둘 다 쓸 수 있습니다.
-접두어는 `.env`의 `PREFIX`로 바꿀 수 있고, 게임은 `mai` / `chuni`로 줄여 써도 됩니다.
+접두어는 `.env`의 `PREFIX`로 바꿀 수 있고, 게임은 `m` / `mai` / `c` / `chuni`로 줄여 써도 됩니다.
+명령어도 아래 표의 "줄임"처럼 짧게 쓸 수 있어요 (`!b c` = `!b50 chunithm`).
 접두어 명령어를 쓰려면 Discord 개발자 포털 → Bot → **Message Content Intent**를 켜야 합니다.
 
-예: `!b50 chuni`, `!b50 mai @친구`, `!info chuni aleph`, `!whatif chuni aleph-0 MAS 1009000`, `!playlog on mai`, `!random chuni 14+ 3`, `!const mai 13.5-13.9`
+예: `!b c`, `!r m 13+`, `!i c aleph`, `!b50 chuni`, `!b50 mai @친구`, `!info chuni aleph`, `!whatif chuni aleph-0 MAS 1009000`, `!playlog on mai`, `!random chuni 14+ 3`, `!const mai 13.5-13.9`
 
-| 명령어 | 설명 |
-| --- | --- |
-| `/login` | SEGA ID로 로그인 (국제판) |
-| `/logout` | 저장된 SEGA 로그인 토큰 삭제 |
-| `/privacy public:<True\|False>` | 다른 사람이 내 B50(SEGA 로그인)을 볼 수 있는지 설정 |
-| `/b50 game:<maimai\|chunithm> [member]` | B50 이미지 출력. `member`를 지정하면 다른 사람 것 (공개 설정인 경우) |
-| `/playlog on game:<maimai\|chunithm>` | 새로 플레이한 크레딧을 이 채널에 이미지로 자동 업로드 |
-| `/playlog off game:<maimai\|chunithm>` | 자동 업로드 끄기 |
-| `/playlog test game:<maimai\|chunithm>` | 최근 크레딧 하나를 바로 올려 보기 (확인용) |
-| `/update` | GitHub에서 최신 코드를 바로 받아 재시작 (봇 주인만). 자동으로도 1분마다 확인합니다 |
-| `/profile game:` | 프로필 카드 (아이콘, 칭호, 레벨, 네임플레이트, 레이팅) |
-| `/recent game:` | 가장 최근 크레딧 |
-| `/info game: song:` | 곡 정보 (난이도별 레벨·상수, 아티스트, 장르, 버전, 자켓) |
-| `/jacket game: song:` | 자켓 이미지 |
-| `/const game: level:` | 레벨(14+)·상수(14.5)·범위(14.0-14.8)에 해당하는 보면 목록 |
-| `/random game: level: [count:]` (`!r`) | 레벨·상수·범위에서 랜덤 선곡 (곡마다 카드로 표시, 기본 3곡) |
-| `/reach game: const: target:` | 목표 곡 레이팅에 필요한 점수 |
-| `/whatif game: song: difficulty: score:` | 그 점수를 받으면 레이팅이 어떻게 바뀌는지 |
-| `/recommend game:` | 레이팅 올리기 좋은 곡 추천 |
-| `/guess game:` / `/answer title:` | 자켓 일부를 보고 곡 맞히기 |
-| `/help` | 명령어 목록 |
-| `/calc game:<maimai\|chunithm> const:<상수> score:<점수>` | 단일 곡 레이팅 계산 (maimai는 달성률 %, CHUNITHM은 점수) |
+| 명령어 | 줄임 | 설명 |
+| --- | --- | --- |
+| `/login` | | SEGA ID로 로그인 (국제판) |
+| `/logout` | | 저장된 SEGA 로그인 토큰 삭제 |
+| `/privacy public:<True\|False>` | | 다른 사람이 내 B50(SEGA 로그인)을 볼 수 있는지 설정 |
+| `/b50 game:<maimai\|chunithm> [member]` | `!b` | B50 이미지. `member`를 지정하면 다른 사람 것 (공개 설정인 경우) |
+| `/playlog on\|off\|test game:` | `!pl` | 새로 플레이한 크레딧을 이 채널에 이미지로 자동 업로드 / 끄기 / 최근 크레딧 바로 올려 보기 |
+| `/update` | | GitHub에서 최신 코드를 바로 받아 재시작 (봇 주인만). 자동으로도 1분마다 확인합니다 |
+| `/profile game:` | `!p` | 프로필 카드 (아이콘, 칭호, 레벨, 네임플레이트, 레이팅) |
+| `/recent game:` | `!rc` | 가장 최근 크레딧 |
+| `/info game: song:` | `!i` | 곡 정보 이미지 (자켓, 난이도별 레벨·상수, 아티스트, 장르, 버전) |
+| `/jacket game: song:` | `!j` | 자켓 이미지 |
+| `/const game: level:` | `!c` | 레벨(14+)·상수(14.5)·범위(14.0-14.8)에 해당하는 보면 목록 이미지 (상수별로 묶어서, 최대 90개) |
+| `/random game: level: [count:]` | `!r` | 레벨·상수·범위에서 랜덤 선곡 (기본 3곡) |
+| `/reach game: const: target:` | `!rh` | 목표 곡 레이팅에 필요한 점수 + 점수별 레이팅 표 |
+| `/whatif game: song: difficulty: score:` | `!w` | 그 점수를 받으면 레이팅이 어떻게 바뀌는지 |
+| `/recommend game:` | `!rec` | 레이팅 올리기 좋은 곡 추천 |
+| `/calc game: const: score:` | `!cal` | 단일 곡 레이팅 계산 + 점수별 레이팅 표 (maimai는 달성률 %, CHUNITHM은 점수) |
+| `/guess game:` / `/answer title:` | `!g` / `!a` | 자켓 일부를 보고 곡 맞히기 |
+| `/help` | `!h` | 명령어 목록 |
 
 ### 플레이 기록 자동 업로드
 

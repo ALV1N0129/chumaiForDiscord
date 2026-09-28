@@ -1,3 +1,4 @@
+import io
 import random
 from fractions import Fraction
 
@@ -88,7 +89,8 @@ def test_guess_helpers(tmp_path):
     assert not features._answer_matches(song, "AXION")
     p = tmp_path / "j.png"
     Image.new("RGB", (300, 300), (255, 0, 0)).save(p)
-    assert features._crop_hint(str(p), random.Random(0))[:8] == b"\x89PNG\r\n\x1a\n"
+    hint = Image.open(io.BytesIO(features._crop_hint(str(p), random.Random(0))))
+    assert hint.size == (300, 300)
 
 
 def test_parse_level():

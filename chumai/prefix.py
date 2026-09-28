@@ -24,7 +24,11 @@ GAME_ALIASES = {
     "chunithm": "chunithm", "chuni": "chunithm", "c": "chunithm", "츄니즘": "chunithm", "츄니": "chunithm",
 }
 # short names for prefix commands
-ALIASES = {"r": "random"}
+ALIASES = {
+    "b": "b50", "p": "profile", "rc": "recent", "i": "info", "j": "jacket", "c": "const", "r": "random",
+    "rh": "reach", "w": "whatif", "rec": "recommend", "cal": "calc", "g": "guess", "a": "answer",
+    "h": "help", "pl": "playlog",
+}
 TRUE = {"true", "yes", "on", "1", "y", "켜기", "공개"}
 FALSE = {"false", "no", "off", "0", "n", "끄기", "비공개"}
 

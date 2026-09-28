@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from chumai import features
+from chumai import features, render
 from chumai.bot import ChumaiBot
 from chumai.config import Config
 
@@ -53,6 +53,20 @@ def _bot(tmp_path, monkeypatch):
     return bot
 
 
+def spy_renders(monkeypatch):
+    """Record the arguments of every render_* call (the real renderer still runs)."""
+    calls = []
+    for name in ("render_song", "render_chart_list", "render_scores", "render_random"):
+        real = getattr(render, name)
+
+        def wrapped(*a, _real=real, _name=name, **k):
+            calls.append((_name, a, k))
+            return _real(*a, **k)
+
+        monkeypatch.setattr(render, name, wrapped)
+    return calls
+
+
 def _call(bot, name, **kw):
     log = []
     interaction = _interaction(log, **kw)
@@ -62,19 +76,29 @@ def _call(bot, name, **kw):
 
 
 def test_info_const_reach_random(tmp_path, monkeypatch):
+    calls = spy_renders(monkeypatch)
     bot = _bot(tmp_path, monkeypatch)
     log = _call(bot, "info", game="chunithm", song="aleph")
-    embed = log[-1][2]["embed"]
-    assert embed.title == "Aleph-0" and "14.9" in embed.fields[0].value
+    assert log[-1][2]["file"].filename == render.filename("info_chunithm")
+    _, (game, song, charts, jacket), _ = calls[-1]
+    assert song["title"] == "Aleph-0" and any(c["const"] == 14.9 for c in charts) and jacket
 
     log = _call(bot, "const", game="chunithm", level="14.7-14.9")
-    assert "(2개)" in log[-1][2]["embed"].title
+    assert log[-1][2]["file"].filename == render.filename("const_chunithm")
+    _, (game, kicker, title, rows, sub, *_), _ = calls[-1]
+    assert title == "14.7~14.9" and sub == "2개" and len(rows) == 2
 
     log = _call(bot, "reach", game="chunithm", const=14.7, target=16.7)
-    assert "1,007,500" in log[-1][1]
+    assert calls[-1][1][2] == "1,007,500"
+    assert log[-1][2]["file"].filename == render.filename("reach_chunithm")
 
     log = _call(bot, "random", game="chunithm", level="12-15", count=2)
-    assert log[-1][2]["file"].filename == "random_chunithm.png"
+    assert log[-1][2]["file"].filename == render.filename("random_chunithm")
+    assert len(calls[-1][1][1]) == 2
+
+    log = _call(bot, "calc", game="chunithm", const=14.7, score=1_007_500.0)
+    assert log[-1][2]["file"].filename == render.filename("calc_chunithm")
+    assert calls[-1][1][2] == "16.70"
 
     log = _call(bot, "info", game="chunithm", song="zzzzzz no such song")
     assert "찾지 못했어요" in log[-1][1]
@@ -138,10 +162,10 @@ def test_recent_and_profile_with_fake_sega(tmp_path, monkeypatch):
     bot.links.set_sega_token(1, "tok")
 
     log = _call(bot, "recent", game="chunithm")
-    assert log[-1][2]["file"].filename == "recent_chunithm.png"
+    assert log[-1][2]["file"].filename == render.filename("recent_chunithm")
 
     log = _call(bot, "profile", game="chunithm", member=None)
-    assert log[-1][2]["file"].filename == "profile_chunithm.png"
+    assert log[-1][2]["file"].filename == render.filename("profile_chunithm")
 
 
 def test_whatif_and_recommend(tmp_path, monkeypatch):
@@ -156,11 +180,16 @@ def test_whatif_and_recommend(tmp_path, monkeypatch):
         return b50
 
     monkeypatch.setattr(botmod, "sega_b50", fake_b50)
+    calls = spy_renders(monkeypatch)
     bot = _bot(tmp_path, monkeypatch)
     bot.links.set_sega_token(1, "tok")
 
     log = _call(bot, "whatif", game="chunithm", song="aleph", difficulty="MAS", score=1_009_000.0)
-    assert "→" in log[-1][1] and "+" in log[-1][1]
+    assert log[-1][2]["file"].filename == render.filename("whatif_chunithm")
+    _, (game, kicker, headline, detail, rows, chart), _ = calls[-1]
+    assert "»" in headline and "+" in detail and chart["title"] == "Aleph-0"
+    assert [r for r in rows if r[3]] == [("1,009,000", "SSS+", "17.05", True)]
 
     log = _call(bot, "recommend", game="chunithm")
-    assert "Aleph-0" in log[-1][2]["embed"].description
+    assert log[-1][2]["file"].filename == render.filename("recommend_chunithm")
+    assert any(r["title"] == "Aleph-0" and r["right"].startswith("+") for r in calls[-1][1][3])

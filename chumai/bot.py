@@ -13,7 +13,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import features, net_parsers, prefix, rating, render, updater
+from . import features, net_parsers, prefix, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .config import Config
 from .jackets import JacketStore
@@ -262,13 +262,9 @@ def register_commands(bot: ChumaiBot) -> None:
         score="maimai: 달성률 (예: 100.5) / CHUNITHM: 점수 (예: 1007500)",
     )
     async def calc(interaction: discord.Interaction, game: GameChoice, const: float, score: float) -> None:
-        if game == "maimai":
-            value = rating.maimai_rating(const, score)
-            text = f"{const:.1f} · {score:.4f}% ({rating.maimai_rank(score)}) → **{value}**"
-        else:
-            value = rating.chunithm_rating(const, int(score))
-            text = f"{const:.1f} · {int(score):,} ({rating.chunithm_rank(int(score))}) → **{float(value):.2f}**"
-        await interaction.response.send_message(text)
+        await interaction.response.defer(thinking=True)
+        png = await asyncio.to_thread(features.calc_image, game, const, score)
+        await interaction.followup.send(file=discord.File(io.BytesIO(png), filename=render.filename(f"calc_{game}")))
 
 
 class SegaLoginModal(discord.ui.Modal, title="SEGA ID 로그인 (국제판)"):
@@ -418,7 +414,7 @@ async def check_playlog(
     channel = bot.get_channel(channel_id)
     if channel is not None:
         for i, png in enumerate(images):
-            await channel.send(file=discord.File(io.BytesIO(png), filename=f"playlog_{game}_{i}.png"))
+            await channel.send(file=discord.File(io.BytesIO(png), filename=render.filename(f"playlog_{game}_{i}")))
     return True
 
 
@@ -443,7 +439,7 @@ async def send_b50(interaction: discord.Interaction, result: B50 | str, game: st
 
     await attach_jackets(interaction.client, result)
     png = await asyncio.to_thread(render_b50, result)
-    await interaction.followup.send(file=discord.File(io.BytesIO(png), filename=f"b50_{game}.png"))
+    await interaction.followup.send(file=discord.File(io.BytesIO(png), filename=render.filename(f"b50_{game}")))
 
 
 def main() -> None:

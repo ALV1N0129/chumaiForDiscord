@@ -30,5 +30,14 @@ def test_maimai_b50_total_is_sum():
 
 
 def test_render_smoke():
-    png = render_b50(select_b50("chunithm", "tester", _entries(40, 25)))
-    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    import io
+
+    from PIL import Image
+
+    from chumai import render
+
+    data = render_b50(select_b50("chunithm", "tester", _entries(40, 25)))
+    assert Image.open(io.BytesIO(data)).format == "WEBP"
+    assert render.encode(Image.new("RGB", (4, 4)), "png")[:8] == b"\x89PNG\r\n\x1a\n"
+    assert render.encode(Image.new("RGB", (4, 4)), "jpeg")[:2] == b"\xff\xd8"
+    assert render.filename("b50_maimai") == "b50_maimai.webp"

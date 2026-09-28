@@ -1,4 +1,4 @@
-"""Render a B50 as a PNG image."""
+"""Render the bot's images (B50, play logs, profile, song lists...)."""
 
 from __future__ import annotations
 
@@ -118,6 +118,25 @@ PLATES = {
 }
 
 GAME_NAMES = {"maimai": "maimai DX", "chunithm": "CHUNITHM"}
+
+# Output format. WebP is about a third of the PNG size, which matters on slow connections.
+IMAGE_FORMAT = os.environ.get("IMAGE_FORMAT", "webp").lower()
+_FORMATS = {"webp": ("WEBP", "webp", {"quality": 85, "method": 4}),
+            "jpeg": ("JPEG", "jpg", {"quality": 88, "subsampling": 0, "optimize": True}),
+            "png": ("PNG", "png", {"optimize": True})}
+_FORMATS["jpg"] = _FORMATS["jpeg"]
+
+
+def encode(image: Image.Image, fmt: str | None = None) -> bytes:
+    name, _, opts = _FORMATS.get(fmt or IMAGE_FORMAT, _FORMATS["webp"])
+    buf = io.BytesIO()
+    image.convert("RGB").save(buf, format=name, **opts)
+    return buf.getvalue()
+
+
+def filename(stem: str) -> str:
+    """`stem` plus the extension of the output format, e.g. b50_maimai.webp."""
+    return f"{stem}.{_FORMATS.get(IMAGE_FORMAT, _FORMATS['webp'])[1]}"
 
 # ------------------------------------------------------------------ fonts
 
@@ -729,9 +748,7 @@ def render_b50(b50: B50, now: datetime | None = None, style: str | None = None) 
     source = f"{b50.source}  ·  " if b50.source else ""
     draw.text((width - MARGIN, height - 28), f"{source}{stamp}", font=num(17, "Medium"), fill=st["faint"], anchor="rm")
 
-    buf = io.BytesIO()
-    canvas.convert("RGB").save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
+    return encode(canvas)
 
 
 # ------------------------------------------------------------ play log card
@@ -803,9 +820,7 @@ def render_credit(game: str, player: str, entries: list[Entry], new_flags: list[
                                         anchor="mm")
         draw = ImageDraw.Draw(canvas)
 
-    buf = io.BytesIO()
-    canvas.convert("RGB").save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
+    return encode(canvas)
 
 
 # ---------------------------------------------------------------- profile
@@ -875,9 +890,118 @@ def render_profile(game: str, name: str, rating: str | None, title: str | None, 
     if rating:
         _draw_plate(canvas, game, rating, width, st)
 
-    buf = io.BytesIO()
-    canvas.convert("RGB").save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
+    return encode(canvas)
+
+
+# ------------------------------------------------------- song / list pages
+
+DIFF_FULL = {"BAS": "BASIC", "ADV": "ADVANCED", "EXP": "EXPERT", "MAS": "MASTER", "Re:M": "Re:MASTER",
+             "ULT": "ULTIMA", "WE": "WORLD'S END"}
+ULTIMA_RIM = (210, 20, 50)
+
+
+def _page(game: str, size: tuple[int, int]) -> Image.Image:
+    from types import SimpleNamespace
+
+    return _background(SimpleNamespace(game=game, old=[], new=[], icon=None), size, THEMES[game], STYLES["version"])
+
+
+def _page_header(canvas: Image.Image, game: str, kicker: str, title: str, sub: str | None = None) -> None:
+    draw = ImageDraw.Draw(canvas)
+    draw.text((MARGIN, 30), f"{GAME_NAMES[game].upper()}  {kicker}", font=num(18, "SemiBold"),
+              fill=THEMES[game]["accent"])
+    draw.text((MARGIN, 52), title, font=num(40), fill=WHITE)
+    if sub:
+        x = MARGIN + draw.textlength(title, font=num(40)) + 16
+        draw.text((x, 88), sub, font=cjk(17), fill=MUTED, anchor="ls")
+
+
+def _panel(canvas: Image.Image, box: tuple[int, int, int, int], color, alpha: int = 235, radius: int = 18,
+           outline: bool = True) -> None:
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    panel = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    panel.paste(Image.new("RGBA", (w, h), (*color, alpha)), (0, 0), _rounded_mask((w, h), radius))
+    if outline:
+        ImageDraw.Draw(panel).rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, outline=(255, 255, 255, 40),
+                                                width=2)
+    canvas.alpha_composite(panel, (x0, y0))
+
+
+def _diff_info(difficulty: str) -> tuple[str, str, tuple[int, int, int], bool]:
+    """(short label, full name, color, is DX chart)"""
+    from types import SimpleNamespace
+
+    label, color, is_dx = _diff(SimpleNamespace(difficulty=difficulty))
+    return label, ("DX " if is_dx else "") + DIFF_FULL.get(label, label), color, is_dx
+
+
+def _framed_jacket(canvas: Image.Image, x: int, y: int, size: int, path, difficulty: str | None,
+                   rim: tuple[int, int, int] | None = None) -> None:
+    """Jacket with a difficulty-colored frame (ULTIMA: black with a red rim) and a DX badge."""
+    draw = ImageDraw.Draw(canvas)
+    pad = max(3, size // 56)
+    radius = max(6, size // 22)
+    label, _, color, is_dx = _diff_info(difficulty) if difficulty else ("", "", rim or (60, 60, 80), False)
+    if label == "ULT":
+        draw.rounded_rectangle((x - pad - 2, y - pad - 2, x + size + pad + 1, y + size + pad + 1),
+                               radius=radius + 4, fill=ULTIMA_RIM)
+        color = (12, 12, 14)
+    draw.rounded_rectangle((x - pad, y - pad, x + size + pad - 1, y + size + pad - 1), radius=radius + 2, fill=color)
+    jacket = None
+    if path:
+        try:
+            with Image.open(path) as im:
+                jacket = ImageOps.fit(im.convert("RGB"), (size, size), Image.LANCZOS)
+        except Exception:
+            jacket = None
+    if jacket is None:
+        jacket = Image.new("RGB", (size, size), (24, 24, 32))
+        if size >= 80:
+            ImageDraw.Draw(jacket).text((size // 2, size // 2), "NO IMAGE", font=num(max(12, size // 10), "SemiBold"),
+                                        fill=FAINT, anchor="mm")
+    canvas.paste(jacket, (x, y), _rounded_mask((size, size), radius))
+    if is_dx and size >= 60:
+        s = size / 228
+        bw, bh = max(24, round(36 * s)), max(15, round(22 * s))
+        draw.rounded_rectangle((x + 6, y + 6, x + 6 + bw, y + 6 + bh), radius=4, fill=WHITE)
+        draw.text((x + 6 + bw / 2, y + 6 + bh / 2), "DX", font=num(max(12, round(18 * s))), fill=(230, 70, 110),
+                  anchor="mm")
+
+
+def _diff_bar(canvas: Image.Image, box: tuple[int, int, int, int], difficulty: str, right: str,
+              size: int = 20) -> None:
+    """Colored pill: difficulty name on the left, `right` (level / constant) on the right."""
+    draw = ImageDraw.Draw(canvas)
+    label, name, color, _ = _diff_info(difficulty)
+    ultima = label == "ULT"
+    fill = (12, 12, 14) if ultima else color
+    text = (255, 60, 80) if ultima else (60, 24, 96) if sum(color) > 560 else WHITE
+    x0, y0, x1, y1 = box
+    r = (y1 - y0) // 4
+    if ultima:
+        draw.rounded_rectangle(box, radius=r, fill=ULTIMA_RIM)
+        draw.rounded_rectangle((x0 + 2, y0 + 2, x1 - 2, y1 - 2), radius=r, fill=fill)
+    else:
+        draw.rounded_rectangle(box, radius=r, fill=fill)
+    cy = (y0 + y1) // 2
+    draw.text((x0 + 10, cy), name, font=num(size), fill=text, anchor="lm")
+    font = num(size + 4) if right.isascii() else cjk(size)  # WORLD'S END levels look like 招☆4
+    draw.text((x1 - 10, cy), right, font=font, fill=text, anchor="rm")
+
+
+def _chip(canvas: Image.Image, x: int, y: int, text: str, size: int = 14) -> int:
+    """Small translucent label. Returns its width."""
+    draw = ImageDraw.Draw(canvas)
+    w = int(draw.textlength(text, font=cjk(size))) + 20
+    h = size + 12
+    _panel(canvas, (x, y, x + w, y + h), (255, 255, 255), alpha=30, radius=h // 2, outline=False)
+    ImageDraw.Draw(canvas).text((x + w // 2, y + h // 2), text, font=cjk(size), fill=MUTED, anchor="mm")
+    return w
+
+
+def _const_text(level: str, const: float) -> str:
+    return f"{level}  {const:.1f}" if const else level
 
 
 # ------------------------------------------------------------ random picks
@@ -907,82 +1031,205 @@ def render_random(game: str, picks: list[dict], level_label: str) -> bytes:
 
     Each pick: title, artist, genre, difficulty, level, const, jacket (path or None).
     """
-    from types import SimpleNamespace
-
     theme = THEMES[game]
-    st = STYLES["version"]
     gap, header, card_h = 18, 104, 432
     width = MARGIN * 2 + len(picks) * PICK_W + (len(picks) - 1) * gap
     width = max(width, 560)
     height = header + card_h + 34
-    canvas = _background(SimpleNamespace(game=game, old=[], new=[], icon=None), (width, height), theme, st)
-    draw = ImageDraw.Draw(canvas)
-    draw.text((MARGIN, 30), f"{GAME_NAMES[game].upper()}  RANDOM", font=num(18, "SemiBold"), fill=theme["accent"])
-    draw.text((MARGIN, 52), level_label, font=num(40), fill=WHITE)
+    canvas = _page(game, (width, height))
+    _page_header(canvas, game, "RANDOM", level_label)
 
     x0 = (width - (len(picks) * PICK_W + (len(picks) - 1) * gap)) // 2
     for i, p in enumerate(picks):
         x, y = x0 + i * (PICK_W + gap), header
-        card = Image.new("RGBA", (PICK_W, card_h), (0, 0, 0, 0))
-        card.paste(Image.new("RGBA", (PICK_W, card_h), (*theme["card"], 235)), (0, 0), _rounded_mask((PICK_W, card_h), 18))
-        ImageDraw.Draw(card).rounded_rectangle((0, 0, PICK_W - 1, card_h - 1), radius=18, outline=(255, 255, 255, 40),
-                                               width=2)
-        canvas.alpha_composite(card, (x, y))
-        draw = ImageDraw.Draw(canvas)
-
-        label, color, is_dx = _diff(SimpleNamespace(difficulty=p["difficulty"]))
-        ultima = label == "ULT"
+        _panel(canvas, (x, y, x + PICK_W, y + card_h), theme["card"])
         jx, jy = x + (PICK_W - PICK_JACKET) // 2, y + 16
-        if ultima:
-            draw.rounded_rectangle((jx - 6, jy - 6, jx + PICK_JACKET + 5, jy + PICK_JACKET + 5), radius=14,
-                                   fill=(210, 20, 50))
-            draw.rounded_rectangle((jx - 4, jy - 4, jx + PICK_JACKET + 3, jy + PICK_JACKET + 3), radius=12,
-                                   fill=(12, 12, 14))
-        else:
-            draw.rounded_rectangle((jx - 4, jy - 4, jx + PICK_JACKET + 3, jy + PICK_JACKET + 3), radius=12, fill=color)
-        jacket = None
-        if p.get("jacket"):
-            try:
-                with Image.open(p["jacket"]) as im:
-                    jacket = ImageOps.fit(im.convert("RGB"), (PICK_JACKET, PICK_JACKET), Image.LANCZOS)
-            except Exception:
-                jacket = None
-        if jacket is None:
-            jacket = Image.new("RGB", (PICK_JACKET, PICK_JACKET), (24, 24, 32))
-            ImageDraw.Draw(jacket).text((PICK_JACKET // 2, PICK_JACKET // 2), "NO IMAGE", font=num(22, "SemiBold"),
-                                        fill=FAINT, anchor="mm")
-        canvas.paste(jacket, (jx, jy), _rounded_mask((PICK_JACKET, PICK_JACKET), 10))
-        if is_dx:
-            draw.rounded_rectangle((jx + 8, jy + 8, jx + 44, jy + 30), radius=5, fill=WHITE)
-            draw.text((jx + 26, jy + 19), "DX", font=num(18), fill=(230, 70, 110), anchor="mm")
-
-        # difficulty bar under the jacket
+        _framed_jacket(canvas, jx, jy, PICK_JACKET, p.get("jacket"), p["difficulty"])
         by = jy + PICK_JACKET + 14
-        bar_fill = (12, 12, 14) if ultima else color
-        text_fill = (255, 60, 80) if ultima else (60, 24, 96) if sum(color) > 560 else WHITE
-        draw.rounded_rectangle((jx - 4, by, jx + PICK_JACKET + 3, by + 40), radius=10, fill=bar_fill)
-        name = {"BAS": "BASIC", "ADV": "ADVANCED", "EXP": "EXPERT", "MAS": "MASTER", "Re:M": "Re:MASTER",
-                "ULT": "ULTIMA"}.get(label, label)
-        draw.text((jx + 8, by + 20), name, font=num(20), fill=text_fill, anchor="lm")
-        draw.text((jx + PICK_JACKET - 6, by + 20), f"{p['level']}  {p['const']:.1f}", font=num(24), fill=text_fill,
-                  anchor="rm")
+        _diff_bar(canvas, (jx - 4, by, jx + PICK_JACKET + 3, by + 40), p["difficulty"],
+                  _const_text(p["level"], p["const"]))
 
+        draw = ImageDraw.Draw(canvas)
         ty = by + 54
         for line in _wrap(draw, p["title"], cjk(20), PICK_W - 32, 2):
             draw.text((x + 16, ty), line, font=cjk(20), fill=WHITE)
             ty += 27
         draw.text((x + 16, ty + 2), _fit(draw, p.get("artist") or "", cjk(15), PICK_W - 32), font=cjk(15),
-                  fill=st["muted"])
-        genre = p.get("genre") or ""
-        if genre:
-            gw = int(draw.textlength(genre, font=cjk(13))) + 18
-            gy = y + card_h - 36
-            chip = Image.new("RGBA", (gw, 24), (0, 0, 0, 0))
-            chip.paste(Image.new("RGBA", (gw, 24), (255, 255, 255, 30)), (0, 0), _rounded_mask((gw, 24), 12))
-            canvas.alpha_composite(chip, (x + 16, gy))
-            draw = ImageDraw.Draw(canvas)
-            draw.text((x + 16 + gw // 2, gy + 12), genre, font=cjk(13), fill=st["muted"], anchor="mm")
+                  fill=MUTED)
+        if p.get("genre"):
+            _chip(canvas, x + 16, y + card_h - 38, p["genre"], 13)
+    return encode(canvas)
 
-    buf = io.BytesIO()
-    canvas.convert("RGB").save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
+
+# --------------------------------------------------------------- song info
+
+
+def render_song(game: str, song: dict, charts: list[dict], jacket) -> bytes:
+    """One song: big jacket, title/artist/genre/version and a bar per chart.
+
+    song: title, artist, genre, versions (list); charts: difficulty, level, const.
+    """
+    theme = THEMES[game]
+    width, js = 960, 300
+    tx = MARGIN + js + 40
+    tw = width - tx - MARGIN
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    title_lines = _wrap(probe, song["title"], cjk(34), tw, 2)
+    bars_y = 104 + len(title_lines) * 44 + 34 + 48
+    bar_h, bar_gap = 46, 10
+    bars_end = bars_y + len(charts) * (bar_h + bar_gap)
+    height = max(104 + js + 24, bars_end) + 36
+    canvas = _page(game, (width, height))
+    _page_header(canvas, game, "SONG", "")
+    _panel(canvas, (MARGIN - 16, 84, width - MARGIN + 16, height - 20), theme["card"], alpha=215)
+
+    _framed_jacket(canvas, MARGIN + 4, 108, js - 8, jacket, None, rim=theme["accent"])
+
+    draw = ImageDraw.Draw(canvas)
+    y = 104
+    for line in title_lines:
+        draw.text((tx, y), line, font=cjk(34), fill=WHITE)
+        y += 44
+    draw.text((tx, y + 2), _fit(draw, song.get("artist") or "", cjk(19), tw), font=cjk(19), fill=MUTED)
+    cx = tx
+    for text in [song.get("genre")] + list(song.get("versions") or [])[-2:]:
+        if text:
+            cx += _chip(canvas, cx, y + 38, text) + 8
+
+    for i, c in enumerate(charts):
+        by = bars_y + i * (bar_h + bar_gap)
+        _diff_bar(canvas, (tx, by, width - MARGIN, by + bar_h), c["difficulty"], _const_text(c["level"], c["const"]),
+                  size=22)
+    return encode(canvas)
+
+
+# -------------------------------------------------------------- chart lists
+
+
+def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub: str | None = None,
+                      footer: str | None = None, columns: int = 3, group: bool = False) -> bytes:
+    """Charts as tiles: jacket, title, difficulty/level and a value on the right.
+
+    rows: title, difficulty, level, const, jacket, right (big text), right_sub (small, optional).
+    group=True puts a heading above each run of charts with the same constant.
+    """
+    theme = THEMES[game]
+    big = columns <= 2
+    tile_w = 560 if big else 380
+    tile_h = 96 if big else 72
+    js = tile_h - 20
+    gap = 12
+    width = MARGIN * 2 + columns * tile_w + (columns - 1) * gap
+
+    # lay out: (kind, y, payload)
+    items: list[tuple[str, int, int, object]] = []
+    y, col, last = 116, 0, None
+    for row in rows:
+        if group and row["const"] != last:
+            if col:
+                y += tile_h + gap
+                col = 0
+            items.append(("head", MARGIN, y, f"{row['const']:.1f}"))
+            y += 40
+            last = row["const"]
+        items.append(("tile", MARGIN + col * (tile_w + gap), y, row))
+        col += 1
+        if col == columns:
+            col = 0
+            y += tile_h + gap
+    if col:
+        y += tile_h + gap
+    height = y + (44 if footer else 20)
+
+    canvas = _page(game, (width, height))
+    _page_header(canvas, game, kicker, title, sub)
+    for kind, x, y, payload in items:
+        draw = ImageDraw.Draw(canvas)
+        if kind == "head":
+            draw.text((x + 2, y + 18), str(payload), font=num(28), fill=theme["accent"], anchor="lm")
+            lw = draw.textlength(str(payload), font=num(28)) + 14
+            draw.line((x + lw, y + 19, width - MARGIN, y + 19), fill=(255, 255, 255, 50), width=1)
+            continue
+        row = payload
+        _panel(canvas, (x, y, x + tile_w, y + tile_h), theme["card"], radius=14)
+        _framed_jacket(canvas, x + 12, y + 10, js, row.get("jacket"), row["difficulty"])
+        draw = ImageDraw.Draw(canvas)
+        label, name, color, _ = _diff_info(row["difficulty"])
+        right = row.get("right") or ""
+        rw = int(draw.textlength(right, font=num(34 if big else 26))) + 20 if right else 0
+        tx = x + 12 + js + 16
+        text_w = x + tile_w - tx - rw - 8
+        tsize = 20 if big else 17
+        draw.text((tx, y + (22 if big else 14)), _fit(draw, row["title"], cjk(tsize), text_w), font=cjk(tsize),
+                  fill=WHITE)
+        dcolor = (255, 80, 100) if label == "ULT" else tuple(min(255, v + 50) for v in color)
+        info = f"{name}  {_const_text(row['level'], row['const'])}" if big else \
+            f"{('DX ' if name.startswith('DX') else '') + label}  {row['level']}"
+        draw.text((tx, y + tile_h - (24 if big else 16)), info, font=num(19 if big else 17, "SemiBold"),
+                  fill=dcolor, anchor="ls")
+        if right:
+            if row.get("right_sub"):
+                draw.text((x + tile_w - 16, y + tile_h / 2 - 2), right, font=num(34), fill=MAX_RATING, anchor="rs")
+                sub_font = num(17, "Medium") if row["right_sub"].isascii() else cjk(14)
+                draw.text((x + tile_w - 16, y + tile_h / 2 + 22), row["right_sub"], font=sub_font, fill=MUTED,
+                          anchor="rs")
+            else:
+                draw.text((x + tile_w - 14, y + tile_h / 2), right, font=num(34 if big else 26), fill=WHITE,
+                          anchor="rm")
+    if footer:
+        ImageDraw.Draw(canvas).text((width - MARGIN, height - 26), footer, font=cjk(15), fill=MUTED, anchor="rm")
+    return encode(canvas)
+
+
+# ------------------------------------------------------------- calculations
+
+
+def render_scores(game: str, kicker: str, headline: str, detail: str, rows: list[tuple[str, str, str, bool]],
+                  chart: dict | None = None, note: str | None = None) -> bytes:
+    """A result card: big headline, a line of detail and a score -> rating table.
+
+    rows: (score, rank, rating, highlight). chart (optional): title, difficulty, level, const, jacket.
+    """
+    theme = THEMES[game]
+    width = 760
+    top = 84
+    card_top = top
+    chart_h = 124 if chart else 0
+    head_y = card_top + chart_h + 22
+    table_y = head_y + 104
+    row_h = 40
+    height = table_y + len(rows) * row_h + (44 if note else 18) + 30
+    canvas = _page(game, (width, height))
+    _page_header(canvas, game, kicker, "")
+    _panel(canvas, (MARGIN - 16, card_top, width - MARGIN + 16, height - 24), theme["card"], alpha=225)
+    draw = ImageDraw.Draw(canvas)
+
+    if chart:
+        js = 96
+        _framed_jacket(canvas, MARGIN + 6, card_top + 18, js, chart.get("jacket"), chart["difficulty"])
+        tx = MARGIN + 6 + js + 22
+        draw = ImageDraw.Draw(canvas)
+        draw.text((tx, card_top + 26), _fit(draw, chart["title"], cjk(24), width - MARGIN - tx), font=cjk(24),
+                  fill=WHITE)
+        _diff_bar(canvas, (tx, card_top + 70, min(width - MARGIN, tx + 330), card_top + 106), chart["difficulty"],
+                  _const_text(chart["level"], chart["const"]), size=18)
+        draw = ImageDraw.Draw(canvas)
+        draw.line((MARGIN, card_top + chart_h + 8, width - MARGIN, card_top + chart_h + 8),
+                  fill=(255, 255, 255, 40), width=1)
+
+    draw.text((MARGIN + 4, head_y + 40), headline, font=num(54), fill=MAX_RATING, anchor="ls")
+    draw.text((MARGIN + 4, head_y + 76), detail, font=cjk(18), fill=MUTED, anchor="ls")
+
+    for i, (score, rank, value, hl) in enumerate(rows):
+        y = table_y + i * row_h
+        if hl:
+            _panel(canvas, (MARGIN - 4, y, width - MARGIN + 4, y + row_h - 4), theme["accent"], alpha=40, radius=10,
+                   outline=False)
+        draw = ImageDraw.Draw(canvas)
+        c = WHITE if hl else MUTED
+        draw.text((MARGIN + 10, y + 18), score, font=num(24, "SemiBold"), fill=c, anchor="lm")
+        draw.text((width // 2, y + 18), rank, font=num(22, "SemiBold"), fill=RANK_COLORS.get(rank, c), anchor="mm")
+        draw.text((width - MARGIN - 10, y + 18), value, font=num(26), fill=c, anchor="rm")
+    if note:
+        draw.text((MARGIN + 4, height - 50), note, font=cjk(15), fill=FAINT)
+    return encode(canvas)

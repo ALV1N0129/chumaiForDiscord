@@ -15,9 +15,8 @@ import discord
 from discord import app_commands
 from PIL import Image
 
-from . import net_parsers, tools
+from . import net_parsers, rating, render, tools
 from .b50 import B50
-from .render import render_random
 from .segaid import NetClient, SegaError
 from .songdb import CatalogSong, normalize_title, search
 
@@ -53,8 +52,51 @@ def chart_embed(game: str, song: CatalogSong, chart) -> discord.Embed:
     return embed
 
 
-def _song_line(game: str, song: CatalogSong, chart) -> str:
-    return f"**{song.title}** — {tools.short(chart.difficulty)} {chart.level} ({chart.level_const:.1f})"
+def _image(data: bytes, stem: str) -> discord.File:
+    return discord.File(io.BytesIO(data), filename=render.filename(stem))
+
+
+async def _jackets(bot: ChumaiBot, game: str, keys: list) -> dict:
+    try:
+        return await bot.jackets.fetch(game, keys)
+    except Exception:
+        log.warning("jacket fetch failed", exc_info=True)
+        return {}
+
+
+def _chart_row(song: CatalogSong, chart, jacket=None, **extra) -> dict:
+    return {"title": song.title, "difficulty": chart.difficulty, "level": chart.level, "const": chart.level_const,
+            "jacket": jacket, **extra}
+
+
+SCORE_STEPS = {
+    "chunithm": [1_010_000, 1_009_000, 1_007_500, 1_005_000, 1_000_000, 990_000, 975_000],
+    "maimai": [100.5, 100.0, 99.5, 99.0, 98.0, 97.0, 94.0],
+}
+
+
+def score_rows(game: str, const: float, mine: float | None = None,
+               reach: float | None = None) -> list[tuple[str, str, str, bool]]:
+    """Score -> rating table for a chart constant. `mine` is added and highlighted; with `reach`,
+    every score that reaches that rating is highlighted."""
+    steps = list(SCORE_STEPS[game])
+    if mine is not None and mine not in steps:
+        steps = sorted(steps + [mine], reverse=True)
+    rows = []
+    for score in steps:
+        value = tools.chart_rating(game, const, score)
+        rank = rating.maimai_rank(score) if game == "maimai" else rating.chunithm_rank(int(score))
+        hl = score == mine if reach is None else float(value) >= reach - 1e-9
+        rows.append((tools.fmt_score(game, score), rank, tools.fmt_rating(game, value), hl))
+    return rows
+
+
+def calc_image(game: str, const: float, score: float) -> bytes:
+    value = tools.chart_rating(game, const, score)
+    rank = rating.maimai_rank(score) if game == "maimai" else rating.chunithm_rank(int(score))
+    return render.render_scores(game, "RATING", tools.fmt_rating(game, value),
+                                f"상수 {const:.1f} · {tools.fmt_score(game, score)} ({rank})",
+                                score_rows(game, const, mine=score))
 
 
 async def _jacket_file(bot: ChumaiBot, song: CatalogSong, name: str = "jacket.png") -> discord.File | None:
@@ -108,12 +150,11 @@ def _crop_hint(path: str, rng: random.Random) -> bytes:
     x = rng.randint(0, im.width - size)
     y = rng.randint(0, im.height - size)
     hint = im.crop((x, y, x + size, y + size)).resize((300, 300), Image.LANCZOS)
-    buf = io.BytesIO()
-    hint.save(buf, "PNG")
-    return buf.getvalue()
+    return render.encode(hint)
 
 
 GUESS_SECONDS = 60
+CONST_LIMIT = 90  # charts shown in one /const image
 
 
 def register(bot: ChumaiBot) -> None:
@@ -152,7 +193,7 @@ def register(bot: ChumaiBot) -> None:
             return
         png = await asyncio.to_thread(render_profile, game, player.name, player.rating, player.title,
                                       player.title_rarity, player.level, icon, plate)
-        await interaction.followup.send(file=discord.File(io.BytesIO(png), filename=f"profile_{game}.png"))
+        await interaction.followup.send(file=discord.File(io.BytesIO(png), filename=render.filename(f"profile_{game}")))
 
     @tree.command(name="recent", description="가장 최근 크레딧의 플레이 기록을 보여줍니다")
     @app_commands.describe(game="게임")
@@ -168,7 +209,7 @@ def register(bot: ChumaiBot) -> None:
         if not images:
             await interaction.followup.send("최근 플레이 기록이 없어요.")
             return
-        await interaction.followup.send(file=discord.File(io.BytesIO(images[-1]), filename=f"recent_{game}.png"))
+        await interaction.followup.send(file=discord.File(io.BytesIO(images[-1]), filename=render.filename(f"recent_{game}")))
 
     # ------------------------------------------------------------------ song info
 
@@ -181,23 +222,15 @@ def register(bot: ChumaiBot) -> None:
             await interaction.response.send_message("곡을 찾지 못했어요.", ephemeral=True)
             return
         await interaction.response.defer(thinking=True)
-        lines = []
-        for c in tools.sort_charts(found.charts):
-            const = f"{c.level_const:.1f}" if c.level_const else "-"
-            lines.append(f"`{tools.short(c.difficulty):<10}` {c.level:<4} ({const})")
+        jacket = (await _jackets(bot, game, [found.jacket_key])).get(0)
         versions = sorted({c.display_version for c in found.charts if c.display_version})
-        embed = discord.Embed(title=found.title, description=found.artist, color=COLORS[game])
-        embed.add_field(name="보면", value="\n".join(lines)[:1024] or "-", inline=False)
-        if found.genre:
-            embed.add_field(name="장르", value=found.genre)
-        if versions:
-            embed.add_field(name="버전", value=", ".join(versions)[:1024])
-        file = await _jacket_file(bot, found)
-        if file:
-            embed.set_thumbnail(url=f"attachment://{file.filename}")
-            await interaction.followup.send(embed=embed, file=file)
-        else:
-            await interaction.followup.send(embed=embed)
+        charts = [{"difficulty": c.difficulty, "level": c.level, "const": c.level_const}
+                  if c.difficulty in tools.DIFF_ORDER else  # WORLD'S END: difficulty is e.g. 招☆4
+                  {"difficulty": "WORLD'S END", "level": c.difficulty, "const": 0}
+                  for c in tools.sort_charts(found.charts)]
+        data = {"title": found.title, "artist": found.artist, "genre": found.genre, "versions": versions}
+        png = await asyncio.to_thread(render.render_song, game, data, charts, jacket)
+        await interaction.followup.send(file=_image(png, f"info_{game}"))
 
     @tree.command(name="jacket", description="곡 자켓 이미지를 보여줍니다")
     @app_commands.describe(game="게임", song="곡 제목")
@@ -228,18 +261,14 @@ def register(bot: ChumaiBot) -> None:
         if not charts:
             await interaction.response.send_message("해당하는 보면이 없어요.", ephemeral=True)
             return
-        lines = [_song_line(game, s, c) for s, c in charts]
-        body, shown = "", 0
-        for line in lines:
-            if len(body) + len(line) + 1 > 3900:
-                break
-            body += line + "\n"
-            shown += 1
-        if shown < len(lines):
-            body += f"… 외 {len(lines) - shown}개"
-        embed = discord.Embed(title=f"{GAME_NAMES[game]} {tools.describe_level(level, lo, hi)} ({len(lines)}개)",
-                              description=body, color=COLORS[game])
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.defer(thinking=True)
+        shown = charts[:CONST_LIMIT]
+        jackets = await _jackets(bot, game, [s.jacket_key for s, _ in shown])
+        rows = [_chart_row(s, c, jackets.get(i)) for i, (s, c) in enumerate(shown)]
+        footer = f"외 {len(charts) - len(shown)}개 · 범위를 좁혀서 다시 검색해 보세요" if len(charts) > len(shown) else None
+        png = await asyncio.to_thread(render.render_chart_list, game, "CONST", tools.describe_level(level, lo, hi),
+                                      rows, f"{len(charts)}개", footer, 3, True)
+        await interaction.followup.send(file=_image(png, f"const_{game}"))
 
     @tree.command(name="random", description="레벨·상수·범위에서 랜덤으로 곡을 골라 줍니다 (접두어: !r)")
     @app_commands.describe(game="게임", level=tools.LEVEL_HELP, count="곡 수 (1~4, 기본 3)")
@@ -255,18 +284,14 @@ def register(bot: ChumaiBot) -> None:
             await interaction.response.send_message("해당하는 보면이 없어요.", ephemeral=True)
             return
         await interaction.response.defer(thinking=True)
-        try:
-            jackets = await bot.jackets.fetch(game, [s.jacket_key for s, _ in picks])
-        except Exception:
-            log.warning("jacket fetch failed", exc_info=True)
-            jackets = {}
+        jackets = await _jackets(bot, game, [s.jacket_key for s, _ in picks])
         cards = [
             {"title": song.title, "artist": song.artist, "genre": song.genre, "difficulty": chart.difficulty,
              "level": chart.level, "const": chart.level_const, "jacket": jackets.get(i)}
             for i, (song, chart) in enumerate(picks)
         ]
-        png = await asyncio.to_thread(render_random, game, cards, tools.describe_level(level, lo, hi))
-        await interaction.followup.send(file=discord.File(io.BytesIO(png), filename=f"random_{game}.png"))
+        png = await asyncio.to_thread(render.render_random, game, cards, tools.describe_level(level, lo, hi))
+        await interaction.followup.send(file=_image(png, f"random_{game}"))
 
     # -------------------------------------------------------------- reach / what-if
 
@@ -279,8 +304,10 @@ def register(bot: ChumaiBot) -> None:
             await interaction.response.send_message(
                 f"상수 {const:.1f} 보면으로는 {target} 에 도달할 수 없어요. (최대 {tools.fmt_rating(game, best)})")
             return
-        await interaction.response.send_message(
-            f"상수 **{const:.1f}** 에서 레이팅 **{target}** 을 받으려면 **{tools.fmt_score(game, need)}** 이상이 필요해요.")
+        png = await asyncio.to_thread(
+            render.render_scores, game, "REACH", tools.fmt_score(game, need),
+            f"상수 {const:.1f} 에서 레이팅 {target} 을 받으려면 필요한 점수", score_rows(game, const, reach=target))
+        await interaction.response.send_message(file=_image(png, f"reach_{game}"))
 
     async def _load_b50(interaction: discord.Interaction, game: str) -> B50 | None:
         from .bot import sega_b50
@@ -313,14 +340,17 @@ def register(bot: ChumaiBot) -> None:
         is_new = tools.is_new_version(chart, bot.config.new_versions[game])
         result = tools.what_if(b50, found, chart, score, is_new)
         diff = result.after - result.before
-        line = (f"**{found.title}** {tools.short(chart.difficulty)} ({chart.level_const:.1f}) 에서 "
-                f"**{tools.fmt_score(game, score)}** → 곡 레이팅 **{result.entry.rating_text}**\n")
+        before, after = tools.fmt_rating(game, result.before), tools.fmt_rating(game, result.after)
         if result.counted and diff > 0:
-            line += (f"레이팅 {tools.fmt_rating(game, result.before)} → **{tools.fmt_rating(game, result.after)}** "
-                     f"(+{tools.fmt_rating(game, diff)})")
+            headline = f"{before}  »  {after}"
+            detail = f"{tools.fmt_score(game, score)} → 곡 레이팅 {result.entry.rating_text} · +{tools.fmt_rating(game, diff)}"
         else:
-            line += "B50에 들어가지 못해서 레이팅은 그대로예요."
-        await interaction.followup.send(line)
+            headline = before
+            detail = f"{tools.fmt_score(game, score)} → 곡 레이팅 {result.entry.rating_text} · B50에 못 들어가서 그대로예요"
+        jacket = (await _jackets(bot, game, [found.jacket_key])).get(0)
+        png = await asyncio.to_thread(render.render_scores, game, "WHAT IF", headline, detail,
+                                      score_rows(game, chart.level_const, mine=score), _chart_row(found, chart, jacket))
+        await interaction.followup.send(file=_image(png, f"whatif_{game}"))
 
     @tree.command(name="recommend", description="레이팅을 올리기 좋은 곡을 추천합니다")
     @app_commands.describe(game="게임")
@@ -333,14 +363,12 @@ def register(bot: ChumaiBot) -> None:
         if not recs:
             await interaction.followup.send("추천할 곡을 찾지 못했어요.")
             return
-        lines = [
-            f"{_song_line(game, r.song, r.chart)} — {tools.fmt_score(game, r.target_score)} 받으면 "
-            f"+{tools.fmt_rating(game, r.gain)}"
-            for r in recs
-        ]
-        note = "평소 점수(B50 중앙값)로 이 곡들을 치면 B50의 가장 낮은 곡을 밀어낼 수 있어요."
-        await interaction.followup.send(embed=discord.Embed(
-            title=f"{GAME_NAMES[game]} 추천 곡", description="\n".join(lines) + f"\n\n{note}", color=COLORS[game]))
+        jackets = await _jackets(bot, game, [r.song.jacket_key for r in recs])
+        rows = [_chart_row(r.song, r.chart, jackets.get(i), right=f"+{tools.fmt_rating(game, r.gain)}",
+                           right_sub=f"목표 {tools.fmt_score(game, r.target_score)}") for i, r in enumerate(recs)]
+        png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows,
+                                      "평소 점수(B50 중앙값)로 치면 B50의 가장 낮은 곡을 밀어내요", None, 2)
+        await interaction.followup.send(file=_image(png, f"recommend_{game}"))
 
     # ----------------------------------------------------------------- guessing
 
@@ -373,7 +401,7 @@ def register(bot: ChumaiBot) -> None:
         hint = await asyncio.to_thread(_crop_hint, rnd.jacket, rng)
         await interaction.followup.send(
             f"이 자켓의 곡은? `/answer` 로 답해 주세요. ({GUESS_SECONDS}초)",
-            file=discord.File(io.BytesIO(hint), filename="guess.png"))
+            file=discord.File(io.BytesIO(hint), filename=render.filename("guess")))
 
         async def timeout() -> None:
             await asyncio.sleep(GUESS_SECONDS)
@@ -406,20 +434,27 @@ def register(bot: ChumaiBot) -> None:
 
     @tree.command(name="help", description="명령어 목록")
     async def help_cmd(interaction: discord.Interaction) -> None:
+        from .prefix import ALIASES
+
         groups = {
-            "계정": ["/login — SEGA ID 로그인", "/logout — 로그인 정보 삭제", "/privacy — 다른 사람에게 공개 여부"],
-            "기록": ["/b50 — 베스트 50 레이팅표", "/profile — 프로필 카드", "/recent — 최근 크레딧",
-                   "/playlog on|off|test — 플레이 기록 자동 업로드"],
-            "곡": ["/info — 곡 정보", "/jacket — 자켓", "/const — 상수별 보면 목록", "/random — 랜덤 선곡"],
-            "계산": ["/calc — 곡 레이팅 계산", "/reach — 목표 레이팅에 필요한 점수",
-                   "/whatif — 이 점수면 레이팅이 얼마나 오르나", "/recommend — 추천 곡"],
-            "놀이": ["/guess — 자켓 맞히기", "/answer — 정답 입력"],
+            "계정": [("login", "SEGA ID 로그인"), ("logout", "로그인 정보 삭제"), ("privacy", "다른 사람에게 공개 여부")],
+            "기록": [("b50", "베스트 50 레이팅표"), ("profile", "프로필 카드"), ("recent", "최근 크레딧"),
+                   ("playlog", "on|off|test — 플레이 기록 자동 업로드")],
+            "곡": [("info", "곡 정보"), ("jacket", "자켓"), ("const", "상수별 보면 목록"), ("random", "랜덤 선곡")],
+            "계산": [("calc", "곡 레이팅 계산"), ("reach", "목표 레이팅에 필요한 점수"),
+                   ("whatif", "이 점수면 레이팅이 얼마나 오르나"), ("recommend", "추천 곡")],
+            "놀이": [("guess", "자켓 맞히기"), ("answer", "정답 입력")],
         }
+        p = bot.config.prefix
+        short = {full: alias for alias, full in ALIASES.items()}
         embed = discord.Embed(title="명령어", color=0x8A7CFF)
         for name, cmds in groups.items():
-            embed.add_field(name=name, value="\n".join(cmds), inline=False)
-        if bot.config.prefix:
-            p = bot.config.prefix
-            embed.set_footer(text=f"접두어로도 쓸 수 있어요: {p}b50 chuni · {p}info mai 곡이름 · "
-                                  f"{p}playlog on chuni (게임: mai / chuni)")
+            lines = []
+            for cmd, desc in cmds:
+                alias = f" · `{p}{short[cmd]}`" if p and cmd in short else ""
+                lines.append(f"/{cmd}{alias} — {desc}")
+            embed.add_field(name=name, value="\n".join(lines), inline=False)
+        if p:
+            embed.set_footer(text=f"접두어 예시: {p}b c · {p}r m 13+ · {p}i c 곡이름 · {p}pl on c "
+                                  "(게임: m / mai / c / chuni)")
         await interaction.response.send_message(embed=embed, ephemeral=True)

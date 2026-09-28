@@ -89,7 +89,7 @@ def test_check_playlog_posts_only_new_credits(tmp_path, monkeypatch):
     last_key = credits[-3][-1].key  # the last two credits are "new"
     links.set_playlog(1, "chunithm", 99, last_key)
     fake_bot = SimpleNamespace(
-        links=links, songdb=SongDB(), config=SimpleNamespace(jacket_dir=str(tmp_path / "j")),
+        links=links, songdb=SongDB(), config=SimpleNamespace(jacket_dir=str(tmp_path / "j"), new_versions={"chunithm": [], "maimai": []}),
         get_channel=lambda cid: Channel(),
     )
 
@@ -120,7 +120,7 @@ def test_check_playlog_without_updating_key(tmp_path, monkeypatch):
     links.set_playlog(1, "chunithm", 99, "9999")  # already up to date
     credits = net_parsers.group_credits(net_parsers.parse_chunithm_playlog(playlog))
     fake_bot = SimpleNamespace(
-        links=links, songdb=SongDB(), config=SimpleNamespace(jacket_dir=str(tmp_path / "j")),
+        links=links, songdb=SongDB(), config=SimpleNamespace(jacket_dir=str(tmp_path / "j"), new_versions={"chunithm": [], "maimai": []}),
         get_channel=lambda cid: Channel(),
     )
     before = credits[-2][-1].key
@@ -192,3 +192,34 @@ def test_missing_permissions():
     assert botmod.missing_permissions(Channel(view_channel=True, send_messages=True)) == ["파일 첨부"]
     assert "파일 첨부" in botmod.permission_message(["파일 첨부"])
     assert botmod.missing_permissions(SimpleNamespace()) == []  # DMs etc.: nothing to check
+
+
+def test_badges_show_rating_gain():
+    from fractions import Fraction
+
+    from chumai.playlog import b50_sum, badges
+    from test_tools import _db
+
+    db = _db()
+    cache = {("Aleph-0", "MASTER"): 1_000_000, ("AXION", "MASTER"): 1_007_500}
+    before = b50_sum("chunithm", db, [], cache)
+    assert before == (Fraction("15.9") + Fraction("16.7")) / 50  # 14.9 + 1.00, 14.7 + 2.00
+    plays = [_play("2026/01/02 10:00", 1, "Aleph-0", 1_009_000, True),
+             _play("2026/01/02 10:00", 2, "AXION", 1_007_000, False)]
+    out = badges(plays, cache, "2026/01/01 00:00#01", {}, db, [], "chunithm")
+    assert out[plays[0].key].gain == Fraction("1.15") / 50  # 15.90 -> 17.05
+    assert out[plays[1].key].gain is None
+
+
+def test_rating_change_and_store(tmp_path):
+    from chumai import render
+
+    assert render._rating_change("chunithm", "16.05", "16.07") == "+0.02"
+    assert render._rating_change("maimai", "12573", "12608") == "+35"
+    assert render._rating_change("chunithm", "16.07", "16.07") is None
+    assert render._rating_change("chunithm", None, "16.07") is None
+    store = LinkStore(tmp_path / "db.sqlite")
+    assert store.get_rating(1, "chunithm") is None
+    store.save_rating(1, "chunithm", "16.05")
+    store.save_rating(1, "chunithm", "16.07")
+    assert store.get_rating(1, "chunithm") == "16.07"

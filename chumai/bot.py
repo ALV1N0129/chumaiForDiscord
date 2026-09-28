@@ -458,19 +458,25 @@ async def render_credits(bot: ChumaiBot, discord_id: int, game: str, select,
         except Exception:
             log.warning("could not load best scores", exc_info=True)
             now = None
-        marks = play_badges(chosen, cache, cache_key, now or {})
+        marks = play_badges(chosen, cache, cache_key, now or {}, bot.songdb, bot.config.new_versions[game], game)
         if now is not None and (save_bests or cache_key is None):
             bot.links.save_bests(discord_id, game, now, latest)
+        rating_before = bot.links.get_rating(discord_id, game)
+        if player.rating and (save_bests or rating_before is None):
+            bot.links.save_rating(discord_id, game, player.rating)
 
         images = []
-        for credit in net_parsers.group_credits(chosen):
+        credits = net_parsers.group_credits(chosen)
+        for n, credit in enumerate(credits):
             entries = [to_entry(game, r, bot.songdb) for r in credit]
             paths = await asyncio.gather(*(_cached_image(bot, net, game, r.jacket_url) for r in credit))
             for e, path in zip(entries, paths):
                 e.jacket_path = path
+            # the site only shows the rating now, so the change goes on the newest credit
+            before = rating_before if n == len(credits) - 1 else None
             png = await asyncio.to_thread(
                 render_credit, game, player.name, entries, [marks.get(r.key) for r in credit], credit[0].date, icon,
-                player.rating,
+                player.rating, before,
             )
             images.append(png)
     if net.clal != token:

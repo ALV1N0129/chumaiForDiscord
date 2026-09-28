@@ -813,8 +813,38 @@ def _draw_credit_summary(canvas: Image.Image, box: tuple[int, int, int, int], ga
         draw.text((cx, y1 - 42), value, font=num(38), fill=color, anchor="ls")
 
 
+RISE = (90, 220, 140)  # rating went up
+
+
+def _rating_change(game: str, before: str | None, after: str | None) -> str | None:
+    """"+0.02" / "+35" when the rating went up, else None."""
+    try:
+        diff = float(after) - float(before)
+    except (TypeError, ValueError):
+        return None
+    if diff <= 0:
+        return None
+    return f"+{diff:.2f}" if game == "chunithm" else f"+{round(diff)}"
+
+
+def _up_pill(canvas: Image.Image, right: int, y: int, text: str, size: int) -> int:
+    """Green "▲ +0.012" pill, right-aligned at `right`. Returns its left edge."""
+    draw = ImageDraw.Draw(canvas)
+    f = num(size)
+    h = size + 6
+    tri = h // 2 - 1
+    w = int(draw.textlength(text, font=f)) + tri + 22
+    x = right - w
+    _panel(canvas, (x, y, right, y + h), (20, 70, 45), alpha=220, radius=h // 2, outline=False)
+    draw = ImageDraw.Draw(canvas)
+    cx, cy = x + 9, y + h / 2
+    draw.polygon([(cx, cy + tri / 2), (cx + tri, cy + tri / 2), (cx + tri / 2, cy - tri / 2)], fill=RISE)
+    draw.text((cx + tri + 5, cy), text, font=f, fill=RISE, anchor="lm")
+    return x
+
+
 def render_credit(game: str, player: str, entries: list[Entry], badges: list, date: str,
-                  icon: bytes | None = None, rating: str | None = None) -> bytes:
+                  icon: bytes | None = None, rating: str | None = None, rating_before: str | None = None) -> bytes:
     """One credit as a fixed-size 2x2 grid, so every credit shows at the same size in Discord.
 
     badges: a playlog.Badge (or None) per entry.
@@ -849,8 +879,12 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
         colors = _plate_colors(game, rating)
         number = _gradient_text(rating, num(50), [tuple(min(255, c + 40) for c in col) for col in colors])
         canvas.alpha_composite(number, (right - number.width + 8, 44))
-        draw.text((right, 24), "RATING", font=num(15, "SemiBold"), fill=st["muted"], anchor="ra")
+        change = _rating_change(game, rating_before, rating)
+        label = f"RATING   {rating_before} »" if change else "RATING"
+        draw.text((right, 24), label, font=num(15, "SemiBold"), fill=st["muted"], anchor="ra")
         right -= number.width + 10
+        if change:
+            right = _up_pill(canvas, right, 62, change, 18) - 10
     if len(entries) >= 4:  # extra track bought with C to C
         bw, bh = 78, 26
         bx, by = right - bw, 56
@@ -883,6 +917,9 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
         _draw_card(canvas, cx, cy, i + 1, entries[i], theme, st)
         if badges[i] is not None:
             _draw_play_badge(canvas, cx + CARD_W - 14, cy + 40, game, badges[i])
+            if badges[i].gain:
+                gain = f"+{float(badges[i].gain):.3f}" if game == "chunithm" else f"+{int(badges[i].gain)}"
+                _up_pill(canvas, cx + CARD_W - 14, cy + 64, gain, 15)
         draw = ImageDraw.Draw(canvas)
 
     return encode(canvas)

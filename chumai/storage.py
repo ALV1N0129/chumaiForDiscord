@@ -39,6 +39,12 @@ class LinkStore:
                 play_key TEXT NOT NULL,
                 PRIMARY KEY (discord_id, game)
             );
+            CREATE TABLE IF NOT EXISTS player_ratings (
+                discord_id INTEGER NOT NULL,
+                game TEXT NOT NULL,
+                rating TEXT NOT NULL,
+                PRIMARY KEY (discord_id, game)
+            );
             CREATE TABLE IF NOT EXISTS sega_tokens (
                 discord_id INTEGER PRIMARY KEY,
                 token TEXT NOT NULL,
@@ -82,6 +88,7 @@ class LinkStore:
         cur = self._db.execute("DELETE FROM sega_tokens WHERE discord_id = ?", (discord_id,))
         self._db.execute("DELETE FROM best_scores WHERE discord_id = ?", (discord_id,))
         self._db.execute("DELETE FROM best_scores_at WHERE discord_id = ?", (discord_id,))
+        self._db.execute("DELETE FROM player_ratings WHERE discord_id = ?", (discord_id,))
         self._db.commit()
         return cur.rowcount > 0
 
@@ -145,6 +152,21 @@ class LinkStore:
             "INSERT INTO best_scores_at (discord_id, game, play_key) VALUES (?, ?, ?) "
             "ON CONFLICT(discord_id, game) DO UPDATE SET play_key = excluded.play_key",
             (discord_id, game, play_key),
+        )
+        self._db.commit()
+
+    def get_rating(self, discord_id: int, game: str) -> str | None:
+        """Player rating seen last time the play log was checked."""
+        row = self._db.execute(
+            "SELECT rating FROM player_ratings WHERE discord_id = ? AND game = ?", (discord_id, game)
+        ).fetchone()
+        return row[0] if row else None
+
+    def save_rating(self, discord_id: int, game: str, rating: str) -> None:
+        self._db.execute(
+            "INSERT INTO player_ratings (discord_id, game, rating) VALUES (?, ?, ?) "
+            "ON CONFLICT(discord_id, game) DO UPDATE SET rating = excluded.rating",
+            (discord_id, game, rating),
         )
         self._db.commit()
 

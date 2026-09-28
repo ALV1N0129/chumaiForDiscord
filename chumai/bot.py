@@ -371,10 +371,18 @@ async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None) 
     """Best score per (title, difficulty) from the record pages, for `diffs` (all if None)."""
     out: dict[tuple[str, str], float] = {}
     if game == "chunithm":
-        for d in CHUNITHM_RECORD_DIFFS:
-            if diffs is None or d in diffs:
-                html = await net.post(f"/mobile/record/musicGenre/send{d.capitalize()}", {"genre": "99"})
-                out.update({(r.title, r.difficulty): r.score for r in net_parsers.parse_chunithm_rating_list(html)})
+        try:
+            for d in CHUNITHM_RECORD_DIFFS:
+                if diffs is None or d in diffs:
+                    html = await net.post(f"/mobile/record/musicGenre/send{d.capitalize()}", {"genre": "99"})
+                    out.update({(r.title, r.difficulty): r.score
+                                for r in net_parsers.parse_chunithm_rating_list(html)})
+        except SegaError:
+            # fall back to the B50 lists (only the 50 rated charts, but the same pages /b50 uses)
+            log.warning("CHUNITHM record pages failed; using the rating lists", exc_info=True)
+            for path in ("/mobile/home/playerData/ratingDetailBest/", "/mobile/home/playerData/ratingDetailRecent/"):
+                out.update({(r.title, r.difficulty): r.score
+                            for r in net_parsers.parse_chunithm_rating_list(await net.get(path))})
     else:
         for i, base in enumerate(net_parsers.MAIMAI_DIFFS):
             if diffs is None or base in diffs or f"DX {base}" in diffs:

@@ -631,12 +631,6 @@ def _gradient_text(text: str, font, stops, vertical: bool = False) -> Image.Imag
     shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     shadow.putalpha(mask.point(lambda v: v * 110 // 255))
     out.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(4)), (0, 5))
-    if vertical:  # the site's digits have a dark outline
-        rim = Image.new("L", (w, h), 0)
-        ImageDraw.Draw(rim).text((8 - l, 8 - t), text, font=font, fill=255, stroke_width=max(2, font.size // 24))
-        edge = Image.new("RGBA", (w, h), (28, 12, 16, 255))
-        edge.putalpha(rim)
-        out.alpha_composite(edge, (0, 0))
     out.alpha_composite(fill, (0, 0))
     return out
 

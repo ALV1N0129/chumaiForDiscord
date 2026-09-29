@@ -1169,8 +1169,8 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
         draw = ImageDraw.Draw(canvas)
 
     label, name, color, _ = _diff_info(e.difficulty)
-    kanji, title = _utage_title(e.title) if label == "宴" else (None, e.title)
-    draw.text((tx, y + 14), _fit(draw, title, cjk(24), right - side - 24 - tx), font=cjk(24), fill=st["text"])
+    kanji = _utage_title(e.title)[0] if label == "宴" else None  # the title keeps its [協]
+    draw.text((tx, y + 14), _fit(draw, e.title, cjk(24), right - side - 24 - tx), font=cjk(24), fill=st["text"])
     level = f"{e.level_const:.1f}" if e.level_const else e.level  # just the constant (unrated charts: their level)
     if label == "WE":  # WORLD'S END in the label's rainbow; the attribute tile on the jacket, as in the game
         info_font = num(21, "SemiBold")  # the same font and baseline as the other difficulties

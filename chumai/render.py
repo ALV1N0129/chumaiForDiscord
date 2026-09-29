@@ -66,8 +66,25 @@ DIFFS = {
     "re:master": ("Re:M", (200, 150, 255)),
     "ultima": ("ULT", (170, 24, 56)),
     "world's end": ("WE", (40, 170, 190)),
-    "utage": ("宴", (236, 72, 150)),
+    "utage": ("宴", (208, 8, 176)),  # maimai DX NET's U·TA·GE magenta
 }
+
+# CHUNITHM-NET's WORLD'S END label: diagonal rainbow bands with cream text
+WE_BANDS = [(12, 110, 243), (96, 180, 89), (226, 176, 5), (211, 78, 27), (215, 8, 144)]
+WE_TEXT = (249, 249, 219)
+
+
+@lru_cache(maxsize=4)
+def _we_rainbow(w: int, h: int) -> Image.Image:
+    """w x h of WORLD'S END's slanted rainbow bands."""
+    img = Image.new("RGB", (w, h), WE_BANDS[0])
+    draw = ImageDraw.Draw(img)
+    band = max(12, w // 6)
+    slant = h * 0.6
+    for i in range(-2, w // band + 3):
+        x = i * band
+        draw.polygon([(x, h), (x + band, h), (x + band + slant, 0), (x + slant, 0)], fill=WE_BANDS[i % len(WE_BANDS)])
+    return img
 
 RANK_COLORS = {
     "SSS+": (255, 214, 80),
@@ -359,9 +376,12 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
     # jacket with a difficulty-colored frame and a level tag along the bottom
     jx, jy = x + 12, y + 12
     ultima = label == "ULT"
+    worlds_end = label == "WE"
     if ultima:  # in-game ULTIMA: black with a red rim
         draw.rounded_rectangle((jx - 5, jy - 5, jx + JACKET + 4, jy + JACKET + 4), radius=11, fill=(210, 20, 50))
         draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=(12, 12, 14))
+    elif worlds_end:  # rainbow frame, like the WORLD'S END label
+        canvas.paste(_we_rainbow(JACKET + 6, JACKET + 6), (jx - 3, jy - 3), _rounded_mask((JACKET + 6, JACKET + 6), 9))
     else:
         draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=color)
     jacket = _load_jacket(e.jacket_path) if e.jacket_path else None
@@ -371,13 +391,19 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
                                     fill=FAINT, anchor="mm")
     canvas.paste(jacket, (jx, jy), _rounded_mask((JACKET, JACKET), 7))
     tag_h = 24
-    draw.rectangle((jx, jy + JACKET - tag_h, jx + JACKET - 1, jy + JACKET - 1), fill=(12, 12, 14) if ultima else color)
+    if worlds_end:
+        canvas.paste(_we_rainbow(JACKET, tag_h), (jx, jy + JACKET - tag_h))
+    else:
+        draw.rectangle((jx, jy + JACKET - tag_h, jx + JACKET - 1, jy + JACKET - 1),
+                       fill=(12, 12, 14) if ultima else color)
     const = f"{e.level_const:.1f}" if e.level_const else e.level
-    # light tags (Re:MASTER) need dark text; ULTIMA uses red on black
-    tag_text = (255, 60, 80) if ultima else (60, 24, 96) if sum(color) > 560 else WHITE
+    # light tags (Re:MASTER) need dark text; ULTIMA uses red on black; WORLD'S END cream with an outline
+    tag_text = (255, 60, 80) if ultima else WE_TEXT if worlds_end else (60, 24, 96) if sum(color) > 560 else WHITE
+    outline = {"stroke_width": 2, "stroke_fill": (40, 30, 60)} if worlds_end else {}
     tag_font = lambda t: num(17) if t.isascii() else cjk(15)  # noqa: E731  (宴, WORLD'S END's 狂☆5)
-    draw.text((jx + 6, jy + JACKET - tag_h / 2), label, font=tag_font(label), fill=tag_text, anchor="lm")
-    draw.text((jx + JACKET - 6, jy + JACKET - tag_h / 2), const, font=tag_font(const), fill=tag_text, anchor="rm")
+    draw.text((jx + 6, jy + JACKET - tag_h / 2), label, font=tag_font(label), fill=tag_text, anchor="lm", **outline)
+    draw.text((jx + JACKET - 6, jy + JACKET - tag_h / 2), const, font=tag_font(const), fill=tag_text, anchor="rm",
+              **outline)
     if is_dx:
         draw.rounded_rectangle((jx + 4, jy + 4, jx + 30, jy + 20), radius=4, fill=(255, 255, 255))
         draw.text((jx + 17, jy + 12), "DX", font=num(14), fill=(230, 70, 110), anchor="mm")

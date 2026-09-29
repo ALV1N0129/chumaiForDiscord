@@ -47,13 +47,21 @@ class JacketStore:
         # levels of the unrated charts, from the same official lists: title -> "狂☆5" / "12+?"
         self.we_levels: dict[str, str] = {}
         self.utage_levels: dict[str, str] = {}
+        # official readings (katakana, for the guessing games): (game, title) -> readings
+        self.readings: dict[tuple[str, str], list[str]] = {}
         self._failed: dict[str, float] = {}  # image name -> when it last failed to download
         self._errors: dict[str, str] = {}  # first URL tried -> why the download last failed, for the log
 
     # ---------------------------------------------------------------- index
 
     def load_index(self, chunithm_music: list[dict], maimai_songs: list[dict]) -> None:
-        self.chunithm, self.we_levels = {}, {}
+        self.chunithm, self.we_levels, self.readings = {}, {}, {}
+        for game, songs, field_name in (("chunithm", chunithm_music, "reading"), ("maimai", maimai_songs, "title_kana")):
+            for m in songs:
+                if m.get("title") and m.get(field_name):
+                    found = self.readings.setdefault((game, normalize_title(str(m["title"]))), [])
+                    if str(m[field_name]) not in found:
+                        found.append(str(m[field_name]))
         for m in chunithm_music:
             if m.get("we_kanji") and m.get("title"):  # WORLD'S END: an attribute kanji and 1~5 stars
                 self.we_levels[normalize_title(str(m["title"]))] = f"{m['we_kanji']}☆{_we_stars(m.get('we_star'))}"
@@ -72,6 +80,9 @@ class JacketStore:
                 self.utage_levels.setdefault(normalize_title(re.sub(r"^\[.\]", "", title)), str(s["lev_utage"]))
             genre = unicodedata.normalize("NFKC", str(s.get("catcode", "")))
             self.maimai.setdefault(normalize_title(str(s["title"])), []).append((genre, str(s["image_url"])))
+
+    def reading(self, game: str, title: str) -> list[str]:
+        return self.readings.get((game, normalize_title(title)), [])
 
     def unrated_level(self, title: str, difficulty: str) -> str | None:
         """Official level of a WORLD'S END ("狂☆5") or 宴 ("12+?") chart."""

@@ -24,7 +24,7 @@ from .logos import download_logos
 from .playlog import badges as play_badges, to_entry
 from .render import render_b50, render_credit
 from .segaid import LoginFailed, NetClient, SegaError, forget_sessions, login
-from .songdb import SongDB
+from .songdb import SongDB, normalize_title
 from .storage import LinkStore
 
 log = logging.getLogger("chumai")
@@ -374,14 +374,20 @@ async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str, image
                     except Exception:
                         log.warning("could not load CHUNITHM nameplate", exc_info=True)
                 result = b50_from_chunithm_net(player, best, new, bot.songdb)
+                if not images:  # /recommend and /whatif: only suggest charts the region has
+                    result.available = await _chunithm_available(net)
             else:
                 player = net_parsers.parse_maimai_player(await net.get("/maimai-mobile/home/"))
                 pages = await asyncio.gather(*(
                     net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={diff}") for diff in range(5)
                 ))
-                records = [r for diff, html in enumerate(pages) for r in net_parsers.parse_maimai_scores(html, diff)]
+                seen = {d: set() for base in net_parsers.MAIMAI_DIFFS for d in (base, f"DX {base}")}
+                records = [r for diff, html in enumerate(pages)
+                           for r in net_parsers.parse_maimai_scores(html, diff, seen)]
                 result = b50_from_maimai_net(player, records, bot.songdb, bot.config.new_versions[game])
                 result.played = {(r.title, r.difficulty): r.achievement for r in records}  # for /recommend
+                # every song on the record pages, played or not
+                result.available = {d: {normalize_title(t) for t in titles} for d, titles in seen.items()}
             if images:
                 result.icon, result.plate = await asyncio.gather(
                     _fetch_image(net, player.icon_url), _fetch_image(net, player.plate_url))
@@ -432,6 +438,25 @@ async def _chunithm_lamps(net: NetClient, records: list) -> None:
                     r.lamp = lamps.get(r.idx)
     except Exception:
         log.warning("could not load CHUNITHM lamps", exc_info=True)
+
+
+# the difficulties /recommend suggests; their record pages list every song the region has
+CHUNITHM_AVAILABLE_DIFFS = ["EXPERT", "MASTER", "ULTIMA"]
+
+
+async def _chunithm_available(net: NetClient) -> dict[str, set] | None:
+    """{difficulty: music ids} of the charts in the player's region (None if the pages failed), so
+    songs not out yet on the international version aren't suggested. One page at a time."""
+    try:
+        out = {}
+        for diff in CHUNITHM_AVAILABLE_DIFFS:
+            html = await net.post(f"/mobile/record/musicGenre/send{diff.capitalize()}", {"genre": "99"})
+            out[diff] = net_parsers.parse_chunithm_music_ids(html)
+            del html
+        return out
+    except Exception:
+        log.warning("could not load the CHUNITHM song list", exc_info=True)
+        return None
 
 
 async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None) -> dict[tuple[str, str], float]:

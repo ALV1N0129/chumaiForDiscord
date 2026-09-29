@@ -77,3 +77,15 @@ def test_chunithm_lamps_from_a_record_page():
     html = form(1, ["clear", "alljusticecritical"]) + form(2, ["clear", "alljustice"]) + form(3, ["fullcombo"]) + \
         form(4, ["clear"])
     assert net_parsers.parse_chunithm_lamps(html) == {1: "AJC", 2: "AJ", 3: "FC"}
+
+
+def test_record_pages_list_unplayed_songs():
+    seen = {}
+    records = net_parsers.parse_maimai_scores(_read("maimai_music_genre.html"), 3, seen)
+    listed = set().union(*seen.values())
+    assert {r.title for r in records} <= listed and len(listed) >= len({r.title for r in records})
+    page = ('<form><div class="musiclist_box bg_master"><div class="music_title">A</div>'
+            '<input type="hidden" name="idx" value="12" /></div></form>'
+            '<form><div class="musiclist_box bg_master"><div class="music_title">B</div>'
+            '<input type="hidden" name="idx" value="2995" /></div></form>')
+    assert net_parsers.parse_chunithm_music_ids(page) == {12, 2995}

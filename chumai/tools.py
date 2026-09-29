@@ -165,6 +165,18 @@ def find_chart(song: CatalogSong, difficulty: str) -> CatalogChart | None:
     return None
 
 
+def in_region(b50: B50, song: CatalogSong, chart: CatalogChart) -> bool:
+    """False for a chart the player's record pages don't list, e.g. not out yet on the international
+    version (b50.available: music ids for CHUNITHM, normalized titles for maimai). True when that
+    difficulty wasn't checked."""
+    if not b50.available or chart.difficulty not in b50.available:
+        return True
+    have = b50.available[chart.difficulty]
+    if b50.game == "chunithm":
+        return song.music_id in have
+    return normalize_title(song.title) in have
+
+
 def is_new_version(chart: CatalogChart, new_versions: list[str]) -> bool:
     wanted = {v.strip().lower() for v in new_versions}
     return chart.display_version.strip().lower() in wanted
@@ -313,7 +325,7 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
     for song in db.catalog.get(game, []):
         for chart in song.charts:
             key = (normalize_title(song.title), chart.difficulty)
-            if not playable(chart) or key in have:
+            if not playable(chart) or key in have or not in_region(b50, song, chart):
                 continue
             best = played.get(key)
             new = is_new_version(chart, new_versions)

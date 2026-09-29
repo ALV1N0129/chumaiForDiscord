@@ -16,7 +16,7 @@ import discord
 from discord import app_commands
 from PIL import Image
 
-from . import charts, net_parsers, rating, render, tools
+from . import answers, charts, net_parsers, rating, render, tools
 from .b50 import B50
 from .segaid import NetClient, SegaError
 from .songdb import CatalogSong, normalize_title, search
@@ -143,13 +143,10 @@ class GuessRound:
         return {"file": discord.File(self.jacket, filename="answer.png")} if self.jacket else {}
 
 
-def _answer_matches(song: CatalogSong, answer: str) -> bool:
-    import difflib
-
-    a = normalize_title(answer)
-    if not a:
-        return False
-    return any(a == k or difflib.SequenceMatcher(None, a, k).ratio() >= 0.85 for k in song.keys)
+def _answer_matches(song: CatalogSong, answer: str, readings: list[str] = (), aliases: list[str] = ()) -> bool:
+    """The title (or other titles), a long enough part of it, its reading in kana or Hangul, or a
+    nickname registered with /alias (see answers.py)."""
+    return answers.matches(answer, [song.title, *song.keys], readings, aliases)
 
 
 def _crop_hint(path: str, rng: random.Random) -> bytes:
@@ -575,13 +572,66 @@ def register(bot: ChumaiBot) -> None:
         if rnd is None or rnd.answered:
             await interaction.response.send_message("진행 중인 게임이 없어요. `/guess` 로 시작하세요.", ephemeral=True)
             return
-        if _answer_matches(rnd.song, title):
+        guild_id = getattr(interaction, "guild_id", None) or 0
+        if _answer_matches(rnd.song, title, bot.jackets.reading(rnd.game, rnd.song.title),
+                           bot.links.aliases(guild_id, rnd.game, rnd.song.title)):
             rnd.answered = True
             took = time.time() - rnd.started
             await interaction.response.send_message(
                 f"{interaction.user.mention} 정답! **{rnd.song.title}**{rnd.label} ({took:.1f}초)", **rnd.reveal())
         else:
             await interaction.response.send_message(f"`{title}` 은(는) 아니에요.", ephemeral=True)
+
+    alias = app_commands.Group(name="alias", description="맞히기 게임에서 정답으로 인정할 곡 별명 (이 서버)")
+
+    async def _alias_song(interaction: discord.Interaction, game: str, song: str) -> CatalogSong | None:
+        found = _find_song(bot, game, song)
+        if found is None:
+            await interaction.response.send_message("곡을 찾지 못했어요.", ephemeral=True)
+        return found
+
+    @alias.command(name="add", description="곡 별명을 등록합니다 (예: 脳漿炸裂ガール → 뇌장작렬걸)")
+    @app_commands.describe(game="게임", song="곡 제목", name="별명")
+    @app_commands.autocomplete(song=song_autocomplete)
+    async def alias_add(interaction: discord.Interaction, game: GameChoice, song: str, name: str) -> None:
+        found = await _alias_song(interaction, game, song)
+        if found is None:
+            return
+        name = " ".join(name.split())
+        if not answers.fold(name) or len(name) > 40:
+            await interaction.response.send_message("별명은 글자나 숫자가 들어간 40자 이하로 써 주세요.", ephemeral=True)
+            return
+        guild_id = getattr(interaction, "guild_id", None) or 0
+        if bot.links.add_alias(guild_id, game, found.title, name):
+            await interaction.response.send_message(f"**{found.title}** 의 별명으로 `{name}` 을(를) 등록했어요.")
+        else:
+            await interaction.response.send_message("이미 등록된 별명이에요.", ephemeral=True)
+
+    @alias.command(name="remove", description="등록한 곡 별명을 지웁니다")
+    @app_commands.describe(game="게임", song="곡 제목", name="지울 별명")
+    @app_commands.autocomplete(song=song_autocomplete)
+    async def alias_remove(interaction: discord.Interaction, game: GameChoice, song: str, name: str) -> None:
+        found = await _alias_song(interaction, game, song)
+        if found is None:
+            return
+        guild_id = getattr(interaction, "guild_id", None) or 0
+        if bot.links.remove_alias(guild_id, game, found.title, " ".join(name.split())):
+            await interaction.response.send_message(f"**{found.title}** 의 별명 `{name}` 을(를) 지웠어요.")
+        else:
+            await interaction.response.send_message("그런 별명이 없어요.", ephemeral=True)
+
+    @alias.command(name="list", description="곡에 등록된 별명을 봅니다")
+    @app_commands.describe(game="게임", song="곡 제목")
+    @app_commands.autocomplete(song=song_autocomplete)
+    async def alias_list(interaction: discord.Interaction, game: GameChoice, song: str) -> None:
+        found = await _alias_song(interaction, game, song)
+        if found is None:
+            return
+        names = bot.links.aliases(getattr(interaction, "guild_id", None) or 0, game, found.title)
+        text = ", ".join(f"`{n}`" for n in names) if names else "없음"
+        await interaction.response.send_message(f"**{found.title}** 별명: {text}", ephemeral=True)
+
+    tree.add_command(alias)
 
     # --------------------------------------------------------------------- help
 
@@ -597,7 +647,7 @@ def register(bot: ChumaiBot) -> None:
                   ("chart", "채보 보기 (CHUNITHM)")],
             "계산": [("calc", "곡 레이팅 계산"), ("reach", "목표 레이팅에 필요한 점수"),
                    ("whatif", "이 점수면 레이팅이 얼마나 오르나"), ("recommend", "추천 곡")],
-            "놀이": [("guess", "자켓 맞히기"), ("chartguess", "채보 맞히기 (CHUNITHM)"), ("answer", "정답 입력"),
+            "놀이": [("guess", "자켓 맞히기"), ("chartguess", "채보 맞히기 (CHUNITHM)"), ("answer", "정답 입력"), ("alias", "곡 별명 등록"),
                    ("giveup", "포기하고 정답 보기")],
         }
         p = bot.config.prefix

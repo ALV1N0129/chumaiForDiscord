@@ -308,7 +308,8 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
 
     CHUNITHM: the target score comes from chunithm_target (how far the chart is below your
     rating). maimai: only the rating formula and your own scores: the rank you usually get on
-    charts about that hard (maimai_proven), if it is enough to push out the weakest entry.
+    charts about that hard (maimai_proven), if it is enough to push out the weakest entry;
+    the easiest such charts (lowest constant) first.
     """
     game = b50.game
     entries = b50.old + b50.new
@@ -355,7 +356,10 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
         top = [r for r in group if r.gain == group[0].gain]  # random among equals for variety
         rng.shuffle(top)
         group[: len(top)] = top
-    ranked = sorted(by_const.values(), key=lambda g: (-g[0].gain, g[0].chart.level_const))
+    if game == "maimai":  # the easiest charts that still count come first
+        ranked = sorted(by_const.values(), key=lambda g: (g[0].chart.level_const, -g[0].gain))
+    else:
+        ranked = sorted(by_const.values(), key=lambda g: (-g[0].gain, g[0].chart.level_const))
     picked, songs = [], set()
 
     def take(r: Recommendation) -> None:
@@ -382,4 +386,6 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
         divisor = 50 if game == "chunithm" else 1
         r.raw_before = (b50.old_sum + b50.new_sum) / divisor
         r.raw_after = r.raw_before + (r.song_rating - pushed_out) / divisor
+    if game == "maimai":
+        return sorted(picked, key=lambda r: (r.chart.level_const, -r.gain))
     return sorted(picked, key=lambda r: (-(r.raw_after - r.raw_before), -r.gain))

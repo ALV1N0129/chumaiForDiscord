@@ -1080,7 +1080,7 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
 
     draw.text((tx, y + 14), _fit(draw, e.title, cjk(24), right - side - 24 - tx), font=cjk(24), fill=st["text"])
     label, name, color, _ = _diff_info(e.difficulty)
-    level = f"{e.level}  {e.level_const:.1f}" if e.level_const else e.level
+    level = f"{e.level_const:.1f}" if e.level_const else e.level  # just the constant (unrated charts: their level)
     if label == "WE":  # in the WORLD'S END label's colors, the name and the attribute each their own rainbow
         we_name = _rainbow_text(name, cjk(19))
         _over(canvas, we_name, (tx - 3, y + 50))

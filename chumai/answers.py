@@ -6,14 +6,21 @@
   e.g. 脳漿炸裂ガール -> ノウシヨウサクレツカウル). It is written in Hangul and compared loosely, so
   "노우쇼우사쿠레츠가루" or "뇌쇼사쿠레츠가루" match; consonants that the reading can't tell apart
   (가/카, 바/파/하, 사/자) and similar vowels count as the same.
+- Kanji titles also in their Korean reading: 脳漿炸裂ガール -> 뇌장작렬가루, 千本桜 -> 천본앵, with の as
+  의 as well (初音ミクの消失 -> 초음미쿠의소실). The readings of the kanji in song titles come from
+  Unicode's Unihan database (kHangul; Japanese simplified forms mapped by hand), in
+  assets/hanja_ko.json.
 - Registered nicknames (/alias) count like titles.
 """
 
 from __future__ import annotations
 
 import difflib
+import json
 import re
 import unicodedata
+from functools import lru_cache
+from pathlib import Path
 
 FUZZY = 0.85  # a typo or two in a title
 FUZZY_KOREAN = 0.8  # Hangul from a reading is rougher
@@ -38,7 +45,8 @@ def _close(a: str, k: str, fuzzy: float, min_part: float = MIN_PART) -> bool:
     if a == k or difflib.SequenceMatcher(None, a, k).ratio() >= fuzzy:
         return True
     long_enough = len(a) >= 4 or (len(a) >= 2 and any(_is_wide(c) for c in a))
-    return long_enough and a in k and len(a) >= min_part * len(k)
+    # the start of a title is a natural short form; elsewhere it must be a fair share of it
+    return long_enough and (k.startswith(a) or (a in k and len(a) >= min_part * len(k)))
 
 
 # --------------------------------------------------------------- kana -> Hangul
@@ -96,8 +104,9 @@ def kana_to_hangul(reading: str) -> str:
     return "".join(out)
 
 
-# consonants the readings can't tell apart (no voicing marks), and vowels written either way
-_LEAD_FOLD = {"ㄲ": "ㄱ", "ㅋ": "ㄱ", "ㄸ": "ㄷ", "ㅌ": "ㄷ", "ㅃ": "ㅂ", "ㅍ": "ㅂ", "ㅎ": "ㅂ",
+# consonants the readings can't tell apart (no voicing marks; 란/난 as the kanji readings go), and
+# vowels written either way
+_LEAD_FOLD = {"ㄹ": "ㄴ", "ㄲ": "ㄱ", "ㅋ": "ㄱ", "ㄸ": "ㄷ", "ㅌ": "ㄷ", "ㅃ": "ㅂ", "ㅍ": "ㅂ", "ㅎ": "ㅂ",
               "ㅆ": "ㅅ", "ㅈ": "ㅅ", "ㅉ": "ㅅ", "ㅊ": "ㅅ"}
 _VOWEL_FOLD = {"ㅐ": "ㅔ", "ㅒ": "ㅖ", "ㅓ": "ㅗ", "ㅕ": "ㅛ", "ㅡ": "ㅜ", "ㅚ": "ㅔ", "ㅙ": "ㅔ", "ㅞ": "ㅔ",
                "ㅢ": "ㅣ", "ㅟ": "ㅣ", "ㅝ": "ㅗ"}
@@ -138,6 +147,38 @@ def kana_fold(text: str) -> str:
     return "".join(_SMALL_FULL.get(c, c) for c in text if c != "ー")
 
 
+@lru_cache(maxsize=1)
+def _hanja() -> dict[str, str]:
+    return json.loads((Path(__file__).parent / "assets" / "hanja_ko.json").read_text(encoding="utf-8"))
+
+
+def korean_readings(title: str) -> list[str]:
+    """A title with kanji in their Korean reading and kana in Hangul, as it and with の as 의
+    ([] when the title has no kanji, or a kanji without a reading)."""
+    text = fold(title)
+    table = _hanja()
+    if not any(unicodedata.name(c, "").startswith("CJK UNIFIED") for c in text):
+        return []
+    out = []
+    for no in ("노", "의"):
+        parts, kana = [], ""
+        for ch in text + " ":
+            if _KANA.match(ch) or ch == "ー":
+                kana += ch
+                continue
+            if kana:
+                parts.append(no.join(kana_to_hangul(k) for k in kana.split("の")))
+                kana = ""
+            if unicodedata.name(ch, "").startswith("CJK UNIFIED"):
+                if ch not in table:
+                    return []
+                parts.append(table[ch])
+            elif ch != " ":
+                parts.append(ch)
+        out.append("".join(parts))
+    return list(dict.fromkeys(out))
+
+
 def matches(answer: str, titles: list[str], readings: list[str] = (), aliases: list[str] = ()) -> bool:
     """Whether `answer` names the song with these titles, official readings and nicknames."""
     a = fold(answer)
@@ -147,8 +188,10 @@ def matches(answer: str, titles: list[str], readings: list[str] = (), aliases: l
         return True
     if _HANGUL.search(a):
         key = hangul_key(a)
+        spoken = [hangul_key(kana_to_hangul(fold(r))) for r in readings]
+        spoken += [hangul_key(k) for t in titles for k in korean_readings(t)]
         # compared as letters (ㄴㅗㅅㅛ), about twice as long as syllables: a smaller share will do
-        return any(_close(key, hangul_key(kana_to_hangul(fold(r))), FUZZY_KOREAN, MIN_PART * 0.8) for r in readings)
+        return any(_close(key, k, FUZZY_KOREAN, MIN_PART * 0.8) for k in spoken)
     if _KANA.search(a):
         return any(_close(kana_fold(a), kana_fold(r), FUZZY) for r in readings)
     return False

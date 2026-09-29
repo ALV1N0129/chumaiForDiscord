@@ -1,4 +1,4 @@
-from chumai.answers import kana_to_hangul, matches
+from chumai.answers import kana_to_hangul, korean_readings, matches
 from chumai.storage import LinkStore
 
 
@@ -24,8 +24,19 @@ def test_korean_and_kana_from_the_official_reading():
         assert matches(answer, ["脳漿炸裂ガール"], reading), answer
     assert matches("센본자쿠라", ["千本桜"], ["センホンサクラ"])
     assert matches("미쿠노쇼시츠", ["初音ミクの消失"], ["ハツネミクノシヨウシツ"])
-    assert not matches("뇌장작렬걸", ["脳漿炸裂ガール"], reading)  # a translation: needs /alias
     assert not matches("센본자쿠라", ["脳漿炸裂ガール"], reading)
+
+
+def test_korean_reading_of_kanji_titles():
+    assert korean_readings("千本桜") == ["천본앵"]
+    assert korean_readings("初音ミクの消失") == ["초음미쿠노소실", "초음미쿠의소실"]
+    assert korean_readings("ENDYMION") == []
+    assert matches("뇌장작렬걸", ["脳漿炸裂ガール"])
+    assert matches("천본앵", ["千本桜"])
+    assert matches("미쿠의 소실", ["初音ミクの消失"])
+    assert matches("은하란상", ["U&iVERSE -銀河鸞翔-"])  # 란 / 난
+    assert matches("혼돈", ["混沌を越えし我らが神聖なる調律主を讃えよ"])  # the start of a long title
+    assert not matches("천본앵", ["脳漿炸裂ガール"])
 
 
 def test_registered_nicknames(tmp_path):

@@ -338,27 +338,34 @@ def _load_jacket(path: str) -> Image.Image | None:
 
 
 @lru_cache(maxsize=16)
-def _card_background(path: str | None, mode: str, fallback: tuple[int, int, int]) -> Image.Image:
-    """RGBA card background. The jacket shows through on the right, fading out to the left."""
+def _card_background(path: str | None, mode: str, fallback: tuple[int, int, int],
+                     size: tuple[int, int] = (CARD_W, CARD_H)) -> Image.Image:
+    """RGBA card background: the jacket art, strongest at the left (behind the jacket) and fading out
+    to the right. A card wider than a B50 card has it on its right instead, fading out to the left."""
+    w, h = size
     if mode == "light":
-        return Image.new("RGBA", (CARD_W, CARD_H), (255, 255, 255, 236))
-    base = Image.new("RGBA", (CARD_W, CARD_H), (*fallback, 228))
+        return Image.new("RGBA", (w, h), (255, 255, 255, 236))
+    base = Image.new("RGBA", (w, h), (*fallback, 228))
     if mode == "flat":
-        return Image.new("RGBA", (CARD_W, CARD_H), (*fallback, 235))
+        return Image.new("RGBA", (w, h), (*fallback, 235))
     if not path:
         return base
+    aw = min(w, CARD_W)  # a wide card shows the art on its right part only, not blown up
     try:
         with Image.open(path) as im:
-            art = ImageOps.fit(im.convert("RGB"), (CARD_W, CARD_W), Image.LANCZOS)
+            art = ImageOps.fit(im.convert("RGB"), (aw, aw), Image.LANCZOS)
     except Exception:
         return base
-    art = art.crop((0, (CARD_W - CARD_H) // 2, CARD_W, (CARD_W + CARD_H) // 2))
+    art = art.crop((0, (aw - h) // 2, aw, (aw + h) // 2))
     art = Image.blend(art, Image.new("RGB", art.size, (12, 12, 20)), 0.35).convert("RGBA")
-    fade = Image.linear_gradient("L").rotate(90).resize((CARD_W, CARD_H))  # 255 at left -> 0 at right
-    fade = fade.point(lambda v: 255 - v)  # 0 at left -> 255 at right
+    fade = Image.linear_gradient("L").rotate(90).resize((aw, h))  # 0 at left -> 255 at right
+    fade = fade.point(lambda v: 255 - v)  # 255 at left -> 0 at right
     fade = fade.point(lambda v: int(min(255, max(0, (v - 40) * 1.3))))
+    if w > aw:
+        fade = ImageOps.mirror(fade)
     art.putalpha(fade)
-    return Image.alpha_composite(base, art)
+    base.alpha_composite(art, (w - aw, 0))
+    return base
 
 
 # ------------------------------------------------------------------- card
@@ -1039,7 +1046,7 @@ def _up_pill(canvas: Image.Image, right: int, y: int, text: str, size: int) -> i
 
 PLAY_ROW_H = 128  # one track of a credit
 CREDIT_HEADER_H = 128
-CREDIT_LOGO = (260, 112)  # logo box in the play log header
+CREDIT_LOGO = (190, 100)  # logo box in the play log header
 
 
 def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Entry, badge, game: str,
@@ -1047,7 +1054,11 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
     """A track as a wide row: number, jacket, title, difficulty, score, rank and lamp; the badge,
     the rating gain and the song rating on the right."""
     h = PLAY_ROW_H
-    _panel(canvas, (x, y, x + w, y + h), theme["card"], alpha=225, radius=RADIUS)
+    # like the B50 cards: the jacket art shows on the right, fading out to the left
+    card = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    card.paste(_card_background(e.jacket_path, st["card"], theme["card"], (w, h)), (0, 0), _rounded_mask((w, h), RADIUS))
+    ImageDraw.Draw(card).rounded_rectangle((0, 0, w - 1, h - 1), radius=RADIUS, outline=(255, 255, 255, 40), width=2)
+    _over(canvas, card, (x, y))
     draw = ImageDraw.Draw(canvas)
     draw.text((x + 26, y + h / 2), str(idx), font=num(40), fill=(120, 122, 150), anchor="mm")
     js = h - 24
@@ -1103,7 +1114,7 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
 
     theme = THEMES[game]
     st = STYLES["version"]
-    width = MARGIN * 2 + 4 * CARD_W + 3 * GAP_X
+    width = MARGIN * 2 + 2 * CARD_W + GAP_X  # as wide as the old 2x2 play log, so it isn't a long strip
     header = CREDIT_HEADER_H
     height = header + len(entries) * (PLAY_ROW_H + GAP_Y) + 26
     stub = SimpleNamespace(game=game, old=entries, new=[], icon=icon)
@@ -1123,8 +1134,7 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
     logo_x = (width - logo.width) // 2
     _over(canvas, logo, (logo_x, 10 + (CREDIT_LOGO[1] - logo.height) // 2))
     draw = ImageDraw.Draw(canvas)
-    kicker = f"PLAY LOG  ·  {date}" + ("  ·  C to C" if len(entries) >= 4 else "")  # 4 tracks: C to C
-    draw.text((x, 30), kicker, font=num(18, "SemiBold"), fill=theme["accent"])
+    draw.text((x, 30), f"PLAY LOG  ·  {date}", font=num(18, "SemiBold"), fill=theme["accent"])
     name = unicodedata.normalize("NFKC", player)
     draw.text((x, 52), _fit(draw, name, cjk(38), logo_x - x - 16), font=cjk(38), fill=WHITE)
 
@@ -1141,6 +1151,9 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
                   fill=st["muted"], anchor="ra")
         if change:
             _up_pill(canvas, right - number.width - 2, 68, change, 18)
+    if len(entries) >= 4:  # the extra track bought with C to C, under the rating
+        ImageDraw.Draw(canvas).text((width - MARGIN, 104), "C to C", font=num(17, "SemiBold"), fill=theme["accent"],
+                                    anchor="ra")
 
     for i, e in enumerate(entries):
         _draw_play_row(canvas, MARGIN, header + i * (PLAY_ROW_H + GAP_Y), width - 2 * MARGIN, i + 1, e,

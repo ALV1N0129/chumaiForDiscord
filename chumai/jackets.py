@@ -27,6 +27,7 @@ MAIMAI_IMG_BASES = [
     "https://maimaidx.jp/maimai-mobile/img/Music/",
 ]
 REFRESH_SECONDS = 24 * 60 * 60
+RETRY_FAILED_SECONDS = 10 * 60  # a jacket that failed to download is tried again after this
 
 
 class JacketStore:
@@ -34,7 +35,7 @@ class JacketStore:
         self.cache_dir = Path(cache_dir)
         self.chunithm: dict[int, str] = {}  # music id -> image file name
         self.maimai: dict[str, list[tuple[str, str]]] = {}  # title -> [(genre, image file name)]
-        self._failed: set[str] = set()
+        self._failed: dict[str, float] = {}  # image name -> when it last failed to download
 
     # ---------------------------------------------------------------- index
 
@@ -118,6 +119,8 @@ class JacketStore:
                         continue
                     break
                 except (aiohttp.ClientError, asyncio.TimeoutError):
+                    if attempt == 0:  # a dropped connection or a slow reply: once more
+                        continue
                     break
         return None
 
@@ -135,7 +138,7 @@ class JacketStore:
             path = folder / name
             if path.exists():
                 result[i] = path
-            elif name not in self._failed:
+            elif time.time() - self._failed.get(name, 0) > RETRY_FAILED_SECONDS:
                 todo.setdefault(name, []).append(i)
 
         if todo:
@@ -144,8 +147,9 @@ class JacketStore:
                 async def one(name: str) -> None:
                     data = await self._download(s, [b + name for b in bases])
                     if data is None:
-                        self._failed.add(name)
+                        self._failed[name] = time.time()  # not for good: the network may just have hiccuped
                         return
+                    self._failed.pop(name, None)
                     (folder / name).write_bytes(data)
                     for i in todo[name]:
                         result[i] = folder / name

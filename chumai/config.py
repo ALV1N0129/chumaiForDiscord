@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 # Override with MAIMAI_NEW_VERSIONS / CHUNITHM_NEW_VERSIONS (comma separated)
 # when a new version comes out or if your region is on a different version.
 DEFAULT_NEW_VERSIONS = {
-    "maimai": "maimaiでらっくす CiRCLE",
+    "maimai": "maimaiでらっくす CiRCLE,maimaiでらっくす CiRCLE PLUS",  # a PLUS version's new songs include its base's
     "chunithm": "CHUNITHM X-VERSE-X",
 }
 

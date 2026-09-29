@@ -113,6 +113,10 @@ class JacketStore:
                     async with session.get(url) as resp:
                         if resp.status == 200:
                             return await resp.read()
+                        busy = resp.status == 429 or resp.status >= 500
+                    if busy and attempt == 0:  # the server had a moment: wait a little, once more
+                        await asyncio.sleep(1)
+                        continue
                     break
                 except aiohttp.ClientConnectorCertificateError as e:
                     if attempt == 0 and await tls.add_missing_intermediate(e.host, e.port or 443):

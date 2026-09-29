@@ -429,25 +429,32 @@ def _star(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill) -> No
     draw.polygon(pts, fill=fill)
 
 
+@lru_cache(maxsize=16)
 def _we_badge(kanji: str, stars: int, size: int) -> Image.Image:
-    """The in-game WORLD'S END attribute tile: a white tile, a dark bar of gold stars on top and the
-    attribute kanji in the rainbow under it. `size` is its width; it is a bit taller than wide."""
-    w, h = size, round(size * 1.18)
-    bar = max(8, round(h * 0.24))
-    tile = Image.new("RGBA", (w + 4, h + 6), (0, 0, 0, 0))
-    shadow = Image.new("L", tile.size, 0)
-    ImageDraw.Draw(shadow).rounded_rectangle((2, 4, w + 1, h + 3), radius=max(3, size // 12), fill=110)
-    tile.putalpha(shadow.filter(ImageFilter.GaussianBlur(2)))
+    """The in-game WORLD'S END attribute tile: a white tile, a dark bar with the lit gold stars
+    centred on it, and the attribute kanji in the rainbow under it. `size` is its width; it is a bit
+    taller than wide. Drawn at 4x and shrunk, so the small stars come out smooth."""
+    ss = 4
+    w, h = size * ss, round(size * 1.18) * ss
+    bar = max(8 * ss, round(h * 0.24))
     body = Image.new("RGBA", (w, h), (255, 255, 255, 255))
     draw = ImageDraw.Draw(body)
     draw.rectangle((0, 0, w, bar), fill=(22, 50, 66))
-    r = bar * 0.42  # five evenly spaced stars across the bar, lit up to `stars`
-    step = (w - 6) / 5
-    for i in range(5):
-        _star(draw, 3 + step * (i + 0.5), bar / 2 + 0.5, r, (255, 210, 60) if i < stars else (64, 86, 100))
+    r = bar * 0.38
+    step = min(r * 2.15, (w - 2 * ss) / max(1, stars))
+    x0 = (w - step * (stars - 1)) / 2
+    for i in range(stars):
+        _star(draw, x0 + step * i, bar / 2 + ss / 2, r, (255, 208, 64))
     k = _rainbow_text(kanji, cjk(round((h - bar) * 0.8)))
-    body.alpha_composite(k, ((w - k.width) // 2, bar + (h - bar - k.height) // 2 + 1))
-    body.putalpha(_rounded_mask((w, h), max(3, size // 12)))
+    body.alpha_composite(k, ((w - k.width) // 2, bar + (h - bar - k.height) // 2 + ss))
+    body.putalpha(_rounded_mask((w, h), max(3, size // 12) * ss))
+    body = body.resize((size, round(size * 1.18)), Image.LANCZOS)
+
+    bw, bh = body.size
+    tile = Image.new("RGBA", (bw + 4, bh + 6), (0, 0, 0, 0))
+    shadow = Image.new("L", tile.size, 0)
+    ImageDraw.Draw(shadow).rounded_rectangle((2, 4, bw + 1, bh + 3), radius=max(3, size // 12), fill=110)
+    tile.putalpha(shadow.filter(ImageFilter.GaussianBlur(2)))
     tile.alpha_composite(body, (2, 1))
     return tile
 

@@ -70,10 +70,9 @@ DIFFS = {
 }
 
 # CHUNITHM-NET's WORLD'S END label (musiclevel_worldsend.png, 140x20): bands leaning "/" (0.9 height
-# across per height down), each 1.8 heights wide (red half that), in this order; cream, outlined text
+# across per height down), each 1.8 heights wide (red half that), in this order
 WE_BANDS = [((12, 110, 243), 1.8), ((96, 180, 89), 1.8), ((226, 176, 5), 1.8), ((211, 40, 30), 0.9),
             ((215, 8, 144), 1.8)]
-WE_TEXT = (249, 249, 219)
 WE_OUTLINE = (60, 40, 70)
 
 
@@ -402,12 +401,14 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
     tag_h = 24
     const = f"{e.level_const:.1f}" if e.level_const else e.level
     tag_font = lambda t: num(17) if t.isascii() else cjk(15)  # noqa: E731  (宴, WORLD'S END's 狂☆5)
-    if worlds_end:  # the level tag drawn like CHUNITHM-NET's WORLD'S END label
+    if worlds_end:  # like CHUNITHM-NET's WORLD'S END label, in our tag's font
         canvas.paste(_we_texture(JACKET, tag_h), (jx, jy + JACKET - tag_h))
         draw = ImageDraw.Draw(canvas)
-        we_text = {"fill": WE_TEXT, "stroke_width": 2, "stroke_fill": WE_OUTLINE}
-        draw.text((jx + 6, jy + JACKET - tag_h / 2), label, font=tag_font(label), anchor="lm", **we_text)
-        draw.text((jx + JACKET - 6, jy + JACKET - tag_h / 2), const, font=tag_font(const), anchor="rm", **we_text)
+        size = 17
+        while size > 11 and draw.textlength("WORLD'S END", font=num(size)) > JACKET - 10:
+            size -= 1
+        draw.text((jx + JACKET / 2, jy + JACKET - tag_h / 2), "WORLD'S END", font=num(size), fill=WHITE, anchor="mm",
+                  stroke_width=1, stroke_fill=WE_OUTLINE)
     else:
         draw.rectangle((jx, jy + JACKET - tag_h, jx + JACKET - 1, jy + JACKET - 1),
                        fill=(12, 12, 14) if ultima else color)

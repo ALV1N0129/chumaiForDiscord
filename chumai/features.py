@@ -411,8 +411,7 @@ def register(bot: ChumaiBot) -> None:
         b50 = await _load_b50(interaction, game)
         if b50 is None:
             return
-        honey = bot.chart_stats.honey if game == "maimai" and bot.chart_stats.delta else None
-        recs = tools.recommend(bot.songdb, b50, bot.config.new_versions[game], 6, honey=honey)
+        recs = tools.recommend(bot.songdb, b50, bot.config.new_versions[game], 6)
         if not recs:
             await interaction.followup.send("추천할 곡을 찾지 못했어요.")
             return
@@ -431,8 +430,8 @@ def register(bot: ChumaiBot) -> None:
             sub_line = f"목표 {_rank(game, r.target_score)} {tools.fmt_score(game, r.target_score)}"
             if game == "maimai":  # just what to play and what to aim for
                 sub_line = f"목표 {_rank(game, r.target_score)}"
-                if r.honey is not None and abs(r.honey) >= 0.1:  # plays like another constant
-                    sub_line += f" · 체감 {r.chart.level_const - r.honey:.1f}"
+                if r.entry is not None and r.entry < r.target_score:  # the least that still counts
+                    sub_line += f" · 최소 {_rank(game, r.entry)}"
                 if r.best is not None:
                     sub_line += f" · 현재 {r.best:.2f}%"
                 right_sub, note = None, None
@@ -443,7 +442,7 @@ def register(bot: ChumaiBot) -> None:
         if game == "chunithm":
             sub = f"현재 {tools.fmt_rating(game, b50.total)} · {tools.chunithm_advice(float(b50.total))}"
         else:
-            sub = f"현재 {tools.fmt_rating(game, b50.total)}" + (" · 체감 상수가 낮은 꿀곡 위주" if honey else "")
+            sub = f"현재 {tools.fmt_rating(game, b50.total)} · 2곡 이상 받아본 랭크 기준"
         png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows, sub, None, 2)
         await interaction.followup.send(file=_image(png, f"recommend_{game}"))
 

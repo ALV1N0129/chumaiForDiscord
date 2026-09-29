@@ -16,7 +16,6 @@ from discord.ext import tasks
 from . import features, net_parsers, prefix, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .charts import ChartViews
-from .chartstats import ChartStats
 from .config import Config
 from .jackets import JacketStore
 from .fonts import ensure_font
@@ -48,7 +47,6 @@ class ChumaiBot(discord.Client):
         self.songdb = SongDB()
         self.jackets = JacketStore(config.jacket_dir)
         self.charts = ChartViews(config.chart_dir)
-        self.chart_stats = ChartStats(Path(config.songdb_dir) / "stats")  # maimai "꿀곡" for /recommend
         self.b50_cache: dict[tuple[int, str], tuple[float, B50]] = {}  # reused by /recommend and /whatif
         register_commands(self)
         features.register(self)
@@ -124,12 +122,10 @@ class ChumaiBot(discord.Client):
         await self.songdb.load_or_update(self.config.songdb_dir)
         await self.jackets.load_or_update()
         await self.charts.load_or_update()
-        await self.chart_stats.load_or_update()
         render.release_memory()
 
     async def _load_charts(self) -> None:
         await self.charts.load_or_update()
-        await self.chart_stats.load_or_update()
         render.release_memory()
 
     @refresh_songdb.before_loop

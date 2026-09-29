@@ -178,6 +178,23 @@ def test_maimai_proven_is_the_usual_rank_nearby():
     assert tools.usual_rank("maimai", played, 12.0, tools.USUAL_PLAYED) == 99.0  # 5th of 7: 99.1
 
 
+def test_all_done_applies_every_recommendation():
+    from chumai.songdb import CatalogChart, CatalogSong
+
+    db = _db()
+    db.catalog["maimai"] = [CatalogSong("maimai", f"M{i}", "", "maimai", [f"m{i}"],
+                                        [CatalogChart("Master", "12", 12.3, "maimai")]) for i in range(3)]
+    entries = [make_entry("maimai", f"S{i}", "Master", "12", 12.0 + (i % 5) / 10, 100.0, None, False)
+               for i in range(35)]
+    entries += [make_entry("maimai", f"N{i}", "Master", "12", 11.5, 100.0, None, True) for i in range(15)]
+    b = select_b50("maimai", "p", entries)
+    recs = tools.recommend(db, b, ["maimai でらっくす PRiSM PLUS"], 5, random.Random(0))
+    assert len(recs) == 3
+    done = tools.all_done(b, recs)
+    # each pushes out a 12.0 SSS (259) for a 12.3 SSS (265)
+    assert done.total - b.total == 3 * (265 - 259) == sum(r.after - r.before for r in recs)
+
+
 def test_entry_score_is_the_exact_cut():
     from fractions import Fraction
 

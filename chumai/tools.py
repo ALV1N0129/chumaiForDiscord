@@ -193,6 +193,15 @@ def what_if(b50: B50, song: CatalogSong, chart: CatalogChart, score: float, is_n
     return WhatIf(before=b50.total, after=after.total, entry=entry, counted=counted)
 
 
+def all_done(b50: B50, recs: list["Recommendation"]) -> B50:
+    """The B50 after getting the target on every recommended chart (each pushing out whatever is
+    weakest by then)."""
+    game = b50.game
+    extra = [make_entry(game, r.song.title, r.chart.difficulty, r.chart.level, r.chart.level_const,
+                        r.target_score, None, r.is_new) for r in recs]
+    return select_b50(game, b50.username, b50.old + b50.new + extra)
+
+
 # -------------------------------------------------------------- recommend
 
 

@@ -61,3 +61,10 @@ def test_korean_pronunciation_of_latin_titles():
     for title, names in _pronunciations().items():
         assert title == fold(title) and names and all(n.strip() for n in names)
     assert matches("페어리조크", ["#FairyJoke"])  # a title starting with # isn't a comment
+
+
+def test_katakana_titles_as_said_in_korean():
+    assert matches("뱀파이어", ["ヴァンパイア"])  # the reading would give 반파이아
+    assert matches("월드 이즈 마인", ["ワールドイズマイン"])
+    assert matches("세카이노오와리", ["せかいのおわり"])  # a kana title is its own reading
+    assert not matches("멜트", ["ヴァンパイア"])

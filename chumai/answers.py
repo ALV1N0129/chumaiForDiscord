@@ -204,6 +204,8 @@ def matches(answer: str, titles: list[str], readings: list[str] = (), aliases: l
     spoken_titles = [p for t in titles for p in pronunciations(t)]
     if any(_close(a, fold(k), FUZZY) for k in [*titles, *aliases, *spoken_titles]):
         return True
+    # a title in kana is its own reading (not every song has one in the official lists)
+    readings = [*readings, *(t for t in titles if _KANA.search(t))]
     if _HANGUL.search(a):
         key = hangul_key(a)
         spoken = [hangul_key(kana_to_hangul(fold(r))) for r in readings]

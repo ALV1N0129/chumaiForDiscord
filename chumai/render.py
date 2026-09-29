@@ -115,37 +115,40 @@ LAMP_COLORS = {
 
 # In-game rating plate colors: (threshold, color or list of colors for a gradient)
 RAINBOW = [(255, 96, 96), (255, 190, 70), (120, 220, 110), (80, 170, 255), (190, 110, 255)]
-# CHUNITHM-NET's rating digits (images/rating/rating_rainbow_XX.png, rating_kiwami_XX.png) shade each
-# digit from top to bottom; these are their colors. 虹 from 16.00, the more colorful 虹(極) from 17.00.
+# Rating colors per tier, top to bottom. CHUNITHM: sampled from CHUNITHM-NET's rating digits
+# (images/rating/rating_<tier>_XX.png), which shade each digit from top to bottom (the metal tiers
+# have a bright band in the middle); 虹 from 16.00, the more colorful 虹(極) from 17.00.
+# maimai: the colors of maimai DX NET's rating plates (img/rating_base_<tier>.png).
 CHUNI_RAINBOW = [(240, 156, 135), (232, 236, 90), (135, 234, 70), (95, 232, 170), (50, 236, 232)]
 CHUNI_KIWAMI = [(232, 208, 121), (242, 138, 122), (240, 40, 190), (160, 40, 228), (30, 130, 238),
                 (0, 205, 222), (0, 238, 200)]
+MAI_RAINBOW = [(255, 140, 140), (255, 215, 110), (160, 240, 140), (120, 200, 255), (215, 150, 255)]
 PLATES = {
     "maimai": [
-        (16000, RAINBOW),
-        (15000, RAINBOW),
-        (14500, [(222, 230, 240), (170, 190, 215)]),
-        (14000, [(255, 216, 90), (214, 160, 40)]),
-        (13000, [(214, 220, 232), (150, 160, 180)]),
-        (12000, [(214, 140, 90), (160, 90, 50)]),
-        (10000, [(170, 100, 230), (120, 60, 190)]),
-        (7000, [(240, 90, 90), (190, 50, 60)]),
-        (4000, [(250, 200, 60), (210, 160, 30)]),
-        (2000, [(90, 200, 110), (50, 150, 80)]),
-        (1000, [(80, 160, 250), (50, 110, 210)]),
-        (0, [(200, 204, 214), (150, 154, 166)]),
+        (16000, MAI_RAINBOW),
+        (15000, MAI_RAINBOW),
+        (14500, [(255, 250, 190), (245, 215, 100)]),  # platinum
+        (14000, [(255, 232, 70), (250, 180, 0)]),  # gold
+        (13000, [(205, 232, 246), (125, 172, 208)]),  # silver
+        (12000, [(214, 125, 88), (145, 62, 42)]),  # bronze
+        (10000, [(222, 152, 255), (170, 70, 245)]),  # purple
+        (7000, [(255, 140, 140), (215, 60, 70)]),  # red
+        (4000, [(255, 212, 60), (245, 135, 10)]),  # orange
+        (2000, [(178, 240, 112), (80, 195, 50)]),  # green
+        (1000, [(122, 215, 255), (60, 150, 240)]),  # blue
+        (0, [(238, 242, 248), (190, 200, 215)]),  # white
     ],
     "chunithm": [
         (17.0, CHUNI_KIWAMI),
         (16.0, CHUNI_RAINBOW),
-        (15.25, [(222, 230, 240), (170, 190, 215)]),
-        (14.5, [(255, 216, 90), (214, 160, 40)]),
-        (13.25, [(214, 220, 232), (150, 160, 180)]),
-        (12.0, [(214, 140, 90), (160, 90, 50)]),
-        (10.0, [(170, 100, 230), (120, 60, 190)]),
-        (7.0, [(240, 90, 90), (190, 50, 60)]),
-        (4.0, [(250, 150, 50), (210, 110, 30)]),
-        (0, [(90, 200, 110), (50, 150, 80)]),
+        (15.25, [(218, 209, 172), (244, 244, 244), (217, 199, 148), (221, 215, 197)]),  # platinum
+        (14.5, [(214, 183, 52), (245, 235, 129), (226, 193, 59), (221, 204, 111)]),  # gold
+        (13.25, [(142, 201, 217), (199, 243, 244), (141, 199, 216), (175, 214, 220)]),  # silver
+        (12.0, [(207, 103, 11), (245, 173, 44), (207, 101, 7), (223, 144, 46)]),  # bronze
+        (10.0, [(218, 96, 205), (233, 99, 218), (200, 70, 192)]),  # purple
+        (7.0, [(228, 90, 104), (233, 88, 104), (209, 60, 80)]),  # red
+        (4.0, [(225, 168, 6), (240, 183, 6), (226, 166, 2)]),  # orange
+        (0, [(110, 225, 50), (75, 235, 35), (45, 212, 22)]),  # green
     ],
 }
 
@@ -592,12 +595,8 @@ def _plate_colors(game: str, value: str) -> list[tuple[int, int, int]]:
 
 
 def _rating_number(game: str, rating: str, font) -> Image.Image:
-    """The rating in its tier's colors: CHUNITHM's 虹 and 虹(極) shaded top to bottom like the site's
-    digits, the others a lightened left-to-right gradient."""
-    colors = _plate_colors(game, rating)
-    if colors is CHUNI_RAINBOW or colors is CHUNI_KIWAMI:
-        return _gradient_text(rating, font, colors, vertical=True)
-    return _gradient_text(rating, font, [tuple(min(255, c + 40) for c in col) for col in colors])
+    """The rating in its tier's colors, shaded top to bottom like the official sites' digits."""
+    return _gradient_text(rating, font, _plate_colors(game, rating), vertical=True)
 
 
 def _stat(draw: ImageDraw.ImageDraw, x: int, y: int, label: str, value: str, st: dict) -> int:

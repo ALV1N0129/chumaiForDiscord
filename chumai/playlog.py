@@ -5,12 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from fractions import Fraction
 
-from .b50 import Entry, make_entry
+from .b50 import UNRATED, Entry, make_entry
 from .net_parsers import PlayRecord
 from .songdb import SongDB, level_to_min_const
 
 
-def to_entry(game: str, r: PlayRecord, songdb: SongDB) -> Entry:
+def to_entry(game: str, r: PlayRecord, songdb: SongDB, levels=None) -> Entry:
+    """levels(title, difficulty): official level of an unrated (WORLD'S END / 宴) chart, if known."""
+    if r.difficulty in UNRATED:
+        level = (levels(r.title, r.difficulty) if levels else None) or "?"
+        e = make_entry(game, r.title, r.difficulty, level, 0.0, r.score, r.lamp, False)
+        return _with_rank(e, r) if game == "maimai" else e
     if game == "chunithm":
         info = songdb.chunithm_chart_by_title(r.title, r.difficulty)
     else:
@@ -20,7 +25,11 @@ def to_entry(game: str, r: PlayRecord, songdb: SongDB) -> Entry:
     if not info and game == "maimai":
         const = 0.0
     e = make_entry(game, r.title, r.difficulty, level, const, r.score, r.lamp, False)
-    if game == "maimai" and r.rank:
+    return _with_rank(e, r) if game == "maimai" else e
+
+
+def _with_rank(e: Entry, r: PlayRecord) -> Entry:
+    if r.rank:  # maimai: the site's rank (the achievement alone can't tell every border)
         e.rank = r.rank
     return e
 

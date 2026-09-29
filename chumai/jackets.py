@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import unicodedata
 from pathlib import Path
@@ -35,25 +36,39 @@ class JacketStore:
         self.cache_dir = Path(cache_dir)
         self.chunithm: dict[int, str] = {}  # music id -> image file name
         self.maimai: dict[str, list[tuple[str, str]]] = {}  # title -> [(genre, image file name)]
+        # levels of the unrated charts, from the same official lists: title -> "狂☆5" / "12+?"
+        self.we_levels: dict[str, str] = {}
+        self.utage_levels: dict[str, str] = {}
         self._failed: dict[str, float] = {}  # image name -> when it last failed to download
         self._errors: dict[str, str] = {}  # first URL tried -> why the download last failed, for the log
 
     # ---------------------------------------------------------------- index
 
     def load_index(self, chunithm_music: list[dict], maimai_songs: list[dict]) -> None:
-        self.chunithm = {}
+        self.chunithm, self.we_levels = {}, {}
         for m in chunithm_music:
+            if m.get("we_kanji") and m.get("title"):  # WORLD'S END: an attribute kanji and 1~5 stars
+                self.we_levels[normalize_title(str(m["title"]))] = f"{m['we_kanji']}☆{m.get('we_star') or '?'}"
             try:
                 if m.get("image"):
                     self.chunithm[int(m["id"])] = str(m["image"])
             except (KeyError, TypeError, ValueError):
                 continue
-        self.maimai = {}
+        self.maimai, self.utage_levels = {}, {}
         for s in maimai_songs:
             if s.get("title") is None or not s.get("image_url"):
                 continue
+            if s.get("lev_utage"):  # 宴: titles like "[協]Love You"; the play log may leave the [協] out
+                title = str(s["title"])
+                self.utage_levels[normalize_title(title)] = str(s["lev_utage"])
+                self.utage_levels.setdefault(normalize_title(re.sub(r"^\[.\]", "", title)), str(s["lev_utage"]))
             genre = unicodedata.normalize("NFKC", str(s.get("catcode", "")))
             self.maimai.setdefault(normalize_title(str(s["title"])), []).append((genre, str(s["image_url"])))
+
+    def unrated_level(self, title: str, difficulty: str) -> str | None:
+        """Official level of a WORLD'S END ("狂☆5") or 宴 ("12+?") chart."""
+        levels = self.we_levels if difficulty == "WORLD'S END" else self.utage_levels
+        return levels.get(normalize_title(title))
 
     def image_name(self, game: str, key) -> str | None:
         if game == "chunithm":

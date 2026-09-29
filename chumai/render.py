@@ -66,6 +66,7 @@ DIFFS = {
     "re:master": ("Re:M", (200, 150, 255)),
     "ultima": ("ULT", (170, 24, 56)),
     "world's end": ("WE", (40, 170, 190)),
+    "utage": ("宴", (236, 72, 150)),
 }
 
 RANK_COLORS = {
@@ -374,8 +375,9 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
     const = f"{e.level_const:.1f}" if e.level_const else e.level
     # light tags (Re:MASTER) need dark text; ULTIMA uses red on black
     tag_text = (255, 60, 80) if ultima else (60, 24, 96) if sum(color) > 560 else WHITE
-    draw.text((jx + 6, jy + JACKET - tag_h / 2), label, font=num(17), fill=tag_text, anchor="lm")
-    draw.text((jx + JACKET - 6, jy + JACKET - tag_h / 2), const, font=num(17), fill=tag_text, anchor="rm")
+    tag_font = lambda t: num(17) if t.isascii() else cjk(15)  # noqa: E731  (宴, WORLD'S END's 狂☆5)
+    draw.text((jx + 6, jy + JACKET - tag_h / 2), label, font=tag_font(label), fill=tag_text, anchor="lm")
+    draw.text((jx + JACKET - 6, jy + JACKET - tag_h / 2), const, font=tag_font(const), fill=tag_text, anchor="rm")
     if is_dx:
         draw.rounded_rectangle((jx + 4, jy + 4, jx + 30, jy + 20), radius=4, fill=(255, 255, 255))
         draw.text((jx + 17, jy + 12), "DX", font=num(14), fill=(230, 70, 110), anchor="mm")
@@ -926,13 +928,14 @@ def _draw_credit_summary(canvas: Image.Image, box: tuple[int, int, int, int], ga
     _panel(canvas, box, theme["card"], alpha=200, radius=RADIUS)
     draw = ImageDraw.Draw(canvas)
     draw.text((x0 + 18, y0 + 16), "CREDIT", font=num(16, "SemiBold"), fill=theme["accent"])
-    ratings = [e.rating for e in entries]
-    avg = sum(ratings) / len(ratings)
+    ratings = [e.rating for e in entries if e.rated]  # WORLD'S END / 宴 have no rating
+    avg = sum(ratings) / len(ratings) if ratings else None
     new = sum(1 for b in badges if b is not None and b.kind == "new")
     stats = [
         ("TRACKS", str(len(entries)), WHITE),
         ("NEW RECORD", str(new), (255, 200, 120) if new else WHITE),
-        ("AVG RATING", f"{float(avg):.0f}" if game == "maimai" else f"{float(avg):.2f}", WHITE),
+        ("AVG RATING", "-" if avg is None else f"{float(avg):.0f}" if game == "maimai" else f"{float(avg):.2f}",
+         WHITE),
     ]
     col = (x1 - x0 - 36) / len(stats)
     for k, (label, value, color) in enumerate(stats):

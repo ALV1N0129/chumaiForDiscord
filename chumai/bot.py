@@ -479,7 +479,7 @@ async def render_credits(bot: ChumaiBot, discord_id: int, game: str, select,
         images = []
         credits = net_parsers.group_credits(chosen)
         for n, credit in enumerate(credits):
-            entries = [to_entry(game, r, bot.songdb) for r in credit]
+            entries = [to_entry(game, r, bot.songdb, bot.jackets.unrated_level) for r in credit]
             paths = await asyncio.gather(*(_cached_image(bot, net, game, r.jacket_url) for r in credit))
             for e, path in zip(entries, paths):
                 e.jacket_path = path

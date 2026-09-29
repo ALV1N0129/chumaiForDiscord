@@ -16,6 +16,10 @@ SLOTS = {
     "chunithm": (30, 20),
 }
 
+# Played for fun, never rated: CHUNITHM WORLD'S END and maimai 宴 (UTAGE) charts.
+UNRATED = ("WORLD'S END", "UTAGE")
+
+
 @dataclass
 class Entry:
     game: str
@@ -39,7 +43,13 @@ class Entry:
         return f"{int(self.score):,}"
 
     @property
+    def rated(self) -> bool:
+        return self.difficulty not in UNRATED
+
+    @property
     def rating_text(self) -> str:
+        if not self.rated:
+            return "-"
         if self.game == "maimai":
             return str(int(self.rating))
         return f"{float(self.rating):.2f}"
@@ -108,6 +118,8 @@ def make_entry(
         score = int(score)
         r = rating.chunithm_rating(level_const, score)
         rank = rating.chunithm_rank(score)
+    if difficulty in UNRATED:
+        r = Fraction(0)
     return Entry(
         game=game,
         title=title,

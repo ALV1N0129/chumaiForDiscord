@@ -693,77 +693,58 @@ def _title_badge(text: str, rarity: str | None, max_w: int) -> Image.Image:
     return badge
 
 
-def _draw_player_plate(canvas: Image.Image, game: str, name: str, icon: bytes | None, kicker: str,
-                       chips: list[tuple[str, str]], theme: dict, st: dict) -> int:
-    """The player's icon and name on a plate at the top left, with a row of stat chips under it.
-    Returns the x right after the last chip."""
-    cw, ch = 560, 136  # same height as the rating plate
-    cx, cy = MARGIN, 40
-
-    card = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
-    body = Image.new("RGBA", (cw, ch), (*theme["card"], 235))
-    body.paste(_gradient_fill((6, ch), [theme["accent"], theme["glow2"]]), (0, 0))
-    card.paste(body, (0, 0), _rounded_mask((cw, ch), 18))
-    ImageDraw.Draw(card).rounded_rectangle((0, 0, cw - 1, ch - 1), radius=18, outline=(255, 255, 255, 40), width=2)
-    _over(canvas, card, (cx, cy))
-    draw = ImageDraw.Draw(canvas)
-
-    tx = cx + 30
+def _draw_player(canvas: Image.Image, name: str, icon: bytes | None, kicker: str, stats: list[tuple[str, str]],
+                 max_right: int, theme: dict, st: dict) -> None:
+    """The player at the top left without a plate, like the play log: icon, kicker and name, and a
+    line of stats (label, value) under them."""
+    cx, cy, size = MARGIN, 44, 116
+    tx = cx
     ic = _open_image(icon)
     if ic is not None:
-        size = ch - 28
         ic = ImageOps.fit(ic, (size, size), Image.LANCZOS)
-        ix, iy = cx + 20, cy + 14
-        framed = Image.new("RGBA", (size, size), (20, 18, 30, 255))
-        framed.alpha_composite(ic)
         out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        out.paste(framed, (0, 0), _rounded_mask((size, size), 14))
-        _over(canvas, out, (ix, iy))
-        draw.rounded_rectangle((ix - 1, iy - 1, ix + size, iy + size), radius=15, outline=(255, 255, 255, 90), width=2)
-        tx = ix + size + 24
-
+        out.paste(ic, (0, 0), _rounded_mask((size, size), 22))
+        _over(canvas, out, (cx, cy))
+        tx = cx + size + 26
+    draw = ImageDraw.Draw(canvas)
     name = unicodedata.normalize("NFKC", name)  # official sites use full-width letters
-    draw.text((tx, cy + 34), kicker, font=num(18, "SemiBold"), fill=theme["accent"], anchor="ls")
-    draw.text((tx - 2, cy + 94), _fit(draw, name, cjk(46), cx + cw - 20 - tx), font=cjk(46), fill=st["text"],
-              anchor="ls")
+    draw.text((tx, cy + 26), kicker, font=num(26, "SemiBold"), fill=theme["accent"], anchor="ls")
+    draw.text((tx - 2, cy + 104), _fit(draw, name, cjk(60), max_right - tx), font=cjk(60), fill=WHITE, anchor="ls")
 
-    sx, sy = cx, cy + ch + 10
-    for label, value in chips:
-        lw = draw.textlength(label, font=num(15, "SemiBold"))
-        vw = draw.textlength(value, font=num(22))
-        w = int(lw + vw + 30)
-        chip = Image.new("RGBA", (w, 34), (0, 0, 0, 0))
-        chip.paste(Image.new("RGBA", (w, 34), (10, 8, 18, 150)), (0, 0), _rounded_mask((w, 34), 17))
-        _over(canvas, chip, (sx, sy))
-        draw.text((sx + 12, sy + 17), label, font=num(15, "SemiBold"), fill=st["faint"], anchor="lm")
-        draw.text((sx + w - 12, sy + 18), value, font=num(22), fill=st["text"], anchor="rm")
-        sx += w + 8
-    return sx
-
-
-def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> None:
-    old_slots, new_slots = SLOTS[b50.game]
-    fmt = (lambda v: f"{float(v):.2f}") if b50.game == "chunithm" else (lambda v: str(int(v)))
-    _draw_player_plate(canvas, b50.game, b50.username, b50.icon, f"{GAME_NAMES[b50.game].upper()}  PLAYER", [
-        (f"BEST {old_slots}", fmt(b50.old_sum)),
-        (f"NEW {new_slots}", fmt(b50.new_sum)),
-        (f"B{old_slots} AVG", b50.average_text(b50.old)),
-        (f"N{new_slots} AVG", b50.average_text(b50.new)),
-    ], theme, st)
+    sx, base = cx + 2, cy + size + 46
+    for label, value in stats:
+        draw.text((sx, base), label, font=num(20, "SemiBold"), fill=st["muted"], anchor="ls")
+        sx += draw.textlength(label, font=num(20, "SemiBold")) + 10
+        draw.text((sx, base), value, font=num(30), fill=WHITE, anchor="ls")
+        sx += draw.textlength(value, font=num(30)) + 36
 
 
 def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dict) -> None:
-    draw = ImageDraw.Draw(canvas)
     old_slots, new_slots = SLOTS[b50.game]
-
     _draw_logo(canvas, b50.game, width, theme)
-    _draw_player_card(canvas, b50, theme, st)
 
+    # CHUNITHM's rating is an average, so the two averages; maimai's is a sum, so the two sums
+    if b50.game == "chunithm":
+        stats = [(f"BEST {old_slots} AVG", b50.average_text(b50.old)),
+                 (f"NEW {new_slots} AVG", b50.average_text(b50.new))]
+    else:
+        stats = [(f"BEST {old_slots}", str(int(b50.old_sum))), (f"NEW {new_slots}", str(int(b50.new_sum)))]
+    logo_left = (width - min(_logo_image(b50.game).width, width - 2 * (MARGIN + 580))) // 2
+    _draw_player(canvas, b50.username, b50.icon, f"{GAME_NAMES[b50.game].upper()}  PLAYER", stats,
+                 logo_left - 24, theme, st)
+
+    # the rating at the top right without a plate, like the play log: label and tier, then the number
     rating = b50.official_rating or b50.total_text()
-    _draw_plate(canvas, b50.game, rating, width, st)
+    colors = _plate_colors(b50.game, rating)
+    right = width - MARGIN
+    tier = _tier_name(b50.game, rating)
+    draw = ImageDraw.Draw(canvas)
+    draw.text((right, 44), f"RATING   {tier}", font=num(24, "SemiBold"), fill=st["muted"], anchor="ra")
+    number = _gradient_text(rating, num(120), [tuple(min(255, c + 40) for c in col) for col in colors])
+    _over(canvas, number, (right - number.width + 12, 80))
     if b50.official_rating and b50.official_rating != b50.total_text():
-        draw.text((width - MARGIN, 190), f"CALCULATED {b50.total_text()}", font=num(16, "SemiBold"),
-                  fill=st["faint"], anchor="ra")
+        ImageDraw.Draw(canvas).text((right, 200), f"CALCULATED {b50.total_text()}", font=num(18, "SemiBold"),
+                                    fill=st["faint"], anchor="ra")
 
 
 TIER_NAMES = {

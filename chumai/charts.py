@@ -2,7 +2,7 @@
 
 Which sdvx.in page belongs to which song comes from chuni-penguin's song data
 (https://github.com/beer-psi/chuni-penguin, BSD Zero Clause License), matched by the
-in-game song id. The chart images themselves are downloaded from sdvx.in when needed
+in-game song id; its community nicknames go to the guessing games. The chart images themselves are downloaded from sdvx.in when needed
 and cached on disk. maimai has no such data, so this is CHUNITHM only.
 """
 
@@ -26,16 +26,20 @@ log = logging.getLogger(__name__)
 INDEX_URL = ("https://raw.githubusercontent.com/beer-psi/chuni-penguin/develop/"
              "chuni_penguin/database/seeds/songs.json")
 REFRESH_SECONDS = 7 * 24 * 60 * 60
+ALIASES_NAME = "aliases.json"  # chuni-penguin's community nicknames, for the guessing games
 SDVX = "https://sdvx.in/chunithm"
 
 # our difficulty names -> chuni-penguin's
 DIFFS = {"BASIC": "BAS", "ADVANCED": "ADV", "EXPERT": "EXP", "MASTER": "MAS", "ULTIMA": "ULT"}
 
 
-def build_index(songs) -> dict[str, str]:
-    """chuni-penguin songs.json -> {"<song id>/<difficulty>": sdvx.in id}."""
+def build_index(songs, aliases: dict[str, list[str]] | None = None) -> dict[str, str]:
+    """chuni-penguin songs.json -> {"<song id>/<difficulty>": sdvx.in id}. Also collects the songs'
+    community nicknames into `aliases` ({title: [nickname]}) when given, from the same pass."""
     index = {}
     for song in songs:
+        if aliases is not None and song.get("aliases") and song.get("title"):
+            aliases[song["title"]] = [str(a) for a in song["aliases"] if a]
         for chart in song.get("charts", []):
             view = chart.get("sdvxin")
             if view and view.get("id") and chart.get("difficulty") in DIFFS.values():
@@ -115,12 +119,15 @@ class ChartViews:
     async def load_or_update(self) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
         path = self.dir / "sdvxin.json"
-        if not path.exists() or time.time() - path.stat().st_mtime > REFRESH_SECONDS:
+        alias_path = self.dir / ALIASES_NAME
+        if not path.exists() or not alias_path.exists() or time.time() - path.stat().st_mtime > REFRESH_SECONDS:
             try:
                 raw = self.dir / "songs.download"
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=180)) as s:
                     await download_to(s, INDEX_URL, raw)  # 7MB: read song by song, not all at once
-                path.write_text(json.dumps(build_index(iter_items(raw))), encoding="utf-8")
+                aliases: dict[str, list[str]] = {}
+                path.write_text(json.dumps(build_index(iter_items(raw), aliases)), encoding="utf-8")
+                alias_path.write_text(json.dumps(aliases, ensure_ascii=False), encoding="utf-8")
                 raw.unlink()
                 log.info("chart view index updated")
             except Exception:

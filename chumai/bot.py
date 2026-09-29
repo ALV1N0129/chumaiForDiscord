@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
 import time
@@ -14,7 +15,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import answers, features, net_parsers, prefix, render, updater
+from . import answers, charts as charts_module, features, net_parsers, prefix, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .charts import ChartViews
 from .config import Config
@@ -131,12 +132,23 @@ class ChumaiBot(discord.Client):
         await self.songdb.load_or_update(self.config.songdb_dir)
         await self.jackets.load_or_update()
         await self.charts.load_or_update()
+        self._load_chart_aliases()
         await self._load_community_aliases()
         render.release_memory()
 
     async def _load_charts(self) -> None:
         await self.charts.load_or_update()
+        self._load_chart_aliases()
         render.release_memory()
+
+    def _load_chart_aliases(self) -> None:
+        """chuni-penguin's CHUNITHM nicknames, saved with the chart index (see charts.py)."""
+        path = Path(self.config.chart_dir) / charts_module.ALIASES_NAME
+        try:
+            if path.exists():
+                answers.set_community("penguin", "chunithm", json.loads(path.read_text(encoding="utf-8")).items())
+        except Exception:
+            log.warning("could not load chuni-penguin nicknames", exc_info=True)
 
     async def _load_community_aliases(self) -> None:
         try:

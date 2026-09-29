@@ -31,6 +31,14 @@ REFRESH_SECONDS = 24 * 60 * 60
 RETRY_FAILED_SECONDS = 10 * 60  # a jacket that failed to download is tried again after this
 
 
+def _we_stars(value) -> str:
+    """music.json's we_star is 1, 3, 5, 7 or 9 for ☆1 to ☆5."""
+    try:
+        return str((int(value) + 1) // 2)
+    except (TypeError, ValueError):
+        return "?"
+
+
 class JacketStore:
     def __init__(self, cache_dir: str | Path):
         self.cache_dir = Path(cache_dir)
@@ -48,7 +56,7 @@ class JacketStore:
         self.chunithm, self.we_levels = {}, {}
         for m in chunithm_music:
             if m.get("we_kanji") and m.get("title"):  # WORLD'S END: an attribute kanji and 1~5 stars
-                self.we_levels[normalize_title(str(m["title"]))] = f"{m['we_kanji']}☆{m.get('we_star') or '?'}"
+                self.we_levels[normalize_title(str(m["title"]))] = f"{m['we_kanji']}☆{_we_stars(m.get('we_star'))}"
             try:
                 if m.get("image"):
                     self.chunithm[int(m["id"])] = str(m["image"])

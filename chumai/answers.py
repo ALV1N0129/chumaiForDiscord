@@ -20,10 +20,14 @@ from __future__ import annotations
 
 import difflib
 import json
+import logging
 import re
+import time
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 FUZZY = 0.85  # a typo or two in a title
 FUZZY_KOREAN = 0.8  # Hangul from a reading is rougher
@@ -197,6 +201,62 @@ def korean_readings(title: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+# Community nicknames collected by GCM-bot (https://github.com/lomotos10/GCM-bot): Korean for maimai,
+# English/romaji for both. Downloaded when the bot runs and kept in the cache folder, not shipped here.
+COMMUNITY_URL = "https://raw.githubusercontent.com/lomotos10/GCM-bot/main/data/aliases/{lang}/{name}.tsv"
+COMMUNITY_FILES = {"chunithm": [("en", "chuni")], "maimai": [("ko", "maimai"), ("en", "maimai")]}
+COMMUNITY_REFRESH = 7 * 24 * 60 * 60
+_community: dict[str, dict[str, list[str]]] = {"chunithm": {}, "maimai": {}}
+
+
+def load_community(game: str, text: str) -> None:
+    """Add the nicknames of a GCM-bot alias file (title<TAB>nickname<TAB>...)."""
+    table = _community[game]
+    for line in text.splitlines():
+        title, *names = line.split("\t")
+        names = [n.strip() for n in names if n.strip()]
+        if title.strip() and names:
+            found = table.setdefault(fold(title), [])
+            found.extend(n for n in names if n not in found)
+
+
+def community_aliases(game: str, title: str) -> list[str]:
+    return _community.get(game, {}).get(fold(title), [])
+
+
+async def update_community(cache_dir: str | Path) -> None:
+    """Download the community nickname files (weekly) and load them; keeps the cached copies (or
+    nothing) when GitHub can't be reached."""
+    import aiohttp
+
+    cache = Path(cache_dir)
+    cache.mkdir(parents=True, exist_ok=True)
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as s:
+        for game, files in COMMUNITY_FILES.items():
+            _community[game] = {}
+            for lang, name in files:
+                path = cache / f"{lang}_{name}.tsv"
+                if not path.exists() or time.time() - path.stat().st_mtime > COMMUNITY_REFRESH:
+                    try:
+                        async with s.get(COMMUNITY_URL.format(lang=lang, name=name)) as resp:
+                            resp.raise_for_status()
+                            path.write_text(await resp.text(encoding="utf-8"), encoding="utf-8")
+                    except Exception as e:
+                        log.warning("could not download community nicknames %s/%s: %s", lang, name, e)
+                if path.exists():
+                    load_community(game, path.read_text(encoding="utf-8"))
+    log.info("community nicknames: %s", {g: len(t) for g, t in _community.items()})
+
+
+def initials(name: str) -> str:
+    """The first syllable of each word of a Korean name, the usual short form (프리덤 다이브 -> 프다,
+    월드 뱅퀴셔 -> 월뱅); "" for a single word."""
+    words = [w for w in re.split(r"[\s\-_:~・]+", unicodedata.normalize("NFKC", name)) if w]
+    if len(words) < 2 or not all(_HANGUL.match(w) for w in words):
+        return ""
+    return "".join(w[0] for w in words)
+
+
 def matches(answer: str, titles: list[str], readings: list[str] = (), aliases: list[str] = ()) -> bool:
     """Whether `answer` names the song with these titles, official readings and nicknames."""
     a = fold(answer)
@@ -205,13 +265,15 @@ def matches(answer: str, titles: list[str], readings: list[str] = (), aliases: l
     spoken_titles = [p for t in titles for p in pronunciations(t)]
     if any(_close(a, fold(k), FUZZY) for k in [*titles, *aliases, *spoken_titles]):
         return True
+    if any(a == initials(p) for p in [*spoken_titles, *aliases]):  # exactly, it's short
+        return True
     # a title in kana is its own reading (not every song has one in the official lists)
     readings = [*readings, *(t for t in titles if _KANA.search(t))]
     if _HANGUL.search(a):
         key = hangul_key(a)
         spoken = [hangul_key(kana_to_hangul(fold(r))) for r in readings]
         spoken += [hangul_key(k) for t in titles for k in korean_readings(t)]
-        spoken += [hangul_key(fold(p)) for p in spoken_titles]
+        spoken += [hangul_key(fold(p)) for p in [*spoken_titles, *aliases] if _HANGUL.search(p)]
         # compared as letters (ㄴㅗㅅㅛ), about twice as long as syllables: a smaller share will do
         return any(_close(key, k, FUZZY_KOREAN, MIN_PART * 0.8) for k in spoken)
     if _KANA.search(a):

@@ -573,8 +573,9 @@ def register(bot: ChumaiBot) -> None:
             await interaction.response.send_message("진행 중인 게임이 없어요. `/guess` 로 시작하세요.", ephemeral=True)
             return
         guild_id = getattr(interaction, "guild_id", None) or 0
-        if _answer_matches(rnd.song, title, bot.jackets.reading(rnd.game, rnd.song.title),
-                           bot.links.aliases(guild_id, rnd.game, rnd.song.title)):
+        nicknames = [*bot.links.aliases(guild_id, rnd.game, rnd.song.title),
+                     *answers.community_aliases(rnd.game, rnd.song.title)]
+        if _answer_matches(rnd.song, title, bot.jackets.reading(rnd.game, rnd.song.title), nicknames):
             rnd.answered = True
             took = time.time() - rnd.started
             await interaction.response.send_message(

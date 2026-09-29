@@ -86,6 +86,23 @@ def level_to_min_const(level: str, game: str) -> float:
         return 0.0
 
 
+def _chart_versions(game: str, charts: list[dict]):
+    """version(chart) -> the version the chart counts as for NEW / BEST.
+
+    CHUNITHM decides by song: an ULTIMA added to an old song in the current version is still an old
+    chart (and counts in BEST 30), so every CHUNITHM chart takes its song's version (the MASTER's).
+    maimai keeps each chart's own version (a DX chart added to an old song is new).
+    """
+    own = lambda c: c.get("data", {}).get("displayVersion", "")  # noqa: E731
+    if game != "chunithm":
+        return own
+    song_version: dict[str, str] = {}
+    for c in charts:
+        if c["difficulty"] == "MASTER" and own(c):
+            song_version[c["songID"]] = own(c)
+    return lambda c: song_version.get(c["songID"]) or own(c)
+
+
 class SongDB:
     def __init__(self) -> None:
         # CHUNITHM: (in-game id, difficulty) -> chart
@@ -107,12 +124,12 @@ class SongDB:
                                                      *song.get("searchTerms", [])] if t]
                 by_song[sid] = CatalogSong(name, song["title"], song.get("artist", ""),
                                            song.get("data", {}).get("genre", ""), keys, [])
+            version = _chart_versions(game, seeds[f"charts-{game}"])
             for c in seeds[f"charts-{game}"]:
                 cs = by_song.get(c["songID"])
                 if cs is None:
                     continue
-                cs.charts.append(CatalogChart(c["difficulty"], str(c["level"]), float(c["levelNum"]),
-                                              c.get("data", {}).get("displayVersion", "")))
+                cs.charts.append(CatalogChart(c["difficulty"], str(c["level"]), float(c["levelNum"]), version(c)))
                 ids = c.get("data", {}).get("inGameID")
                 if name == "chunithm" and cs.music_id is None and ids is not None:
                     cs.music_id = int(ids[0] if isinstance(ids, list) else ids)
@@ -126,7 +143,7 @@ class SongDB:
                     genre=song.get("data", {}).get("genre", ""),
                     level=str(c["level"]),
                     level_const=float(c["levelNum"]),
-                    display_version=c.get("data", {}).get("displayVersion", ""),
+                    display_version=version(c),
                 )
                 if game == "chunithm":
                     ids = c["data"].get("inGameID")

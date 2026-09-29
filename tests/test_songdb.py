@@ -68,3 +68,29 @@ def test_maimai_net_b50_new_old_split():
     assert [e.title for e in b.old] == ["Link"]
     assert sorted(e.title for e in b.new) == ["Brand New", "天体観測"]
     assert b.old[0].rating_text == str(int(13.7 * 21.6))
+
+
+def test_chunithm_late_ultima_counts_as_its_songs_version():
+    # an ULTIMA added to an old song in the current version is an old chart (BEST 30), as on
+    # CHUNITHM-NET; maimai keeps each chart's own version
+    db = SongDB()
+    db.load({
+        "songs-chunithm": [{"id": "P", "title": "Parousia", "data": {"genre": "VARIETY"}}],
+        "charts-chunithm": [
+            {"songID": "P", "difficulty": "MASTER", "level": "14", "levelNum": 14.4,
+             "data": {"inGameID": 90, "displayVersion": "CHUNITHM AMAZON"}},
+            {"songID": "P", "difficulty": "ULTIMA", "level": "15", "levelNum": 15.1,
+             "data": {"inGameID": 90, "displayVersion": "CHUNITHM X-VERSE-X"}},
+        ],
+        "songs-maimaidx": [{"id": "M", "title": "Old", "data": {}}],
+        "charts-maimaidx": [
+            {"songID": "M", "difficulty": "Master", "level": "13", "levelNum": 13.0,
+             "data": {"displayVersion": "maimai"}},
+            {"songID": "M", "difficulty": "DX Master", "level": "14", "levelNum": 14.0,
+             "data": {"displayVersion": "maimaiでらっくす CiRCLE"}},
+        ],
+    })
+    assert db.chunithm_chart(90, "ULTIMA").display_version == "CHUNITHM AMAZON"
+    ult = [c for c in db.catalog["chunithm"][0].charts if c.difficulty == "ULTIMA"][0]
+    assert ult.display_version == "CHUNITHM AMAZON"
+    assert db.maimai_chart("Old", "DX Master").display_version == "maimaiでらっくす CiRCLE"

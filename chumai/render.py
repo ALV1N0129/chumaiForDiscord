@@ -74,6 +74,24 @@ WE_BANDS = [(12, 110, 243), (96, 180, 89), (226, 176, 5), (211, 78, 27), (215, 8
 WE_TEXT = (249, 249, 219)
 
 
+WE_LABEL_URL = "https://chunithm-net-eng.com/mobile/images/musiclevel_worldsend.png"  # saved as LOGO_DIR/we_label.png
+
+
+@lru_cache(maxsize=2)
+def _we_label(width: int) -> Image.Image:
+    """CHUNITHM-NET's "WORLD'S END" label at `width` (drawn alike if it could not be downloaded)."""
+    try:
+        with Image.open(LOGO_DIR / "we_label.png") as im:
+            label = im.convert("RGBA")
+        return label.resize((width, max(1, round(label.height * width / label.width))), Image.LANCZOS)
+    except Exception:
+        h = max(14, width // 7)
+        label = _we_rainbow(width, h).convert("RGBA")
+        ImageDraw.Draw(label).text((width / 2, h / 2), "WORLD'S END", font=num(h - 3), fill=WE_TEXT, anchor="mm",
+                                   stroke_width=1, stroke_fill=(40, 30, 60))
+        return label
+
+
 @lru_cache(maxsize=4)
 def _we_rainbow(w: int, h: int) -> Image.Image:
     """w x h of WORLD'S END's slanted rainbow bands."""
@@ -380,8 +398,8 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
     if ultima:  # in-game ULTIMA: black with a red rim
         draw.rounded_rectangle((jx - 5, jy - 5, jx + JACKET + 4, jy + JACKET + 4), radius=11, fill=(210, 20, 50))
         draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=(12, 12, 14))
-    elif worlds_end:  # rainbow frame, like the WORLD'S END label
-        canvas.paste(_we_rainbow(JACKET + 6, JACKET + 6), (jx - 3, jy - 3), _rounded_mask((JACKET + 6, JACKET + 6), 9))
+    elif worlds_end:  # a light frame; the official label goes along the bottom
+        draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=(235, 235, 240))
     else:
         draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=color)
     jacket = _load_jacket(e.jacket_path) if e.jacket_path else None
@@ -391,19 +409,22 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
                                     fill=FAINT, anchor="mm")
     canvas.paste(jacket, (jx, jy), _rounded_mask((JACKET, JACKET), 7))
     tag_h = 24
-    if worlds_end:
-        canvas.paste(_we_rainbow(JACKET, tag_h), (jx, jy + JACKET - tag_h))
+    const = f"{e.level_const:.1f}" if e.level_const else e.level
+    tag_font = lambda t: num(17) if t.isascii() else cjk(15)  # noqa: E731  (宴, WORLD'S END's 狂☆5)
+    if worlds_end:  # CHUNITHM-NET's label along the bottom, the attribute and stars in a chip at the top
+        we = _we_label(JACKET)
+        _over(canvas, we, (jx, jy + JACKET - we.height))
+        draw = ImageDraw.Draw(canvas)
+        cw = int(draw.textlength(const, font=tag_font(const))) + 14
+        draw.rounded_rectangle((jx + JACKET - 4 - cw, jy + 4, jx + JACKET - 4, jy + 26), radius=6, fill=(12, 12, 14))
+        draw.text((jx + JACKET - 4 - cw / 2, jy + 15), const, font=tag_font(const), fill=WE_TEXT, anchor="mm")
     else:
         draw.rectangle((jx, jy + JACKET - tag_h, jx + JACKET - 1, jy + JACKET - 1),
                        fill=(12, 12, 14) if ultima else color)
-    const = f"{e.level_const:.1f}" if e.level_const else e.level
-    # light tags (Re:MASTER) need dark text; ULTIMA uses red on black; WORLD'S END cream with an outline
-    tag_text = (255, 60, 80) if ultima else WE_TEXT if worlds_end else (60, 24, 96) if sum(color) > 560 else WHITE
-    outline = {"stroke_width": 2, "stroke_fill": (40, 30, 60)} if worlds_end else {}
-    tag_font = lambda t: num(17) if t.isascii() else cjk(15)  # noqa: E731  (宴, WORLD'S END's 狂☆5)
-    draw.text((jx + 6, jy + JACKET - tag_h / 2), label, font=tag_font(label), fill=tag_text, anchor="lm", **outline)
-    draw.text((jx + JACKET - 6, jy + JACKET - tag_h / 2), const, font=tag_font(const), fill=tag_text, anchor="rm",
-              **outline)
+        # light tags (Re:MASTER) need dark text; ULTIMA uses red on black
+        tag_text = (255, 60, 80) if ultima else (60, 24, 96) if sum(color) > 560 else WHITE
+        draw.text((jx + 6, jy + JACKET - tag_h / 2), label, font=tag_font(label), fill=tag_text, anchor="lm")
+        draw.text((jx + JACKET - 6, jy + JACKET - tag_h / 2), const, font=tag_font(const), fill=tag_text, anchor="rm")
     if is_dx:
         draw.rounded_rectangle((jx + 4, jy + 4, jx + 30, jy + 20), radius=4, fill=(255, 255, 255))
         draw.text((jx + 17, jy + 12), "DX", font=num(14), fill=(230, 70, 110), anchor="mm")

@@ -1038,6 +1038,8 @@ def _up_pill(canvas: Image.Image, right: int, y: int, text: str, size: int) -> i
 
 
 PLAY_ROW_H = 128  # one track of a credit
+CREDIT_HEADER_H = 156
+CREDIT_LOGO = (300, 136)  # logo box in the play log header
 
 
 def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Entry, badge, game: str,
@@ -1068,8 +1070,10 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
     draw.text((tx, y + 14), _fit(draw, e.title, cjk(24), right - side - 24 - tx), font=cjk(24), fill=st["text"])
     label, name, color, _ = _diff_info(e.difficulty)
     level = f"{e.level}  {e.level_const:.1f}" if e.level_const else e.level
-    if label == "WE":  # in the WORLD'S END label's colors
-        _over(canvas, _rainbow_text(f"{name}  {level}", cjk(19)), (tx - 3, y + 50))
+    if label == "WE":  # in the WORLD'S END label's colors, the name and the attribute each their own rainbow
+        we_name = _rainbow_text(name, cjk(19))
+        _over(canvas, we_name, (tx - 3, y + 50))
+        _over(canvas, _rainbow_text(level, cjk(19)), (tx - 3 + we_name.width + 8, y + 50))
         draw = ImageDraw.Draw(canvas)
     else:
         info_font = num(21, "SemiBold") if level.isascii() else cjk(18)
@@ -1091,8 +1095,7 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
 
 def render_credit(game: str, player: str, entries: list[Entry], badges: list, date: str,
                   icon: bytes | None = None, rating: str | None = None, rating_before: str | None = None) -> bytes:
-    """One credit, laid out like the B50 page: the player plate, logo and rating plate on top, then
-    a wide row per track.
+    """One credit: the player, logo and rating on top, then a wide row per track.
 
     badges: a playlog.Badge (or None) per entry.
     """
@@ -1101,32 +1104,61 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
     theme = THEMES[game]
     st = STYLES["version"]
     width = MARGIN * 2 + 4 * CARD_W + 3 * GAP_X
-    height = HEADER_H + len(entries) * (PLAY_ROW_H + GAP_Y) + 26
+    header = CREDIT_HEADER_H
+    height = header + len(entries) * (PLAY_ROW_H + GAP_Y) + 26
     stub = SimpleNamespace(game=game, old=entries, new=[], icon=icon)
     canvas = _rgb(_background(stub, (width, height), theme, st))
 
-    _draw_logo(canvas, game, width, theme)
+    # player: icon, "PLAY LOG · date", name, and a couple of chips under it
+    x = MARGIN
+    ic = _open_image(icon)
+    if ic is not None:
+        ic = ImageOps.fit(ic, (72, 72), Image.LANCZOS)
+        out = Image.new("RGBA", (72, 72), (0, 0, 0, 0))
+        out.paste(ic, (0, 0), _rounded_mask((72, 72), 14))
+        _over(canvas, out, (x, 30))
+        x += 90
+    logo = _logo_image(game).copy()
+    logo.thumbnail(CREDIT_LOGO, Image.LANCZOS)
+    logo_x = (width - logo.width) // 2
+    _over(canvas, logo, (logo_x, 10 + (CREDIT_LOGO[1] - logo.height) // 2))
+    draw = ImageDraw.Draw(canvas)
+    draw.text((x, 30), f"PLAY LOG  ·  {date}", font=num(18, "SemiBold"), fill=theme["accent"])
+    name = unicodedata.normalize("NFKC", player)
+    draw.text((x, 52), _fit(draw, name, cjk(38), logo_x - x - 16), font=cjk(38), fill=WHITE)
     new = sum(1 for b in badges if b is not None and b.kind == "new")
-    chips_end = _draw_player_plate(canvas, game, player, icon, f"PLAY LOG  ·  {date}",
-                                   [("TRACKS", str(len(entries))), ("NEW RECORD", str(new))], theme, st)
+    sx, sy = MARGIN, 112
+    chips = [("TRACKS", str(len(entries))), ("NEW RECORD", str(new))]
+    for label, value in chips:
+        lw = draw.textlength(label, font=num(14, "SemiBold"))
+        w = int(lw + draw.textlength(value, font=num(19)) + 26)
+        _panel(canvas, (sx, sy, sx + w, sy + 28), (10, 8, 18), alpha=150, radius=14, outline=False)
+        draw = ImageDraw.Draw(canvas)
+        draw.text((sx + 11, sy + 14), label, font=num(14, "SemiBold"), fill=st["faint"], anchor="lm")
+        draw.text((sx + w - 11, sy + 15), value, font=num(19), fill=WHITE, anchor="rm")
+        sx += w + 6
     if len(entries) >= 4:  # extra track bought with C to C
-        bw, bh = 78, 34
-        badge = _gradient_fill((bw, bh), [theme["accent"], theme["glow2"]])
-        badge.putalpha(_rounded_mask((bw, bh), 17))
-        _over(canvas, badge, (chips_end, 186))
-        ImageDraw.Draw(canvas).text((chips_end + bw // 2, 186 + bh // 2), "C to C", font=num(17), fill=(20, 18, 30),
-                                    anchor="mm")
+        badge = _gradient_fill((72, 28), [theme["accent"], theme["glow2"]])
+        badge.putalpha(_rounded_mask((72, 28), 14))
+        _over(canvas, badge, (sx, sy))
+        ImageDraw.Draw(canvas).text((sx + 36, sy + 14), "C to C", font=num(16), fill=(20, 18, 30), anchor="mm")
+
+    # rating at the top right: the number in its tier colors, where it came from, and the gain
     if rating:
-        _draw_plate(canvas, game, rating, width, st)
+        draw = ImageDraw.Draw(canvas)
+        right = width - MARGIN
+        colors = _plate_colors(game, rating)
+        number = _gradient_text(rating, num(62), [tuple(min(255, c + 40) for c in col) for col in colors])
+        _over(canvas, number, (right - number.width + 8, 44))
         change = _rating_change(game, rating_before, rating)
-        if change:  # where it came from, under the plate
-            draw = ImageDraw.Draw(canvas)
-            text = f"{rating_before}  »  {rating}"
-            draw.text((width - MARGIN, 190), text, font=num(18, "SemiBold"), fill=MUTED, anchor="ra")
-            _up_pill(canvas, width - MARGIN - int(draw.textlength(text, font=num(18, "SemiBold"))) - 12, 179, change, 18)
+        draw = ImageDraw.Draw(canvas)
+        draw.text((right, 24), f"RATING   {rating_before} »" if change else "RATING", font=num(16, "SemiBold"),
+                  fill=st["muted"], anchor="ra")
+        if change:
+            _up_pill(canvas, right - number.width - 2, 68, change, 18)
 
     for i, e in enumerate(entries):
-        _draw_play_row(canvas, MARGIN, HEADER_H + i * (PLAY_ROW_H + GAP_Y), width - 2 * MARGIN, i + 1, e,
+        _draw_play_row(canvas, MARGIN, header + i * (PLAY_ROW_H + GAP_Y), width - 2 * MARGIN, i + 1, e,
                        badges[i] if i < len(badges) else None, game, theme, st)
     return encode(canvas)
 

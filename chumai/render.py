@@ -1113,7 +1113,9 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
     label, name, color, _ = _diff_info(e.difficulty)
     level = f"{e.level_const:.1f}" if e.level_const else e.level  # just the constant (unrated charts: their level)
     if label == "WE":  # WORLD'S END in the label's rainbow; the attribute tile on the jacket, as in the game
-        _over(canvas, _rainbow_text(name, cjk(19)), (tx - 3, y + 50))
+        info_font = num(21, "SemiBold")  # the same font and baseline as the other difficulties
+        top = info_font.getbbox(name, anchor="ls")
+        _over(canvas, _rainbow_text(name, info_font), (tx + top[0] - 3, y + 70 + top[1] - 3))
         attr = _we_attribute(level)
         if attr:
             tile = _we_badge(*attr, 38)

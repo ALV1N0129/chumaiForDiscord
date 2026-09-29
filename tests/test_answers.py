@@ -83,3 +83,16 @@ def test_initials_of_korean_names():
     assert matches("프다", ["FREEDOM DiVE"])
     assert matches("월뱅", ["World Vanquisher"])
     assert not matches("프다", ["World Vanquisher"])
+
+
+def test_community_nicknames(monkeypatch):
+    from chumai import answers
+    monkeypatch.setattr(answers, "_community", {"chunithm": {}, "maimai": {}})
+    answers.load_community("maimai", "女々しくて\t메메시쿠테\t소심하니까\nGarden\n残酷な天使のテーゼ\t에반게리온\n")
+    answers.load_community("chunithm", "違う、そうじゃない\tCHIGAU SOUJANAI\tChigau Sou Jya Nai\n")
+    assert answers.community_aliases("maimai", "女々しくて") == ["메메시쿠테", "소심하니까"]
+    assert answers.community_aliases("maimai", "Garden") == []
+    assert matches("에반게리온", ["残酷な天使のテーゼ"], [], answers.community_aliases("maimai", "残酷な天使のテーゼ"))
+    assert matches("chigau sou jya nai", ["違う、そうじゃない"], [],
+                   answers.community_aliases("chunithm", "違う、そうじゃない"))
+    assert not matches("에반게리온", ["女々しくて"], [], answers.community_aliases("maimai", "女々しくて"))

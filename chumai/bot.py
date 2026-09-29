@@ -14,7 +14,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import features, net_parsers, prefix, render, updater
+from . import answers, features, net_parsers, prefix, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .charts import ChartViews
 from .config import Config
@@ -70,6 +70,7 @@ class ChumaiBot(discord.Client):
         await self.songdb.load_or_update(self.config.songdb_dir)
         await self.jackets.load_or_update()
         self._charts_task = asyncio.create_task(self._load_charts())  # large download; don't wait
+        self._aliases_task = asyncio.create_task(self._load_community_aliases())
         render.release_memory()
         render.LOGO_DIR = Path(self.config.logo_dir)
         await download_logos(self.config.logo_dir, self.config.logo_urls)
@@ -130,11 +131,18 @@ class ChumaiBot(discord.Client):
         await self.songdb.load_or_update(self.config.songdb_dir)
         await self.jackets.load_or_update()
         await self.charts.load_or_update()
+        await self._load_community_aliases()
         render.release_memory()
 
     async def _load_charts(self) -> None:
         await self.charts.load_or_update()
         render.release_memory()
+
+    async def _load_community_aliases(self) -> None:
+        try:
+            await answers.update_community(Path(self.config.songdb_dir).parent / "aliases")
+        except Exception:
+            log.warning("could not load community nicknames", exc_info=True)
 
     @refresh_songdb.before_loop
     async def _skip_first_refresh(self) -> None:

@@ -197,6 +197,15 @@ def korean_readings(title: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def initials(name: str) -> str:
+    """The first syllable of each word of a Korean name, the usual short form (프리덤 다이브 -> 프다,
+    월드 뱅퀴셔 -> 월뱅); "" for a single word."""
+    words = [w for w in re.split(r"[\s\-_:~・]+", unicodedata.normalize("NFKC", name)) if w]
+    if len(words) < 2 or not all(_HANGUL.match(w) for w in words):
+        return ""
+    return "".join(w[0] for w in words)
+
+
 def matches(answer: str, titles: list[str], readings: list[str] = (), aliases: list[str] = ()) -> bool:
     """Whether `answer` names the song with these titles, official readings and nicknames."""
     a = fold(answer)
@@ -204,6 +213,8 @@ def matches(answer: str, titles: list[str], readings: list[str] = (), aliases: l
         return False
     spoken_titles = [p for t in titles for p in pronunciations(t)]
     if any(_close(a, fold(k), FUZZY) for k in [*titles, *aliases, *spoken_titles]):
+        return True
+    if any(a == initials(p) for p in spoken_titles):  # exactly, it's short
         return True
     # a title in kana is its own reading (not every song has one in the official lists)
     readings = [*readings, *(t for t in titles if _KANA.search(t))]

@@ -75,3 +75,11 @@ def test_japanese_titles_translated():
     assert matches("잔혹한 천사의 테제", ["残酷な天使のテーゼ"])
     assert matches("네가 모르는 이야기", ["君の知らない物語"])
     assert not matches("천체관측", ["紅蓮華"])
+
+
+def test_initials_of_korean_names():
+    from chumai.answers import initials
+    assert initials("프리덤 다이브") == "프다" and initials("엔디미온") == ""
+    assert matches("프다", ["FREEDOM DiVE"])
+    assert matches("월뱅", ["World Vanquisher"])
+    assert not matches("프다", ["World Vanquisher"])

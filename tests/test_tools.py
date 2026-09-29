@@ -163,16 +163,17 @@ def test_font_download(tmp_path):
 
 
 def test_maimai_proven_is_the_usual_rank_nearby():
-    # RURU's 14.7~15.0: two SSS, six SS+ -> SS+
+    # RURU's 14.7~14.9 (within 0.25 of 14.7 there is nothing lower): two SSS, six SS+ -> SS+
     pts = [(14.8, 100.09), (14.9, 99.55), (14.8, 99.97), (14.8, 99.78), (14.8, 99.70), (14.7, 99.86),
            (14.7, 99.69), (14.7, 100.36)]
     assert tools.usual_rank("maimai", pts, 14.7) == 99.5
     more = pts + [(14.6, 100.40), (14.6, 100.25), (14.6, 100.11), (14.6, 100.08), (14.6, 100.0), (14.6, 100.26)]
-    assert tools.usual_rank("maimai", more, 14.6) == 100.0  # 8 of 14 are SSS
-    assert tools.usual_rank("maimai", pts, 15.0) is None  # nothing that hard
+    assert tools.usual_rank("maimai", more, 14.6) == 100.0  # 14.35~14.85: 8 of 13 are SSS
+    assert tools.usual_rank("maimai", more, 14.5) == 100.0  # easier charts nearby count too
+    assert tools.usual_rank("maimai", pts, 15.3) is None  # nothing that close
     assert tools.usual_rank("maimai", [(12.0, 100.6), (12.1, 100.0)], 12.0) is None  # too few
     # all played charts: old one-off scores drag the middle down, so the upper quarter counts
-    played = [(12.2, 100.2), (12.3, 99.6), (12.1, 99.1), (12.4, 97.5), (12.0, 96.0), (12.2, 94.0), (12.5, 92.0)]
+    played = [(12.2, 100.2), (12.1, 99.6), (12.1, 99.1), (11.9, 97.5), (12.0, 96.0), (12.2, 94.0), (11.8, 92.0)]
     assert tools.usual_rank("maimai", played, 12.0) == 97.0
     assert tools.usual_rank("maimai", played, 12.0, tools.USUAL_PLAYED) == 99.0  # 5th of 7: 99.1
 

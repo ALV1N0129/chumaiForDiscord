@@ -218,7 +218,7 @@ RANK_TARGETS = {
     "maimai": [100.5, 100.0, 99.5, 99.0, 98.0, 97.0],  # SSS+ SSS SS+ SS S+ S
     "chunithm": [1_009_000, 1_007_500, 1_005_000, 1_000_000, 990_000, 975_000],
 }
-BAND = 0.5  # the scores that say what you get on a constant: that constant up to this much harder
+BAND = 0.25  # the scores that say what you get on a constant: charts this close to it, either way
 MIN_BAND_SCORES = 3
 
 
@@ -247,8 +247,8 @@ USUAL_B50, USUAL_PLAYED = 0.5, 0.75
 
 def usual_rank(game: str, points: list[tuple[float, float]], const: float, usual: float = USUAL_B50) -> float | None:
     """The rank you usually get around `const`: the border under the `usual` quantile of your
-    scores on charts from `const` to BAND harder (None with fewer than MIN_BAND_SCORES there)."""
-    band = sorted(a for c, a in points if const - 1e-9 <= c <= const + BAND + 1e-9)
+    scores on charts within BAND of `const` (None with fewer than MIN_BAND_SCORES there)."""
+    band = sorted(a for c, a in points if abs(c - const) <= BAND + 1e-9)
     if len(band) < MIN_BAND_SCORES:
         return None
     typical = band[int((len(band) - 1) * usual)]  # rounded down: a typical play, not a good day

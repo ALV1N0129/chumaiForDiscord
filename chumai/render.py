@@ -364,6 +364,36 @@ def _card_background(path: str | None, mode: str, fallback: tuple[int, int, int]
 # ------------------------------------------------------------------- card
 
 
+def _spaced_text(draw: ImageDraw.ImageDraw, center: tuple[float, float], text: str, font, fill, gap: float) -> None:
+    """Letters placed so the gaps between their inked shapes are all `gap` (a space: a wider gap),
+    which keeps round letters like O from looking crammed next to their neighbours."""
+    boxes = [None if c == " " else font.getbbox(c) for c in text]
+    widths = [b[2] - b[0] if b else 0 for b in boxes]
+    steps = [gap * 5 if c == " " else gap for c in text[1:]]
+    x = center[0] - (sum(widths) + sum(steps) - (gap if " " in text else 0)) / 2
+    for c, b, w in zip(text, boxes, widths):
+        if b is None:
+            x += gap * 4
+            continue
+        draw.text((x - b[0], center[1]), c, font=font, fill=fill, anchor="lm")
+        x += w + gap
+
+
+def _rainbow_text(text: str, font, pad: int = 3) -> Image.Image:
+    """`text` filled with the WORLD'S END bands (all five across it), with a thin dark outline."""
+    bb = font.getbbox(text, stroke_width=1)
+    w, h = bb[2] - bb[0] + pad * 2, bb[3] - bb[1] + pad * 2
+    at = (pad - bb[0], pad - bb[1])
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(out).text(at, text, font=font, fill=(*WE_OUTLINE, 255), stroke_width=1,
+                             stroke_fill=(*WE_OUTLINE, 255))
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).text(at, text, font=font, fill=255)
+    wide = int(w * 7 / 5)  # the texture shows five bands across 5/7 of its width
+    out.paste(_we_texture(wide, h).crop((int(wide * 0.1), 0, int(wide * 0.1) + w, h)), (0, 0), mask)
+    return out
+
+
 def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: dict, st: dict,
                title_reserve: int = 0) -> None:
     """One chart card. title_reserve: room kept free at the right of the title row (drops the #n)."""
@@ -388,9 +418,8 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
     if ultima:  # in-game ULTIMA: black with a red rim
         draw.rounded_rectangle((jx - 5, jy - 5, jx + JACKET + 4, jy + JACKET + 4), radius=11, fill=(210, 20, 50))
         draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=(12, 12, 14))
-    elif worlds_end:  # the WORLD'S END label's rainbow as the frame
-        frame = _we_texture(JACKET + 6, JACKET + 6)
-        canvas.paste(frame, (jx - 3, jy - 3), _rounded_mask((JACKET + 6, JACKET + 6), 9))
+    elif worlds_end:  # white, so the rainbow label below stands out
+        draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=(245, 245, 248))
     else:
         draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=color)
     jacket = _load_jacket(e.jacket_path) if e.jacket_path else None
@@ -402,22 +431,19 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
     tag_h = 24
     const = f"{e.level_const:.1f}" if e.level_const else e.level
     tag_font = lambda t: num(17) if t.isascii() else cjk(15)  # noqa: E731  (宴, WORLD'S END's 狂☆5)
-    if worlds_end:  # like CHUNITHM-NET's WORLD'S END label: cream, rounded letters with a soft shadow
-        tag = _we_texture(JACKET, tag_h).convert("RGBA")
-        size = 15
-        while size > 10 and ImageDraw.Draw(tag).textlength("WORLD'S END", font=cjk(size)) > JACKET - 12:
-            size -= 1
-        shadow = Image.new("RGBA", tag.size, (0, 0, 0, 0))
-        ImageDraw.Draw(shadow).text((JACKET / 2 + 1, tag_h / 2 + 1), "WORLD'S END", font=cjk(size),
-                                    fill=(*WE_OUTLINE, 200), anchor="mm")
-        tag.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(1.2)))
-        ImageDraw.Draw(tag).text((JACKET / 2, tag_h / 2), "WORLD'S END", font=cjk(size), fill=WE_TEXT, anchor="mm")
-        canvas.paste(tag.convert("RGB"), (jx, jy + JACKET - tag_h))
+    if worlds_end:  # like CHUNITHM-NET's WORLD'S END label: cream, evenly spaced letters with a hard shadow
+        tag = _we_texture(JACKET, tag_h)
+        td = ImageDraw.Draw(tag)
+        _spaced_text(td, (JACKET / 2 + 1, tag_h / 2 + 1), "WORLD'S END", num(18), WE_OUTLINE, 1.6)
+        _spaced_text(td, (JACKET / 2, tag_h / 2), "WORLD'S END", num(18), WE_TEXT, 1.6)
+        canvas.paste(tag, (jx, jy + JACKET - tag_h))
+        # the attribute and stars ("狂☆5") in rainbow letters on a white chip at the jacket's top right
+        chip = _rainbow_text(const, cjk(16))
+        cw = chip.width + 8
         draw = ImageDraw.Draw(canvas)
-        # the attribute and stars ("狂☆5") in a dark chip at the jacket's top right
-        cw = int(draw.textlength(const, font=tag_font(const))) + 14
-        draw.rounded_rectangle((jx + JACKET - 4 - cw, jy + 4, jx + JACKET - 4, jy + 26), radius=6, fill=(12, 12, 14))
-        draw.text((jx + JACKET - 4 - cw / 2, jy + 15), const, font=tag_font(const), fill=WE_TEXT, anchor="mm")
+        draw.rounded_rectangle((jx + JACKET - 4 - cw, jy + 4, jx + JACKET - 4, jy + 6 + chip.height), radius=6,
+                               fill=WHITE)
+        _over(canvas, chip, (jx + JACKET - cw, jy + 5))
     else:
         draw.rectangle((jx, jy + JACKET - tag_h, jx + JACKET - 1, jy + JACKET - 1),
                        fill=(12, 12, 14) if ultima else color)

@@ -202,7 +202,7 @@ class GiveUpView(discord.ui.View):
 CONST_LIMIT = 45 if render.LOW_MEMORY else 90  # charts shown in one /const image
 
 
-# maimai folders, short enough to sit under the rating gain on a /recommend tile
+# folders, short enough to sit under the rating gain on a /recommend tile
 SHORT_GENRES = {
     "POPS＆アニメ": "POPS", "niconico＆ボーカロイド": "niconico", "東方Project": "東方",
     "ゲーム＆バラエティ": "GAME", "オンゲキ＆CHUNITHM": "オンゲキ", "宴会場": "宴",
@@ -418,31 +418,20 @@ def register(bot: ChumaiBot) -> None:
         jackets = await _jackets(bot, game, [r.song.jacket_key for r in recs])
         rows = []
         for i, r in enumerate(recs):
-            gone = r.replaces
-            note = (f"{'NEW' if r.is_new else 'BEST'} 최하위 {gone.title} ({gone.rating_text}) → "
-                    f"이 곡 {tools.fmt_rating(game, r.song_rating)}") if gone else None
+            # just what to play and what to aim for
             if game == "chunithm":  # one chart moves the average by thousandths: show them
                 right = f"+{float(r.raw_after - r.raw_before):.3f}"
-                right_sub = f"{float(r.raw_before):.3f} » {float(r.raw_after):.3f}"
             else:
                 right = f"+{tools.fmt_rating(game, r.after - r.before)}"
-                right_sub = f"{tools.fmt_rating(game, r.before)} » {tools.fmt_rating(game, r.after)}"
-            sub_line = f"목표 {_rank(game, r.target_score)} {tools.fmt_score(game, r.target_score)}"
-            if game == "maimai":  # just what to play and what to aim for
-                sub_line = f"목표 {_rank(game, r.target_score)}"
-                if r.entry is not None and r.entry < r.target_score:  # the least that still counts
-                    sub_line += f" · 최소 {_rank(game, r.entry)}"
-                if r.best is not None:
-                    sub_line += f" · 현재 {r.best:.2f}%"
-                right_sub, note = None, None
+            sub_line = f"목표 {_rank(game, r.target_score)}"
+            if r.entry is not None and r.entry < r.target_score:  # the least that still counts
+                sub_line += f" · 최소 {_rank(game, r.entry)}"
+            if r.best is not None:
+                sub_line += f" · 현재 {r.best:.2f}%" if game == "maimai" else f" · 현재 {tools.fmt_score(game, r.best)}"
             rows.append(_chart_row(
-                r.song, r.chart, jackets.get(i), right=right, right_sub=right_sub,
-                sub_line=sub_line, note=note,
-                genre=SHORT_GENRES.get(r.song.genre, r.song.genre) if game == "maimai" else r.song.genre))
-        if game == "chunithm":
-            sub = f"현재 {tools.fmt_rating(game, b50.total)} · {tools.chunithm_advice(float(b50.total))}"
-        else:
-            sub = f"현재 {tools.fmt_rating(game, b50.total)}"
+                r.song, r.chart, jackets.get(i), right=right, sub_line=sub_line,
+                genre=SHORT_GENRES.get(r.song.genre, r.song.genre)))
+        sub = f"현재 {tools.fmt_rating(game, b50.total)}"
         png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows, sub, None, 2)
         await interaction.followup.send(file=_image(png, f"recommend_{game}"))
 

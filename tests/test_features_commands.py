@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from PIL import Image
 
-from chumai import features, render
+from chumai import features, render, tools
 from chumai.bot import ChumaiBot
 from chumai.config import Config
 
@@ -194,7 +194,8 @@ def test_whatif_and_recommend(tmp_path, monkeypatch):
     from chumai import bot as botmod
     from chumai.b50 import make_entry, select_b50
 
-    entries = [make_entry("chunithm", f"S{i}", "MASTER", "14", 14.0, 1_009_000, None, False) for i in range(30)]
+    entries = [make_entry("chunithm", f"S{i}", "MASTER", "14", 14.0 + (i % 10) / 10, 1_009_000, None, False)
+               for i in range(30)]
     entries += [make_entry("chunithm", f"N{i}", "MASTER", "13+", 13.5, 1_007_500, None, True) for i in range(20)]
     b50 = select_b50("chunithm", "p", entries)
 
@@ -216,7 +217,7 @@ def test_whatif_and_recommend(tmp_path, monkeypatch):
     assert log[-1][2]["file"].filename == render.filename("recommend_chunithm")
     rows, sub = calls[-1][1][3], calls[-1][1][4]
     assert rows and all(r["right"].startswith("+") and r["sub_line"].startswith("목표 S") for r in rows)
-    assert "현재 15.89" in sub and "13+ SSS" in sub  # the roadmap's advice for 15.25~16.00
+    assert sub == f"현재 {tools.fmt_rating('chunithm', b50.total)}"
 
 
 def test_sega_b50_loads_pages_once_for_recommend(tmp_path, monkeypatch):

@@ -75,16 +75,18 @@ def test_what_if_and_recommend():
     low = tools.what_if(b, aleph, tools.find_chart(aleph, "MAS"), 500_000, False)
     assert not low.counted and low.after == low.before
 
-    assert tools.recommend(db, b, ["CHUNITHM X-VERSE-X"], 5, random.Random(0)) == []  # 15.x charts: too hard
+    # SS on 13.5~14.0: the seed's 14.x+ charts are harder than anything played
+    assert tools.recommend(db, b, ["CHUNITHM X-VERSE-X"], 5, random.Random(0)) == []
 
-    # a stronger player (about 15.9): the 14.x charts become fair targets
-    strong = [make_entry("chunithm", f"S{i}", "MASTER", "14", 14.0, 1_009_000, None, False) for i in range(30)]
+    # SSS+ on 14.0 (and SSS on 13.5): the 14.x charts become fair targets
+    strong = [make_entry("chunithm", f"S{i}", "MASTER", "14", 14.0 + (i % 10) / 10, 1_009_000, None, False)
+              for i in range(30)]
     strong += [make_entry("chunithm", f"N{i}", "MASTER", "13+", 13.5, 1_007_500, None, True) for i in range(20)]
     sb = select_b50("chunithm", "p", strong)
     recs = tools.recommend(db, sb, ["CHUNITHM X-VERSE-X"], 5, random.Random(0))
     assert recs and all(r.gain > 0 and r.after >= r.before for r in recs)
-    for r in recs:
-        assert r.target_score == tools.chunithm_target(float(sb.total), r.chart.level_const)
+    assert all(r.target_score == 1_009_000 for r in recs)
+    assert [r.chart.level_const for r in recs] == sorted(r.chart.level_const for r in recs)  # easiest first
 
 
 def test_guess_helpers(tmp_path):
@@ -115,21 +117,6 @@ def test_parse_level():
         tools.parse_level("abc", "chunithm")
     with pytest.raises(ValueError):
         tools.parse_level("15-14", "chunithm")
-
-
-def test_chunithm_target_follows_the_roadmap():
-    t = tools.chunithm_target
-    assert t(16.07, 15.6) is None  # half a level below your rating: too hard to plan for
-    assert t(12.6, 12.0) == 1_000_000  # low ratings: SS 0.6 below
-    assert t(12.6, 11.0) >= 1_007_000  # ~SSS 1.6 below
-    assert 1_005_000 <= t(16.5, 15.2) < 1_007_500  # high ratings: SS+ 1.3 below
-    assert t(17.3, 15.5) == 1_007_500  # SSS 1.8 below
-    assert t(15.0, 10.0) == 1_009_000
-    scores = [t(16.07, c / 10) for c in range(135, 152)]
-    assert all(a >= b for a, b in zip(scores, scores[1:]) if b is not None)  # easier chart, higher target
-    assert tools.chunithm_advice(16.07).startswith("14 비중")
-    assert tools.chunithm_advice(17.53) == "15를 SSS+로 · 점수작"
-    assert tools.chunithm_advice(9.0).startswith("적정 레벨")
 
 
 def test_recommend_maimai_stays_near_usual_difficulty():
@@ -179,28 +166,28 @@ def test_maimai_proven_is_the_usual_rank_nearby():
     # RURU's 14.7~15.0: two SSS, six SS+ -> SS+
     pts = [(14.8, 100.09), (14.9, 99.55), (14.8, 99.97), (14.8, 99.78), (14.8, 99.70), (14.7, 99.86),
            (14.7, 99.69), (14.7, 100.36)]
-    assert tools.maimai_proven(pts, 14.7) == 99.5
+    assert tools.usual_rank("maimai", pts, 14.7) == 99.5
     more = pts + [(14.6, 100.40), (14.6, 100.25), (14.6, 100.11), (14.6, 100.08), (14.6, 100.0), (14.6, 100.26)]
-    assert tools.maimai_proven(more, 14.6) == 100.0  # 8 of 14 are SSS
-    assert tools.maimai_proven(pts, 15.0) is None  # nothing that hard
-    assert tools.maimai_proven([(12.0, 100.6), (12.1, 100.0)], 12.0) is None  # too few
+    assert tools.usual_rank("maimai", more, 14.6) == 100.0  # 8 of 14 are SSS
+    assert tools.usual_rank("maimai", pts, 15.0) is None  # nothing that hard
+    assert tools.usual_rank("maimai", [(12.0, 100.6), (12.1, 100.0)], 12.0) is None  # too few
     # all played charts: old one-off scores drag the middle down, so the upper quarter counts
     played = [(12.2, 100.2), (12.3, 99.6), (12.1, 99.1), (12.4, 97.5), (12.0, 96.0), (12.2, 94.0), (12.5, 92.0)]
-    assert tools.maimai_proven(played, 12.0) == 97.0
-    assert tools.maimai_proven(played, 12.0, tools.USUAL_PLAYED) == 99.0  # 5th of 7: 99.1
+    assert tools.usual_rank("maimai", played, 12.0) == 97.0
+    assert tools.usual_rank("maimai", played, 12.0, tools.USUAL_PLAYED) == 99.0  # 5th of 7: 99.1
 
 
 def test_maimai_entry_and_target():
     from fractions import Fraction
 
     # 14.3: SSS+ 321, SSS 308, SS+ 300 -> beating 309 needs SSS+
-    assert tools.maimai_entry(14.3, Fraction(309)) == 100.5
-    assert tools.maimai_entry(14.3, Fraction(299)) == 99.5
-    assert tools.maimai_entry(12.0, Fraction(309)) is None
-    assert tools.maimai_target(100.5, 99.5) == 100.5
-    assert tools.maimai_target(99.0, 99.5) is None  # your proven rank doesn't count there
-    assert tools.maimai_target(100.0, 99.0, best=99.8) == 100.0
-    assert tools.maimai_target(100.0, 99.0, best=100.2) is None  # already there
+    assert tools.entry_rank("maimai", 14.3, Fraction(309)) == 100.5
+    assert tools.entry_rank("maimai", 14.3, Fraction(299)) == 99.5
+    assert tools.entry_rank("maimai", 12.0, Fraction(309)) is None
+    assert tools.pick_target(100.5, 99.5) == 100.5
+    assert tools.pick_target(99.0, 99.5) is None  # your proven rank doesn't count there
+    assert tools.pick_target(100.0, 99.0, best=99.8) == 100.0
+    assert tools.pick_target(100.0, 99.0, best=100.2) is None  # already there
 
 
 def test_recommend_maimai_uses_every_played_chart():

@@ -209,73 +209,29 @@ class Recommendation:
     after: Fraction | None = None  # B50 total with this score
     raw_before: Fraction | None = None  # B50 average (CHUNITHM) / sum (maimai) before truncating
     raw_after: Fraction | None = None
-    entry: float | None = None  # maimai: the lowest rank at which it counts
+    entry: float | None = None  # the lowest rank at which it counts
     best: float | None = None  # your best score on it so far, if played
 
 
-# CHUNITHM: a realistic score for a chart, from how far its constant is below your rating
-# ("gap"). Based on the rating roadmap translated on the CHUNITHM gallery
-# (gall.dcinside.com/mgallery/board/view/?id=cnt&no=54113, originally home.gamer.com.tw
-# artwork 5398406): play charts 1.0~2.0 below your rating aiming for SS~SSS. Lower ratings
-# reach a rank at a smaller gap than higher ones, so the two anchor sets are blended.
-TARGETS_LOW = [(0.6, 1_000_000), (1.1, 1_005_000), (1.7, 1_007_500), (2.3, 1_009_000)]  # rating <= 14
-TARGETS_HIGH = [(1.0, 990_000), (1.3, 1_005_000), (1.8, 1_007_500), (2.3, 1_009_000)]  # rating >= 16.5
-
-
-def _interp(anchors: list[tuple[float, int]], gap: float) -> float:
-    for (g0, s0), (g1, s1) in zip(anchors, anchors[1:]):
-        if gap <= g1:
-            return s0 + (s1 - s0) * (gap - g0) / (g1 - g0)
-    return anchors[-1][1]
-
-
-def chunithm_target(rating: float, const: float) -> int | None:
-    """Score to aim for on a chart of `const` at `rating`, or None if it is still too hard."""
-    t = min(1.0, max(0.0, (rating - 14.0) / 2.5))
-    gap = rating - const
-    if gap < TARGETS_LOW[0][0] * (1 - t) + TARGETS_HIGH[0][0] * t - 1e-9:
-        return None
-    low = _interp(TARGETS_LOW, max(gap, TARGETS_LOW[0][0]))
-    high = _interp(TARGETS_HIGH, max(gap, TARGETS_HIGH[0][0]))
-    return int(low * (1 - t) + high * t) // 100 * 100
-
-
-# what the roadmap suggests at each rating (CHUNITHM)
-CHUNITHM_ADVICE = [
-    (17.30, "15를 SSS+로 · 점수작"),
-    (17.20, "15 SSS 이상 · 채보 연구와 점수작"),
-    (17.10, "B30을 15 SSS로 채우기"),
-    (17.00, "14+는 마지노선 · 15.0부터 SSS"),
-    (16.75, "B30을 14+ SSS 이상으로"),
-    (16.50, "14.8~14.9 SSS · 15 SS+"),
-    (16.25, "14 상위 · 14+ 중하위를 SSS로"),
-    (16.00, "14 비중 늘리기 · 14+ 주력곡 · 15는 S+까지"),
-    (15.25, "14 SS+~SSS · 14+ SS~SS+ · 13+ SSS"),
-    (14.50, "13 SS+~SSS · 13+ SS · 14 S+~SS+"),
-    (13.25, "12 SSS · 12+ SS+ · 13 SS · 14 최하위 도전"),
-    (12.00, "11 SSS · 11+ SS+ · 12 SS · MASTER 입문"),
-    (0.00, "적정 레벨 찾기 · EXPERT S 이상"),
-]
-
-
-def chunithm_advice(rating: float) -> str:
-    return next(text for floor, text in CHUNITHM_ADVICE if rating >= floor)
-
-
-# maimai: the rating formula jumps at these achievements (rank borders), so they are the targets
-MAIMAI_TARGETS = [100.5, 100.0, 99.5, 99.0, 98.0, 97.0]
-MAIMAI_RANK_NAMES = {100.5: "SSS+", 100.0: "SSS", 99.5: "SS+", 99.0: "SS", 98.0: "S+", 97.0: "S"}
+# The rating formulas jump at these scores (rank borders), so they are the targets.
+RANK_TARGETS = {
+    "maimai": [100.5, 100.0, 99.5, 99.0, 98.0, 97.0],  # SSS+ SSS SS+ SS S+ S
+    "chunithm": [1_009_000, 1_007_500, 1_005_000, 1_000_000, 990_000, 975_000],
+}
 BAND = 0.5  # the scores that say what you get on a constant: that constant up to this much harder
 MIN_BAND_SCORES = 3
 
 
-def maimai_scores(b50: B50, db: SongDB | None = None) -> tuple[list[tuple[float, float]], bool]:
-    """(constant, achievement) of every played chart when the B50 came with them (True), else of
-    the B50 (False)."""
+def played_scores(b50: B50, db: SongDB | None = None) -> tuple[list[tuple[float, float]], bool]:
+    """(constant, score) of every played chart when the B50 came with them (True), else of the
+    B50 (False)."""
     points = []
     if b50.played and db is not None:
         for (title, difficulty), score in b50.played.items():
-            info = db.maimai_chart(title, difficulty)
+            if b50.game == "maimai":
+                info = db.maimai_chart(title, difficulty)
+            else:
+                info = db.chunithm_chart_by_title(title, difficulty)
             if info is not None and info.level_const:
                 points.append((info.level_const, score))
     if len(points) >= len(b50.old + b50.new):
@@ -289,48 +245,44 @@ def maimai_scores(b50: B50, db: SongDB | None = None) -> tuple[list[tuple[float,
 USUAL_B50, USUAL_PLAYED = 0.5, 0.75
 
 
-def maimai_proven(points: list[tuple[float, float]], const: float, usual: float = USUAL_B50) -> float | None:
+def usual_rank(game: str, points: list[tuple[float, float]], const: float, usual: float = USUAL_B50) -> float | None:
     """The rank you usually get around `const`: the border under the `usual` quantile of your
     scores on charts from `const` to BAND harder (None with fewer than MIN_BAND_SCORES there)."""
     band = sorted(a for c, a in points if const - 1e-9 <= c <= const + BAND + 1e-9)
     if len(band) < MIN_BAND_SCORES:
         return None
     typical = band[int((len(band) - 1) * usual)]  # rounded down: a typical play, not a good day
-    return next((t for t in MAIMAI_TARGETS if typical >= t), None)
+    return next((t for t in RANK_TARGETS[game] if typical >= t), None)
 
 
-def maimai_entry(const: float, floor: Fraction) -> float | None:
-    """The lowest rank border at which a chart of `const` beats `floor` (None: not even SSS+)."""
-    return next((t for t in reversed(MAIMAI_TARGETS) if chart_rating("maimai", const, t) > floor), None)
+def entry_rank(game: str, const: float, floor: Fraction) -> float | None:
+    """The lowest rank border at which a chart of `const` beats `floor` (None: not even the top)."""
+    return next((t for t in reversed(RANK_TARGETS[game]) if chart_rating(game, const, t) > floor), None)
 
 
-def maimai_target(proven: float | None, entry: float | None, best: float | None = None) -> float | None:
-    """Aim for the rank you've proven on charts this hard, if that is enough to count and beats your best."""
-    if proven is None or entry is None or proven < entry:
+def pick_target(usual: float | None, entry: float | None, best: float | None = None) -> float | None:
+    """Aim for the rank you usually get on charts this hard, if that is enough to count and beats your best."""
+    if usual is None or entry is None or usual < entry:
         return None
-    return proven if best is None or proven > best + 1e-9 else None
+    return usual if best is None or usual > best + 1e-9 else None
 
 
 def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
               rng: random.Random | None = None) -> list[Recommendation]:
-    """Charts outside the B50 where a realistic score would push out the weakest entry.
-
-    CHUNITHM: the target score comes from chunithm_target (how far the chart is below your
-    rating). maimai: only the rating formula and your own scores: the rank you usually get on
-    charts about that hard (maimai_proven), if it is enough to push out the weakest entry;
-    the easiest such charts (lowest constant) first.
+    """Charts outside the B50 that the rank you usually get on charts that hard would put in it,
+    easiest (lowest constant) first. Only the rating formula and your own scores: the target is
+    usual_rank, and entry_rank is the least that still pushes out the weakest entry.
     """
     game = b50.game
     entries = b50.old + b50.new
     if not entries:
         return []
-    current = float(b50.total)
     have = {(normalize_title(e.title), e.difficulty) for e in entries}
     floors = {
         False: min((e.rating for e in b50.old), default=Fraction(0)),
         True: min((e.rating for e in b50.new), default=Fraction(0)),
     }
-    points, all_played = maimai_scores(b50, db) if game == "maimai" else ([], False)
+    points, all_played = played_scores(b50, db)
     usual = USUAL_PLAYED if all_played else USUAL_B50
     played = {(normalize_title(t), d): score for (t, d), score in b50.played.items()}
     proven: dict[float, float | None] = {}
@@ -342,20 +294,16 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
                 continue
             best = played.get(key)
             new = is_new_version(chart, new_versions)
-            entry = None
-            if game == "chunithm":
-                target = chunithm_target(current, chart.level_const)
-            else:
-                if chart.level_const not in proven:
-                    proven[chart.level_const] = maimai_proven(points, chart.level_const, usual)
-                entry = maimai_entry(chart.level_const, floors[new])
-                target = maimai_target(proven[chart.level_const], entry, best)
+            if chart.level_const not in proven:
+                proven[chart.level_const] = usual_rank(game, points, chart.level_const, usual)
+            entry = entry_rank(game, chart.level_const, floors[new])
+            target = pick_target(proven[chart.level_const], entry, best)
             if target is None:
                 continue
             gain = chart_rating(game, chart.level_const, target) - floors[new]
             if gain > 0:
                 candidates.append(Recommendation(song, chart, target, gain, is_new=new, entry=entry, best=best))
-    # spread over difficulties: a random chart from each of the constants that gain the most,
+    # spread over difficulties: a random chart from each of the easiest constants that count,
     # then fill up from those constants if there are fewer of them than `count`
     rng = rng or random.Random()
     by_const: dict[float, list[Recommendation]] = {}
@@ -366,10 +314,8 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
         top = [r for r in group if r.gain == group[0].gain]  # random among equals for variety
         rng.shuffle(top)
         group[: len(top)] = top
-    if game == "maimai":  # the easiest charts that still count come first
-        ranked = sorted(by_const.values(), key=lambda g: (g[0].chart.level_const, -g[0].gain))
-    else:
-        ranked = sorted(by_const.values(), key=lambda g: (-g[0].gain, g[0].chart.level_const))
+    # the easiest charts that still count come first
+    ranked = sorted(by_const.values(), key=lambda g: (g[0].chart.level_const, -g[0].gain))
     picked, songs = [], set()
 
     def take(r: Recommendation) -> None:
@@ -378,7 +324,7 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
             picked.append(r)
             songs.add(normalize_title(r.song.title))
 
-    for g in ranked[:count]:  # a random chart from each of the best constants
+    for g in ranked[:count]:  # a random chart from each of the easiest constants
         r = next((r for r in g if normalize_title(r.song.title) not in songs), None)
         if r is not None:
             take(r)
@@ -396,6 +342,4 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
         divisor = 50 if game == "chunithm" else 1
         r.raw_before = (b50.old_sum + b50.new_sum) / divisor
         r.raw_after = r.raw_before + (r.song_rating - pushed_out) / divisor
-    if game == "maimai":
-        return sorted(picked, key=lambda r: (r.chart.level_const, -r.gain))
-    return sorted(picked, key=lambda r: (-(r.raw_after - r.raw_before), -r.gain))
+    return sorted(picked, key=lambda r: (r.chart.level_const, -r.gain))

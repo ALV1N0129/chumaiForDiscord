@@ -379,18 +379,27 @@ def _spaced_text(draw: ImageDraw.ImageDraw, center: tuple[float, float], text: s
         x += w + gap
 
 
-def _rainbow_text(text: str, font, pad: int = 3) -> Image.Image:
-    """`text` filled with the WORLD'S END bands (all five across it), with a thin dark outline."""
-    bb = font.getbbox(text, stroke_width=1)
+# the WORLD'S END colors, a little brighter so text in them reads on dark cards
+WE_GRADIENT = [(50, 140, 255), (90, 200, 90), (245, 195, 20), (240, 70, 45), (235, 45, 165)]
+
+
+def _rainbow_text(text: str, font, outline: bool = False, pad: int = 3) -> Image.Image:
+    """`text` in a left-to-right gradient through the WORLD'S END colors (with a thin dark
+    outline for light backgrounds)."""
+    stroke = 1 if outline else 0
+    bb = font.getbbox(text, stroke_width=stroke)
     w, h = bb[2] - bb[0] + pad * 2, bb[3] - bb[1] + pad * 2
     at = (pad - bb[0], pad - bb[1])
     out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    ImageDraw.Draw(out).text(at, text, font=font, fill=(*WE_OUTLINE, 255), stroke_width=1,
-                             stroke_fill=(*WE_OUTLINE, 255))
+    if outline:
+        ImageDraw.Draw(out).text(at, text, font=font, fill=(*WE_OUTLINE, 255), stroke_width=1,
+                                 stroke_fill=(*WE_OUTLINE, 255))
     mask = Image.new("L", (w, h), 0)
     ImageDraw.Draw(mask).text(at, text, font=font, fill=255)
-    wide = int(w * 7 / 5)  # the texture shows five bands across 5/7 of its width
-    out.paste(_we_texture(wide, h).crop((int(wide * 0.1), 0, int(wide * 0.1) + w, h)), (0, 0), mask)
+    ink = mask.getbbox() or (0, 0, w, h)  # spread the colors over the letters, not the padding
+    fill = Image.new("RGB", (w, h))
+    fill.paste(_horizontal_gradient((ink[2] - ink[0], h), WE_GRADIENT), (ink[0], 0))
+    out.paste(fill, (0, 0), mask)
     return out
 
 
@@ -438,7 +447,7 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
         _spaced_text(td, (JACKET / 2, tag_h / 2), "WORLD'S END", num(18), WE_TEXT, 1.6)
         canvas.paste(tag, (jx, jy + JACKET - tag_h))
         # the attribute and stars ("狂☆5") in rainbow letters on a white chip at the jacket's top right
-        chip = _rainbow_text(const, cjk(16))
+        chip = _rainbow_text(const, cjk(16), outline=True)
         cw = chip.width + 8
         draw = ImageDraw.Draw(canvas)
         draw.rounded_rectangle((jx + JACKET - 4 - cw, jy + 4, jx + JACKET - 4, jy + 6 + chip.height), radius=6,

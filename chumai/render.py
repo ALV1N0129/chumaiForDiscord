@@ -1204,6 +1204,10 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
     width = MARGIN * 2 + 2 * CARD_W + GAP_X  # as wide as the old 2x2 play log, so it isn't a long strip
     header = CREDIT_HEADER_H
     height = header + len(entries) * (PLAY_ROW_H + GAP_Y) + 26
+    # Discord fits images into one box, so a taller credit (4 tracks) would show narrower than a
+    # 3-track one; keep at least the 3-track shape by making it wider instead
+    three = header + 3 * (PLAY_ROW_H + GAP_Y) + 26
+    width = max(width, round(height * width / three))
     stub = SimpleNamespace(game=game, old=entries, new=[], icon=icon)
     canvas = _rgb(_background(stub, (width, height), theme, st))
 

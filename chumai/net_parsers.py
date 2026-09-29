@@ -285,9 +285,9 @@ def parse_maimai_playlog(html: str | bytes) -> list[PlayRecord]:
             continue
         diff_name = _img_name(row.select_one("img.playlog_diff")).split("_")[-1].lower()
         base = {"basic": "Basic", "advanced": "Advanced", "expert": "Expert", "master": "Master",
-                "remaster": "Re:Master"}.get(diff_name)
+                "remaster": "Re:Master", "utage": "UTAGE"}.get(diff_name)
         if base is None:
-            continue  # UTAGE etc.
+            continue
         kind = row.select_one(".playlog_music_kind_icon")
         is_std = kind is not None and "_standard" in str(kind.get("src", ""))
         title_el = row.select_one(".basic_block.break") or row.select_one(".m_5.p_5.f_13")
@@ -303,7 +303,7 @@ def parse_maimai_playlog(html: str | bytes) -> list[PlayRecord]:
                 date=date,
                 track=int(re.sub(r"\D", "", track_txt) or 0),
                 title=title,
-                difficulty=base if is_std else f"DX {base}",
+                difficulty=base if is_std or base == "UTAGE" else f"DX {base}",
                 score=achievement,
                 rank=rank,
                 lamp=MAIMAI_PLAYLOG_LAMPS.get(stamps[0]) if stamps else None,

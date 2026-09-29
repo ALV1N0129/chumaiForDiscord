@@ -50,6 +50,31 @@ def test_maimai_playlog():
     assert [len(c) for c in net_parsers.group_credits(records)] == [2]
 
 
+def test_unrated_plays_show_their_level_and_no_rating(tmp_path):
+    from chumai import render
+    from chumai.jackets import JacketStore
+    from chumai.playlog import Badge, to_entry
+
+    html = '<div class="main_wrapper">' + MAIMAI_ROW.format(track=1).replace("diff_master", "diff_utage").replace(
+        "天体観測", "[協]Love You") + "</div>"
+    utage = net_parsers.parse_maimai_playlog(html)[0]
+    assert (utage.title, utage.difficulty) == ("[協]Love You", "UTAGE")  # 宴 is no longer skipped
+
+    store = JacketStore(tmp_path)
+    store.load_index([{"id": "8330", "title": "ヤババイナ", "we_kanji": "狂", "we_star": "5", "image": "a.jpg"}],
+                     [{"title": "[協]Love You", "lev_utage": "12?", "kanji": "協", "image_url": "b.png"}])
+    assert store.unrated_level("ヤババイナ", "WORLD'S END") == "狂☆5"
+    assert store.unrated_level("Love You", "UTAGE") == "12?"  # also without the [協]
+
+    e = to_entry("maimai", utage, SongDB(), store.unrated_level)
+    assert (e.level, e.rating_text, e.rated, e.rank) == ("12?", "-", False, "SSS+")
+    we = net_parsers.PlayRecord("2026/09/29 12:00", 1, "ヤババイナ", "WORLD'S END", 1_005_123, None, None, True, None)
+    w = to_entry("chunithm", we, SongDB(), store.unrated_level)
+    assert (w.level, w.rating_text) == ("狂☆5", "-")
+    png = render.render_credit("chunithm", "p", [w], [Badge("new")], "2026/09/29")  # draws; no rating in the avg
+    assert png
+
+
 class FakeNet:
     pages: dict = {}
 
@@ -89,7 +114,8 @@ def test_check_playlog_posts_only_new_credits(tmp_path, monkeypatch):
     last_key = credits[-3][-1].key  # the last two credits are "new"
     links.set_playlog(1, "chunithm", 99, last_key)
     fake_bot = SimpleNamespace(
-        links=links, songdb=SongDB(), config=SimpleNamespace(jacket_dir=str(tmp_path / "j"), new_versions={"chunithm": [], "maimai": []}),
+        links=links, songdb=SongDB(), jackets=SimpleNamespace(unrated_level=lambda title, diff: None),
+        config=SimpleNamespace(jacket_dir=str(tmp_path / "j"), new_versions={"chunithm": [], "maimai": []}),
         get_channel=lambda cid: Channel(),
     )
 
@@ -120,7 +146,8 @@ def test_check_playlog_without_updating_key(tmp_path, monkeypatch):
     links.set_playlog(1, "chunithm", 99, "9999")  # already up to date
     credits = net_parsers.group_credits(net_parsers.parse_chunithm_playlog(playlog))
     fake_bot = SimpleNamespace(
-        links=links, songdb=SongDB(), config=SimpleNamespace(jacket_dir=str(tmp_path / "j"), new_versions={"chunithm": [], "maimai": []}),
+        links=links, songdb=SongDB(), jackets=SimpleNamespace(unrated_level=lambda title, diff: None),
+        config=SimpleNamespace(jacket_dir=str(tmp_path / "j"), new_versions={"chunithm": [], "maimai": []}),
         get_channel=lambda cid: Channel(),
     )
     before = credits[-2][-1].key

@@ -115,32 +115,40 @@ LAMP_COLORS = {
 
 # In-game rating plate colors: (threshold, color or list of colors for a gradient)
 RAINBOW = [(255, 96, 96), (255, 190, 70), (120, 220, 110), (80, 170, 255), (190, 110, 255)]
+# Rating colors per tier, top to bottom. CHUNITHM: sampled from CHUNITHM-NET's rating digits
+# (images/rating/rating_<tier>_XX.png), which shade each digit from top to bottom (the metal tiers
+# have a bright band in the middle); 虹 from 16.00, the more colorful 虹(極) from 17.00.
+# maimai: the colors of maimai DX NET's rating plates (img/rating_base_<tier>.png).
+CHUNI_RAINBOW = [(240, 156, 135), (232, 236, 90), (135, 234, 70), (95, 232, 170), (50, 236, 232)]
+CHUNI_KIWAMI = [(232, 208, 121), (242, 138, 122), (240, 40, 190), (160, 40, 228), (30, 130, 238),
+                (0, 205, 222), (0, 238, 200)]
+MAI_RAINBOW = [(255, 140, 140), (255, 215, 110), (160, 240, 140), (120, 200, 255), (215, 150, 255)]
 PLATES = {
     "maimai": [
-        (16000, RAINBOW),
-        (15000, RAINBOW),
-        (14500, [(222, 230, 240), (170, 190, 215)]),
-        (14000, [(255, 216, 90), (214, 160, 40)]),
-        (13000, [(214, 220, 232), (150, 160, 180)]),
-        (12000, [(214, 140, 90), (160, 90, 50)]),
-        (10000, [(170, 100, 230), (120, 60, 190)]),
-        (7000, [(240, 90, 90), (190, 50, 60)]),
-        (4000, [(250, 200, 60), (210, 160, 30)]),
-        (2000, [(90, 200, 110), (50, 150, 80)]),
-        (1000, [(80, 160, 250), (50, 110, 210)]),
-        (0, [(200, 204, 214), (150, 154, 166)]),
+        (16000, MAI_RAINBOW),
+        (15000, MAI_RAINBOW),
+        (14500, [(255, 250, 190), (245, 215, 100)]),  # platinum
+        (14000, [(255, 232, 70), (250, 180, 0)]),  # gold
+        (13000, [(205, 232, 246), (125, 172, 208)]),  # silver
+        (12000, [(214, 125, 88), (145, 62, 42)]),  # bronze
+        (10000, [(222, 152, 255), (170, 70, 245)]),  # purple
+        (7000, [(255, 140, 140), (215, 60, 70)]),  # red
+        (4000, [(255, 212, 60), (245, 135, 10)]),  # orange
+        (2000, [(178, 240, 112), (80, 195, 50)]),  # green
+        (1000, [(122, 215, 255), (60, 150, 240)]),  # blue
+        (0, [(238, 242, 248), (190, 200, 215)]),  # white
     ],
     "chunithm": [
-        (17.0, RAINBOW),
-        (16.0, RAINBOW),
-        (15.25, [(222, 230, 240), (170, 190, 215)]),
-        (14.5, [(255, 216, 90), (214, 160, 40)]),
-        (13.25, [(214, 220, 232), (150, 160, 180)]),
-        (12.0, [(214, 140, 90), (160, 90, 50)]),
-        (10.0, [(170, 100, 230), (120, 60, 190)]),
-        (7.0, [(240, 90, 90), (190, 50, 60)]),
-        (4.0, [(250, 150, 50), (210, 110, 30)]),
-        (0, [(90, 200, 110), (50, 150, 80)]),
+        (17.0, CHUNI_KIWAMI),
+        (16.0, CHUNI_RAINBOW),
+        (15.25, [(218, 209, 172), (244, 244, 244), (217, 199, 148), (221, 215, 197)]),  # platinum
+        (14.5, [(214, 183, 52), (245, 235, 129), (226, 193, 59), (221, 204, 111)]),  # gold
+        (13.25, [(142, 201, 217), (199, 243, 244), (141, 199, 216), (175, 214, 220)]),  # silver
+        (12.0, [(207, 103, 11), (245, 173, 44), (207, 101, 7), (223, 144, 46)]),  # bronze
+        (10.0, [(218, 96, 205), (233, 99, 218), (200, 70, 192)]),  # purple
+        (7.0, [(228, 90, 104), (233, 88, 104), (209, 60, 80)]),  # red
+        (4.0, [(225, 168, 6), (240, 183, 6), (226, 166, 2)]),  # orange
+        (0, [(110, 225, 50), (75, 235, 35), (45, 212, 22)]),  # green
     ],
 }
 
@@ -586,6 +594,11 @@ def _plate_colors(game: str, value: str) -> list[tuple[int, int, int]]:
     return PLATES[game][-1][1]
 
 
+def _rating_number(game: str, rating: str, font) -> Image.Image:
+    """The rating in its tier's colors, shaded top to bottom like the official sites' digits."""
+    return _gradient_text(rating, font, _plate_colors(game, rating), vertical=True)
+
+
 def _stat(draw: ImageDraw.ImageDraw, x: int, y: int, label: str, value: str, st: dict) -> int:
     draw.text((x, y), label, font=num(16, "SemiBold"), fill=st["faint"])
     draw.text((x, y + 20), value, font=num(30), fill=st["text"])
@@ -599,13 +612,19 @@ LOGO_GRADIENTS = {
 }
 
 
-def _gradient_text(text: str, font, stops) -> Image.Image:
-    """Text filled with a horizontal gradient, with a soft shadow."""
+def _gradient_text(text: str, font, stops, vertical: bool = False) -> Image.Image:
+    """Text filled with a gradient (left to right, or top to bottom over the letters), with a soft shadow."""
     l, t, r, b = font.getbbox(text)
     w, h = r - l + 16, b - t + 16
     mask = Image.new("L", (w, h), 0)
     ImageDraw.Draw(mask).text((8 - l, 8 - t), text, font=font, fill=255)
-    fill = _horizontal_gradient((w, h), stops).convert("RGBA")
+    if vertical:
+        fill = Image.new("RGB", (w, h), stops[0])
+        fill.paste(_horizontal_gradient((h - 16, w), stops).transpose(Image.Transpose.ROTATE_270), (0, 8))
+        fill.paste(Image.new("RGB", (w, 8), stops[-1]), (0, h - 8))
+        fill = fill.convert("RGBA")
+    else:
+        fill = _horizontal_gradient((w, h), stops).convert("RGBA")
     fill.putalpha(mask)
     out = Image.new("RGBA", (w, h + 6), (0, 0, 0, 0))
     shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -733,17 +752,13 @@ def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dic
     _draw_player(canvas, b50.username, b50.icon, f"{GAME_NAMES[b50.game].upper()}  PLAYER", stats,
                  logo_left - 24, theme, st)
 
-    # the rating at the top right without a plate, like the play log: label and tier, then the number
+    # the rating at the top right, just the number in its tier's colors
     rating = b50.official_rating or b50.total_text()
-    colors = _plate_colors(b50.game, rating)
     right = width - MARGIN
-    tier = _tier_name(b50.game, rating)
-    draw = ImageDraw.Draw(canvas)
-    draw.text((right, 44), f"RATING   {tier}", font=num(24, "SemiBold"), fill=st["muted"], anchor="ra")
-    number = _gradient_text(rating, num(120), [tuple(min(255, c + 40) for c in col) for col in colors])
-    _over(canvas, number, (right - number.width + 12, 80))
+    number = _rating_number(b50.game, rating, num(120))
+    _over(canvas, number, (right - number.width + 12, 52))
     if b50.official_rating and b50.official_rating != b50.total_text():
-        ImageDraw.Draw(canvas).text((right, 200), f"CALCULATED {b50.total_text()}", font=num(18, "SemiBold"),
+        ImageDraw.Draw(canvas).text((right, 176), f"CALCULATED {b50.total_text()}", font=num(18, "SemiBold"),
                                     fill=st["faint"], anchor="ra")
 
 
@@ -799,12 +814,12 @@ def _draw_plate(canvas: Image.Image, game: str, rating: str, width: int, st: dic
             _over(canvas, label, (px + pw - 14 - label.width, py + 10))
         else:
             draw.text((px + pw - 22, py + 18), tier, font=num(18, "SemiBold"), fill=st["muted"], anchor="ra")
-        number = _gradient_text(rating, num(84), [tuple(min(255, c + 40) for c in col) for col in colors])
+        number = _rating_number(game, rating, num(84))
         _over(canvas, number, (px + pw - 18 - number.width, py + ph - 14 - number.height))
 
     elif PLATE_STYLE == "bare":
         # no panel: large gradient number with a thin tier bar under it
-        number = _gradient_text(rating, num(104), [tuple(min(255, c + 40) for c in col) for col in colors])
+        number = _rating_number(game, rating, num(104))
         nx, ny = right - number.width + 8, 62
         _over(canvas, number, (nx, ny))
         draw.text((right, 34), f"RATING  ·  {tier}", font=num(18, "SemiBold"), fill=st["muted"], anchor="ra")
@@ -1215,7 +1230,7 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
         draw = ImageDraw.Draw(canvas)
         right = width - MARGIN
         colors = _plate_colors(game, rating)
-        number = _gradient_text(rating, num(62), [tuple(min(255, c + 40) for c in col) for col in colors])
+        number = _rating_number(game, rating, num(62))
         _over(canvas, number, (right - number.width + 8, 44))
         change = _rating_change(game, rating_before, rating)
         draw = ImageDraw.Draw(canvas)

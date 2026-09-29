@@ -113,7 +113,8 @@ class JacketStore:
                     async with session.get(url) as resp:
                         if resp.status == 200:
                             return await resp.read()
-                        busy = resp.status == 429 or resp.status >= 500
+                        # maimaidx-eng.com now and then answers 404 for images it has: retry that too
+                        busy = resp.status in (404, 429) or resp.status >= 500
                     if busy and attempt == 0:  # the server had a moment: wait a little, once more
                         await asyncio.sleep(1)
                         continue

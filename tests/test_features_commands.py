@@ -217,7 +217,7 @@ def test_whatif_and_recommend(tmp_path, monkeypatch):
     assert log[-1][2]["file"].filename == render.filename("recommend_chunithm")
     rows, sub = calls[-1][1][3], calls[-1][1][4]
     assert rows and all(r["right"].startswith("+") and r["sub_line"].startswith("목표 S") for r in rows)
-    assert sub == f"현재 {tools.fmt_rating('chunithm', b50.total)}"
+    assert sub.startswith(f"현재 {tools.fmt_rating('chunithm', b50.total)} · {len(rows)}곡 다 치면 ")
 
 
 def test_sega_b50_loads_pages_once_for_recommend(tmp_path, monkeypatch):

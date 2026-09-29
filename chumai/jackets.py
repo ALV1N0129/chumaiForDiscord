@@ -36,6 +36,7 @@ class JacketStore:
         self.chunithm: dict[int, str] = {}  # music id -> image file name
         self.maimai: dict[str, list[tuple[str, str]]] = {}  # title -> [(genre, image file name)]
         self._failed: dict[str, float] = {}  # image name -> when it last failed to download
+        self._errors: dict[str, str] = {}  # first URL tried -> why the download last failed, for the log
 
     # ---------------------------------------------------------------- index
 
@@ -107,6 +108,8 @@ class JacketStore:
         )
 
     async def _download(self, session: aiohttp.ClientSession, urls: list[str]) -> bytes | None:
+        key = urls[0]  # downloads run together: keep each one's last error apart
+        self._errors.pop(key, None)
         for url in urls:
             for attempt in range(2):
                 try:
@@ -115,6 +118,7 @@ class JacketStore:
                             return await resp.read()
                         # maimaidx-eng.com now and then answers 404 for images it has: retry that too
                         busy = resp.status in (404, 429) or resp.status >= 500
+                        self._errors[key] = f"HTTP {resp.status} from {url.split('/')[2]}"
                     if busy and attempt == 0:  # the server had a moment: wait a little, once more
                         await asyncio.sleep(1)
                         continue
@@ -123,7 +127,8 @@ class JacketStore:
                     if attempt == 0 and await tls.add_missing_intermediate(e.host, e.port or 443):
                         continue
                     break
-                except (aiohttp.ClientError, asyncio.TimeoutError):
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    self._errors[key] = f"{type(e).__name__} from {url.split('/')[2]}"
                     if attempt == 0:  # a dropped connection or a slow reply: once more
                         continue
                     break
@@ -152,6 +157,8 @@ class JacketStore:
                 async def one(name: str) -> None:
                     data = await self._download(s, [b + name for b in bases])
                     if data is None:
+                        log.warning("jacket %s: download failed (%s); retrying in %d min", name,
+                                    self._errors.pop(bases[0] + name, None), RETRY_FAILED_SECONDS // 60)
                         self._failed[name] = time.time()  # not for good: the network may just have hiccuped
                         return
                     self._failed.pop(name, None)

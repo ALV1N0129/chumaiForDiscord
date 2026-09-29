@@ -432,15 +432,17 @@ def register(bot: ChumaiBot) -> None:
             rows.append(_chart_row(
                 r.song, r.chart, jackets.get(i), right=right, sub_line=sub_line,
                 genre=SHORT_GENRES.get(r.song.genre, r.song.genre)))
+        steps = tools.all_done_steps(b50, recs)
         done = tools.all_done(b50, recs)
-        if game == "chunithm":  # unrounded averages: the sum of a few thousandths
-            raw = lambda b: (b.old_sum + b.new_sum) / 50  # noqa: E731
-            gain = f"+{float(raw(done) - raw(b50)):.3f}"
-        else:
-            gain = f"+{tools.fmt_rating(game, done.total - b50.total)}"
-        sub = (f"현재 {tools.fmt_rating(game, b50.total)} · {len(recs)}곡 다 치면 "
-               f"{tools.fmt_rating(game, done.total)} ({gain})")
-        png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows, sub, None, 2)
+        gain = f"+{float(steps[-1] - steps[0]):.3f}" if game == "chunithm" else \
+            f"+{tools.fmt_rating(game, done.total - b50.total)}"
+        progress = {
+            "before": tools.fmt_rating(game, b50.total), "after": tools.fmt_rating(game, done.total), "gain": gain,
+            "label": f"{len(recs)}곡 모두 목표 달성 시",
+            "parts": [(float(b - a), r.chart.difficulty) for a, b, r in zip(steps, steps[1:], recs)],
+        }
+        png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows, None, None, 2,
+                                      progress=progress)
         await interaction.followup.send(file=_image(png, f"recommend_{game}"))
 
     # -------------------------------------------------------------- chart view

@@ -202,6 +202,13 @@ def all_done(b50: B50, recs: list["Recommendation"]) -> B50:
     return select_b50(game, b50.username, b50.old + b50.new + extra)
 
 
+def all_done_steps(b50: B50, recs: list["Recommendation"]) -> list[Fraction]:
+    """Unrounded rating (CHUNITHM average, maimai sum) now and after each of `recs` in turn."""
+    div = 50 if b50.game == "chunithm" else 1
+    raw = lambda b: (b.old_sum + b.new_sum) / div  # noqa: E731
+    return [raw(b50)] + [raw(all_done(b50, recs[: i + 1])) for i in range(len(recs))]
+
+
 # -------------------------------------------------------------- recommend
 
 

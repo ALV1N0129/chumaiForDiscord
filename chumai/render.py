@@ -1358,15 +1358,65 @@ def render_song(game: str, song: dict, charts: list[dict], jacket) -> bytes:
 # -------------------------------------------------------------- chart lists
 
 
+PROGRESS_H = 104  # rating panel under the header of a /recommend page
+
+
+def _draw_progress(canvas: Image.Image, game: str, box: tuple[int, int, int, int], progress: dict) -> None:
+    """Rating now » after, the gain, and a bar split into what each chart adds (in its difficulty color).
+
+    progress: before, after, gain (texts), label, parts [(share of the gain, difficulty)].
+    """
+    x0, y0, x1, y1 = box
+    _panel(canvas, box, THEMES[game]["card"], radius=16)
+    draw = ImageDraw.Draw(canvas)
+    draw.text((x0 + 24, y0 + 16), "RATING", font=num(17, "SemiBold"), fill=MUTED)
+    base = y0 + 70
+    x = x0 + 24
+    draw.text((x, base), progress["before"], font=num(40), fill=WHITE, anchor="ls")
+    x += draw.textlength(progress["before"], font=num(40)) + 14
+    draw.text((x, base - 4), "»", font=num(30), fill=MUTED, anchor="ls")
+    x += draw.textlength("»", font=num(30)) + 14
+    draw.text((x, base), progress["after"], font=num(40), fill=MAX_RATING, anchor="ls")
+    x += draw.textlength(progress["after"], font=num(40)) + 16
+    pill_w = int(draw.textlength(progress["gain"], font=num(20))) + (20 + 6) // 2 - 1 + 22  # as _up_pill
+    x = _up_pill(canvas, int(x) + pill_w, base - 29, progress["gain"], 20) + pill_w
+    draw = ImageDraw.Draw(canvas)
+
+    # the bar: from now (left) to all done (right), one piece per chart
+    bx0, bx1 = int(x + 36), x1 - 24
+    if bx1 - bx0 < 120:
+        return
+    draw.text((bx0, y0 + 18), progress["label"], font=cjk(15), fill=MUTED, anchor="lt")
+    by, bh = base - 22, 18
+    _panel(canvas, (bx0, by, bx1, by + bh), (0, 0, 0), alpha=110, radius=bh // 2, outline=False)
+    parts = [(max(0.0, share), diff) for share, diff in progress["parts"]]
+    total = sum(share for share, _ in parts) or 1.0
+    bar = Image.new("RGBA", (bx1 - bx0, bh), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(bar)
+    px = 0.0
+    for i, (share, diff) in enumerate(parts):
+        w = (bx1 - bx0) * share / total
+        color = _diff_info(diff)[2]
+        bd.rectangle((round(px), 0, round(px + w) - (2 if i < len(parts) - 1 else 0), bh), fill=(*color, 255))
+        px += w
+    mask = _rounded_mask(bar.size, bh // 2)
+    bar.putalpha(Image.composite(bar.getchannel("A"), Image.new("L", bar.size, 0), mask))
+    _over(canvas, bar, (bx0, by))
+    draw = ImageDraw.Draw(canvas)
+    draw.text((bx0, by + bh + 8), progress["before"], font=num(15, "Medium"), fill=MUTED, anchor="lt")
+    draw.text((bx1, by + bh + 8), progress["after"], font=num(15, "Medium"), fill=MAX_RATING, anchor="rt")
+
+
 def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub: str | None = None,
                       footer: str | None = None, columns: int = 3, group: bool = False,
-                      scale: float | None = None) -> bytes:
+                      scale: float | None = None, progress: dict | None = None) -> bytes:
     """Charts as tiles: jacket, title, difficulty/level and a value on the right.
 
     rows: title, difficulty, level, const, jacket, right (big text), and optionally right_sub (small text
     under it), sub_line (after the difficulty), note (a line along the bottom of the tile) and genre
     (a chip at the end of the note).
     group=True puts a heading above each run of charts with the same constant.
+    progress: a rating panel under the header (see _draw_progress).
     """
     theme = THEMES[game]
     big = columns <= 2
@@ -1380,7 +1430,8 @@ def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub:
 
     # lay out: (kind, y, payload)
     items: list[tuple[str, int, int, object]] = []
-    y, col, last = 116, 0, None
+    top = 116 + (PROGRESS_H if progress else 0)
+    y, col, last = top, 0, None
     for row in rows:
         if group and row["const"] != last:
             if col:
@@ -1469,6 +1520,9 @@ def render_chart_list(game: str, kicker: str, title: str, rows: list[dict], sub:
 
     # one strip per row of tiles / heading, so LOW_MEMORY can draw a smaller page strip by strip
     strips = [(0, 116, lambda c, dy: _page_header(c, game, kicker, title, sub))]
+    if progress:
+        strips.append((116, top, lambda c, dy: _draw_progress(
+            c, game, (MARGIN, 116 + dy, width - MARGIN, top - 14 + dy), progress)))
     rows_at: dict[int, list] = {}
     for item in items:
         rows_at.setdefault(item[2], []).append(item)

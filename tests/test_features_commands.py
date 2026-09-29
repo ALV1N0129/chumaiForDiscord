@@ -215,9 +215,10 @@ def test_whatif_and_recommend(tmp_path, monkeypatch):
 
     log = _call(bot, "recommend", game="chunithm")
     assert log[-1][2]["file"].filename == render.filename("recommend_chunithm")
-    rows, sub = calls[-1][1][3], calls[-1][1][4]
+    rows, progress = calls[-1][1][3], calls[-1][2]["progress"]
     assert rows and all(r["right"].startswith("+") and r["sub_line"].startswith("목표 S") for r in rows)
-    assert sub.startswith(f"현재 {tools.fmt_rating('chunithm', b50.total)} · {len(rows)}곡 다 치면 ")
+    assert progress["before"] == tools.fmt_rating("chunithm", b50.total) and progress["gain"].startswith("+")
+    assert len(progress["parts"]) == len(rows) and all(share >= 0 for share, _ in progress["parts"])
 
 
 def test_sega_b50_loads_pages_once_for_recommend(tmp_path, monkeypatch):

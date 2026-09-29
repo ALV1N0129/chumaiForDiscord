@@ -167,10 +167,11 @@ def _hanja() -> dict[str, str]:
 @lru_cache(maxsize=1)
 def _pronunciations() -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
-    for line in (Path(__file__).parent / "assets" / "titles_ko.tsv").read_text(encoding="utf-8").splitlines():
-        if line and not line.startswith("# "):  # a comment (titles like "#FairyJoke" start with # too)
-            title, *names = line.split("\t")
-            out.setdefault(fold(title), []).extend(n for n in names if n)
+    for name in ("titles_ko.tsv", "nicknames_ko.tsv"):
+        for line in (Path(__file__).parent / "assets" / name).read_text(encoding="utf-8").splitlines():
+            if line and not line.startswith("# "):  # a comment (titles like "#FairyJoke" start with # too)
+                title, *names = line.split("\t")
+                out.setdefault(fold(title), []).extend(n for n in names if n)
     return out
 
 
@@ -316,8 +317,20 @@ def romaji_fold(text: str) -> str:
     return text
 
 
+# a difficulty stuck to a name, as players write it: 흑니즘 / 알레프흑 (ULTIMA), 멜마 (MASTER)
+_DIFFICULTY = re.compile(r"^(흑)(?=[가-힣]{2})|(흑|마스터|마|울티마|울|익스|익퍼|익)$")
+
+
 def matches(answer: str, titles: list[str], readings: list[str] = (), aliases: list[str] = ()) -> bool:
     """Whether `answer` names the song with these titles, official readings and nicknames."""
+    if _match(answer, titles, readings, aliases):
+        return True
+    bare = _DIFFICULTY.sub("", fold(answer))
+    return bool(bare) and bare != fold(answer) and len(_HANGUL.findall(bare)) >= 2 \
+        and _match(bare, titles, readings, aliases)
+
+
+def _match(answer: str, titles: list[str], readings: list[str], aliases: list[str]) -> bool:
     a = fold(answer)
     if not a:  # only symbols: a title of only symbols (∀) as it is
         a = unicodedata.normalize("NFKC", answer).strip()
@@ -332,13 +345,21 @@ def matches(answer: str, titles: list[str], readings: list[str] = (), aliases: l
     readings = [*readings, *(t for t in titles if _KANA.search(t))]
     if _HANGUL.search(a):
         key = hangul_key(a)
-        spoken = [hangul_key(kana_to_hangul(fold(r))) for r in readings]
-        spoken += [hangul_key(k) for t in titles for k in korean_readings(t)]
-        spoken += [hangul_key(fold(p)) for p in [*spoken_titles, *aliases] if _HANGUL.search(p)]
+        # Korean names as written (ours, nicknames, kanji readings) and everything as folded letters
+        names = [fold(p) for p in [*spoken_titles, *aliases] if _HANGUL.search(p)]
+        names += [fold(k) for t in titles for k in korean_readings(t)]
+        spoken = [hangul_key(kana_to_hangul(fold(r))) for r in readings] + [hangul_key(n) for n in names]
+        syllables = len(_HANGUL.findall(a))
+        if syllables <= 4:
+            # a few syllables (질문, 클리어) come close to too many names once folded: the start or end
+            # of a Korean name as written, or the start of one folded / nearly all of it
+            if any(n.startswith(a) or (n.endswith(a) and syllables >= 2) for n in names):
+                return True
+            return any(key == k or (syllables >= 3 and k.startswith(key))
+                       or (syllables >= 3 and difflib.SequenceMatcher(None, key, k).ratio() >= 0.9)
+                       for k in spoken)
         # compared as letters (ㄴㅗㅅㅛ), about twice as long as syllables: a smaller share will do
-        # one syllable (링) is too little to be part of a title: only the whole thing
-        part = len(_HANGUL.findall(a)) >= 2
-        return any(_close(key, k, FUZZY_KOREAN, MIN_PART * 0.8, part) for k in spoken)
+        return any(_close(key, k, FUZZY_KOREAN, MIN_PART * 0.8) for k in spoken)
     if _KANA.search(a):
         return any(_close(kana_fold(a), kana_fold(r), FUZZY) for r in readings)
     # romaji: compared with the readings in romaji

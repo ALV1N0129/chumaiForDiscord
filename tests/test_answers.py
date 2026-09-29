@@ -109,3 +109,14 @@ def test_title_parts_romaji_and_symbols():
     assert not matches("kazeuta", ["千本桜"], ["センホンサクラ"])
     assert not matches("링", ["名前のない怪物"], ["ナマエノナイカイフツ"])  # one syllable: only a whole name
     assert matches("∀", ["∀"]) and not matches("∀", ["Aleph-0"])
+
+
+def test_gallery_nicknames_and_difficulty_words():
+    assert matches("조율주", ["混沌を越えし我らが神聖なる調律主を讃えよ"])
+    assert matches("새콤달콤", ["Sweet & Sour"]) and matches("엔탐", ["End Time"])
+    assert matches("멜마", ["Melodiniq"]) and matches("흑니즘", ["YOUNITHM"])
+    assert matches("알레프흑", ["Aleph-0"], ["ALEPH0"])  # 흑 = ULTIMA, stuck to the name
+    assert not matches("엔탐", ["Aleph-0"])
+    # common words don't pass for songs any more
+    assert not matches("질문", ["天狗の落とし文 feat. ｙｔｒ"])
+    assert not matches("레이팅", ["†渚の小悪魔ラヴリィ～レイディオ†"])

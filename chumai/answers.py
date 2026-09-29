@@ -10,6 +10,8 @@
   의 as well (初音ミクの消失 -> 초음미쿠의소실). The readings of the kanji in song titles come from
   Unicode's Unihan database (kHangul; Japanese simplified forms mapped by hand), in
   assets/hanja_ko.json.
+- Latin-alphabet titles also in Korean pronunciation (ENDYMION -> 엔디미온, Aleph-0 -> 알레프 제로):
+  assets/titles_ko.tsv, written for the songs of the higher levels.
 - Registered nicknames (/alias) count like titles.
 """
 
@@ -152,6 +154,21 @@ def _hanja() -> dict[str, str]:
     return json.loads((Path(__file__).parent / "assets" / "hanja_ko.json").read_text(encoding="utf-8"))
 
 
+@lru_cache(maxsize=1)
+def _pronunciations() -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for line in (Path(__file__).parent / "assets" / "titles_ko.tsv").read_text(encoding="utf-8").splitlines():
+        if line and not line.startswith("#"):
+            title, *names = line.split("\t")
+            out.setdefault(fold(title), []).extend(n for n in names if n)
+    return out
+
+
+def pronunciations(title: str) -> list[str]:
+    """Korean pronunciations of a Latin-alphabet title (assets/titles_ko.tsv)."""
+    return _pronunciations().get(fold(title), [])
+
+
 def korean_readings(title: str) -> list[str]:
     """A title with kanji in their Korean reading and kana in Hangul, as it and with の as 의
     ([] when the title has no kanji, or a kanji without a reading)."""
@@ -184,12 +201,14 @@ def matches(answer: str, titles: list[str], readings: list[str] = (), aliases: l
     a = fold(answer)
     if not a:
         return False
-    if any(_close(a, fold(k), FUZZY) for k in [*titles, *aliases]):
+    spoken_titles = [p for t in titles for p in pronunciations(t)]
+    if any(_close(a, fold(k), FUZZY) for k in [*titles, *aliases, *spoken_titles]):
         return True
     if _HANGUL.search(a):
         key = hangul_key(a)
         spoken = [hangul_key(kana_to_hangul(fold(r))) for r in readings]
         spoken += [hangul_key(k) for t in titles for k in korean_readings(t)]
+        spoken += [hangul_key(fold(p)) for p in spoken_titles]
         # compared as letters (ㄴㅗㅅㅛ), about twice as long as syllables: a smaller share will do
         return any(_close(key, k, FUZZY_KOREAN, MIN_PART * 0.8) for k in spoken)
     if _KANA.search(a):

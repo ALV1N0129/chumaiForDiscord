@@ -49,3 +49,14 @@ def test_registered_nicknames(tmp_path):
     assert store.remove_alias(1, "chunithm", "脳漿炸裂ガール", "뇌장작렬걸")
     assert store.aliases(1, "chunithm", "脳漿炸裂ガール") == []
     store.close()
+
+
+def test_korean_pronunciation_of_latin_titles():
+    from chumai.answers import _pronunciations, fold
+    assert matches("엔디미온", ["ENDYMION"])
+    assert matches("알레프", ["Aleph-0"])
+    assert matches("오샤마", ["Oshama Scramble!"])
+    assert not matches("엔디미온", ["Aleph-0"])
+    # every line of the file is a title and at least one reading
+    for title, names in _pronunciations().items():
+        assert title == fold(title) and names and all(n.strip() for n in names)

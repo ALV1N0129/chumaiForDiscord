@@ -350,3 +350,21 @@ def test_jacket_download_retries_a_busy_server_or_a_stray_404():
             await runner.cleanup()
 
     assert asyncio.run(main()) == (b"PNG", b"PNG") and len(hits) == 4  # a 503, then a stray 404
+
+
+def test_recommend_skips_charts_not_in_the_players_region():
+    from chumai.songdb import CatalogChart, CatalogSong
+
+    db = _db()
+    db.catalog["maimai"] = [CatalogSong("maimai", t, "", "maimai", [t.lower()],
+                                        [CatalogChart("Master", "12", 12.3, "maimai")]) for t in ("Out", "NotYet")]
+    entries = [make_entry("maimai", f"S{i}", "Master", "12", 12.0 + (i % 5) / 10, 100.0, None, False)
+               for i in range(35)]
+    entries += [make_entry("maimai", f"N{i}", "Master", "12", 11.5, 100.0, None, True) for i in range(15)]
+    b = select_b50("maimai", "p", entries)
+    b.available = {"Master": {"out"}}  # the record pages list "Out" only (e.g. international)
+    recs = tools.recommend(db, b, ["maimai でらっくす PRiSM PLUS"], 5, random.Random(0))
+    assert [r.song.title for r in recs] == ["Out"]
+    b.available = {"Expert": set()}  # Master wasn't checked: no filtering
+    assert {r.song.title for r in tools.recommend(db, b, ["maimai でらっくす PRiSM PLUS"], 5, random.Random(0))} \
+        == {"Out", "NotYet"}

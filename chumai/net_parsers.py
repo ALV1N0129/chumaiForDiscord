@@ -125,6 +125,13 @@ CHUNITHM_LAMP_ICONS = (("alljusticecritical", "AJC"), ("alljustice", "AJ"), ("fu
 _IDX = re.compile(r'<input[^>]*name="idx"[^>]*value="(\d+)"|<input[^>]*value="(\d+)"[^>]*name="idx"')
 
 
+def parse_chunithm_music_ids(html: str | bytes) -> set[int]:
+    """Music ids of every song on a record page (musicGenre/send<Difficulty>), played or not: the
+    songs of that difficulty in the player's region. String search, like parse_chunithm_lamps."""
+    text = html.decode("utf-8", "replace") if isinstance(html, bytes) else html
+    return {int(m.group(1) or m.group(2)) for m in _IDX.finditer(text)}
+
+
 def parse_chunithm_lamps(html: str | bytes) -> dict[int, str]:
     """{music idx: "AJC"/"AJ"/"FC"} from a record page (musicGenre/send<Difficulty>).
 
@@ -174,8 +181,12 @@ def _maimai_is_std(row: Tag) -> bool:
     return icon is not None and "_standard" in str(icon.get("src", ""))
 
 
-def parse_maimai_scores(html: str | bytes, diff_index: int) -> list[MaimaiRecord]:
-    """Parse /maimai-mobile/record/musicGenre/search/?genre=99&diff=N."""
+def parse_maimai_scores(html: str | bytes, diff_index: int,
+                        seen: dict[str, set[str]] | None = None) -> list[MaimaiRecord]:
+    """Parse /maimai-mobile/record/musicGenre/search/?genre=99&diff=N.
+
+    `seen` collects every song on the page, played or not ({difficulty: {title}}): the charts in
+    the player's region."""
     base_diff = MAIMAI_DIFFS[diff_index]
     records = []
     genre = ""
@@ -186,6 +197,9 @@ def parse_maimai_scores(html: str | bytes, diff_index: int) -> list[MaimaiRecord
             continue
         if not {"w_450", "p_r", "f_0"} <= classes:
             continue
+        difficulty = base_diff if _maimai_is_std(row) else f"DX {base_diff}"
+        if seen is not None:
+            seen.setdefault(difficulty, set()).add(_text(row.select_one(".music_name_block")))
         score_blocks = row.select(".music_score_block")
         if not score_blocks:
             continue  # not played
@@ -205,7 +219,7 @@ def parse_maimai_scores(html: str | bytes, diff_index: int) -> list[MaimaiRecord
             MaimaiRecord(
                 title=_text(row.select_one(".music_name_block")),
                 genre=genre,
-                difficulty=base_diff if _maimai_is_std(row) else f"DX {base_diff}",
+                difficulty=difficulty,
                 level=_text(row.select_one(".music_lv_block")),
                 achievement=achievement,
                 lamp=lamp,

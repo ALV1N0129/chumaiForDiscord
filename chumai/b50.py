@@ -71,6 +71,9 @@ class B50:
     level: str | None = None
     # every played chart's best score {(title, difficulty): score}, when the site gave them all (maimai)
     played: dict[tuple[str, str], float] = field(default_factory=dict, repr=False)
+    # charts in the player's region, by difficulty, for the difficulties whose record pages were read:
+    # {difficulty: {music id (CHUNITHM) / title (maimai)}}. None when unknown.
+    available: dict[str, set] | None = field(default=None, repr=False)
 
     @property
     def old_sum(self) -> Fraction:

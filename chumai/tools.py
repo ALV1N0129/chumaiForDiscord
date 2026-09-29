@@ -39,9 +39,9 @@ def fmt_score(game: str, score: float) -> str:
 # ------------------------------------------------------------------ reach
 
 
-def reach_score(game: str, const: float, target: float) -> float | None:
+def reach_score(game: str, const: float, target: float | Fraction) -> float | None:
     """Lowest score/achievement on a chart of `const` that gives at least `target` rating."""
-    goal = Fraction(str(target))
+    goal = target if isinstance(target, Fraction) else Fraction(str(target))
     if game == "maimai":
         lo, hi = 0, 1_005_000  # achievement in 1/10000 %
         if chart_rating(game, const, hi / 10000) < goal:
@@ -210,6 +210,7 @@ class Recommendation:
     raw_before: Fraction | None = None  # B50 average (CHUNITHM) / sum (maimai) before truncating
     raw_after: Fraction | None = None
     entry: float | None = None  # the lowest rank at which it counts
+    cut: float | None = None  # the exact lowest score at which it counts
     best: float | None = None  # your best score on it so far, if played
 
 
@@ -260,6 +261,12 @@ def entry_rank(game: str, const: float, floor: Fraction) -> float | None:
     return next((t for t in reversed(RANK_TARGETS[game]) if chart_rating(game, const, t) > floor), None)
 
 
+def entry_score(game: str, const: float, floor: Fraction) -> float | None:
+    """The exact lowest score on a chart of `const` whose rating beats `floor` (the B50 cut)."""
+    step = Fraction(1) if game == "maimai" else Fraction(1, 100)  # maimai ratings are whole, CHUNITHM's 0.01
+    return reach_score(game, const, floor + step)
+
+
 def pick_target(usual: float | None, entry: float | None, best: float | None = None) -> float | None:
     """Aim for the rank you usually get on charts this hard, if that is enough to count and beats your best."""
     if usual is None or entry is None or usual < entry:
@@ -302,7 +309,8 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
                 continue
             gain = chart_rating(game, chart.level_const, target) - floors[new]
             if gain > 0:
-                candidates.append(Recommendation(song, chart, target, gain, is_new=new, entry=entry, best=best))
+                candidates.append(Recommendation(song, chart, target, gain, is_new=new, entry=entry, best=best,
+                                                 cut=entry_score(game, chart.level_const, floors[new])))
     # spread over difficulties: a random chart from each of the easiest constants that count,
     # then fill up from those constants if there are fewer of them than `count`
     rng = rng or random.Random()

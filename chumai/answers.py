@@ -10,8 +10,9 @@
   의 as well (初音ミクの消失 -> 초음미쿠의소실). The readings of the kanji in song titles come from
   Unicode's Unihan database (kHangul; Japanese simplified forms mapped by hand), in
   assets/hanja_ko.json.
-- Latin-alphabet titles also in Korean pronunciation (ENDYMION -> 엔디미온, Aleph-0 -> 알레프 제로):
-  assets/titles_ko.tsv, written for nearly every such title.
+- Korean names in assets/titles_ko.tsv, written by hand for nearly every title: Latin titles as read
+  (ENDYMION -> 엔디미온), katakana titles as said in Korean (ヴァンパイア -> 뱀파이어) and Japanese titles
+  translated (夜に駆ける -> 밤을 달리다).
 - Registered nicknames (/alias) count like titles.
 """
 

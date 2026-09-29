@@ -68,3 +68,10 @@ def test_katakana_titles_as_said_in_korean():
     assert matches("월드 이즈 마인", ["ワールドイズマイン"])
     assert matches("세카이노오와리", ["せかいのおわり"])  # a kana title is its own reading
     assert not matches("멜트", ["ヴァンパイア"])
+
+
+def test_japanese_titles_translated():
+    assert matches("밤을 달리다", ["夜に駆ける"])
+    assert matches("잔혹한 천사의 테제", ["残酷な天使のテーゼ"])
+    assert matches("네가 모르는 이야기", ["君の知らない物語"])
+    assert not matches("천체관측", ["紅蓮華"])

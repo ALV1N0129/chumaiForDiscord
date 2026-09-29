@@ -60,3 +60,4 @@ def test_korean_pronunciation_of_latin_titles():
     # every line of the file is a title and at least one reading
     for title, names in _pronunciations().items():
         assert title == fold(title) and names and all(n.strip() for n in names)
+    assert matches("페어리조크", ["#FairyJoke"])  # a title starting with # isn't a comment

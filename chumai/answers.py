@@ -11,7 +11,7 @@
   Unicode's Unihan database (kHangul; Japanese simplified forms mapped by hand), in
   assets/hanja_ko.json.
 - Latin-alphabet titles also in Korean pronunciation (ENDYMION -> 엔디미온, Aleph-0 -> 알레프 제로):
-  assets/titles_ko.tsv, written for the songs of the higher levels.
+  assets/titles_ko.tsv, written for nearly every such title.
 - Registered nicknames (/alias) count like titles.
 """
 
@@ -158,7 +158,7 @@ def _hanja() -> dict[str, str]:
 def _pronunciations() -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for line in (Path(__file__).parent / "assets" / "titles_ko.tsv").read_text(encoding="utf-8").splitlines():
-        if line and not line.startswith("#"):
+        if line and not line.startswith("# "):  # a comment (titles like "#FairyJoke" start with # too)
             title, *names = line.split("\t")
             out.setdefault(fold(title), []).extend(n for n in names if n)
     return out

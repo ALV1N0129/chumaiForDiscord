@@ -78,7 +78,7 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 공식 곡 목록의 읽는 법으로 가나(`のうしょう`)나 한국어 발음(`노우쇼사쿠레츠가루`, `센본자쿠라`)으로 써도 됩니다.
 한자 제목은 한국 한자음으로도 됩니다(`뇌장작렬걸`, `천본앵`, `미쿠의 소실`, 긴 제목은 앞부분만 `혼돈`).
 영문 제목은 한국어 발음으로도 됩니다(`엔디미온`, `알레프`, `오샤마`): `chumai/assets/titles_ko.tsv`에
-높은 레벨 곡 위주로 적어 두었고, 줄마다 `제목<TAB>발음<TAB>...` 형식이라 직접 추가할 수 있습니다.
+영문 제목 곡 거의 전부(약 1,300곡)에 적어 두었고, 줄마다 `제목<TAB>발음<TAB>...` 형식이라 직접 추가할 수 있습니다.
 그 밖의 별명(줄임말 등)은 `/alias add` 로 등록하면 그 서버에서 정답으로 인정됩니다.
 한자음은 Unicode의 [Unihan](https://www.unicode.org/charts/unihan.html) 데이터(kHangul, [Unicode License](https://www.unicode.org/license.txt))에서
 곡 제목에 나오는 한자만 뽑아 `chumai/assets/hanja_ko.json`에 넣었고, 일본식 약자(脳, 桜 등)는 직접 채웠습니다.

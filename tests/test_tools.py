@@ -184,6 +184,10 @@ def test_maimai_proven_is_the_usual_rank_nearby():
     assert tools.maimai_proven(more, 14.6) == 100.0  # 8 of 14 are SSS
     assert tools.maimai_proven(pts, 15.0) is None  # nothing that hard
     assert tools.maimai_proven([(12.0, 100.6), (12.1, 100.0)], 12.0) is None  # too few
+    # all played charts: old one-off scores drag the middle down, so the upper quarter counts
+    played = [(12.2, 100.2), (12.3, 99.6), (12.1, 99.1), (12.4, 97.5), (12.0, 96.0), (12.2, 94.0), (12.5, 92.0)]
+    assert tools.maimai_proven(played, 12.0) == 97.0
+    assert tools.maimai_proven(played, 12.0, tools.USUAL_PLAYED) == 99.0  # 5th of 7: 99.1
 
 
 def test_maimai_entry_and_target():

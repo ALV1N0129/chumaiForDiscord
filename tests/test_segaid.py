@@ -120,6 +120,7 @@ def fake_sega(monkeypatch):
                 segaid, "_new_session",
                 lambda: aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)),
             )
+            monkeypatch.setattr(segaid, "_site_cookies", {})
             try:
                 return await coro_fn(state)
             finally:
@@ -159,6 +160,29 @@ def test_fetch_page_and_reauth(fake_sega):
     first, second, logins = fake_sega(go)
     assert b"player_rating_num_block" in first and first == second
     assert logins == 2  # re-authenticated once
+
+
+def test_session_reused_between_visits(fake_sega):
+    async def visit():
+        async with segaid.NetClient("chunithm", "valid") as net:
+            return await net.get("/mobile/home/playerData/")
+
+    async def go(state):
+        await visit()
+        await visit()
+        await visit()
+        after_three = state["logins"]
+        state["expire_once"] = True  # the site dropped the remembered session
+        page = await visit()
+        after_expiry = state["logins"]
+        segaid.forget_sessions("valid")  # /logout
+        await visit()
+        return after_three, after_expiry, page, state["logins"]
+
+    after_three, after_expiry, page, after_logout = fake_sega(go)
+    assert after_three == 1  # only the first visit logged in
+    assert after_expiry == 2 and b"player_rating_num_block" in page  # logged in again, still got the page
+    assert after_logout == 3
 
 
 def test_expired_token(fake_sega):

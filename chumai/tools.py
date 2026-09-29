@@ -269,25 +269,34 @@ BAND = 0.5  # the scores that say what you get on a constant: that constant up t
 MIN_BAND_SCORES = 3
 
 
-def maimai_scores(b50: B50, db: SongDB | None = None) -> list[tuple[float, float]]:
-    """(constant, achievement) of every played chart when the B50 came with them, else of the B50."""
+def maimai_scores(b50: B50, db: SongDB | None = None) -> tuple[list[tuple[float, float]], bool]:
+    """(constant, achievement) of every played chart when the B50 came with them (True), else of
+    the B50 (False)."""
     points = []
     if b50.played and db is not None:
         for (title, difficulty), score in b50.played.items():
             info = db.maimai_chart(title, difficulty)
             if info is not None and info.level_const:
                 points.append((info.level_const, score))
-    return points if len(points) >= len(b50.old + b50.new) else [(e.level_const, e.score) for e in b50.old + b50.new]
+    if len(points) >= len(b50.old + b50.new):
+        return points, True
+    return [(e.level_const, e.score) for e in b50.old + b50.new], False
 
 
-def maimai_proven(points: list[tuple[float, float]], const: float) -> float | None:
-    """The rank you usually get around `const`: the border under the median of your scores on
-    charts from `const` to BAND harder (None if you have fewer than MIN_BAND_SCORES there)."""
+# Where in your scores around a constant "the rank you usually get" sits. The B50 is already your
+# best charts, so its middle. All played charts include old scores from charts you tried once and
+# never went back to, so the upper quarter there (a rank you have on at least 1 in 4 of them).
+USUAL_B50, USUAL_PLAYED = 0.5, 0.75
+
+
+def maimai_proven(points: list[tuple[float, float]], const: float, usual: float = USUAL_B50) -> float | None:
+    """The rank you usually get around `const`: the border under the `usual` quantile of your
+    scores on charts from `const` to BAND harder (None with fewer than MIN_BAND_SCORES there)."""
     band = sorted(a for c, a in points if const - 1e-9 <= c <= const + BAND + 1e-9)
     if len(band) < MIN_BAND_SCORES:
         return None
-    median = band[(len(band) - 1) // 2]  # the lower middle: a typical play, not a good day
-    return next((t for t in MAIMAI_TARGETS if median >= t), None)
+    typical = band[int((len(band) - 1) * usual)]  # rounded down: a typical play, not a good day
+    return next((t for t in MAIMAI_TARGETS if typical >= t), None)
 
 
 def maimai_entry(const: float, floor: Fraction) -> float | None:
@@ -321,7 +330,8 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
         False: min((e.rating for e in b50.old), default=Fraction(0)),
         True: min((e.rating for e in b50.new), default=Fraction(0)),
     }
-    points = maimai_scores(b50, db) if game == "maimai" else []
+    points, all_played = maimai_scores(b50, db) if game == "maimai" else ([], False)
+    usual = USUAL_PLAYED if all_played else USUAL_B50
     played = {(normalize_title(t), d): score for (t, d), score in b50.played.items()}
     proven: dict[float, float | None] = {}
     candidates = []
@@ -337,7 +347,7 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
                 target = chunithm_target(current, chart.level_const)
             else:
                 if chart.level_const not in proven:
-                    proven[chart.level_const] = maimai_proven(points, chart.level_const)
+                    proven[chart.level_const] = maimai_proven(points, chart.level_const, usual)
                 entry = maimai_entry(chart.level_const, floors[new])
                 target = maimai_target(proven[chart.level_const], entry, best)
             if target is None:

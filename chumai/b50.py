@@ -164,7 +164,7 @@ def b50_from_chunithm_net(
             info = songdb.chunithm_chart(r.idx, r.difficulty)
             level = info.level if info else "?"
             const = info.level_const if info else 0.0
-            out.append(make_entry("chunithm", r.title, r.difficulty, level, const, r.score, None, is_new, r.idx))
+            out.append(make_entry("chunithm", r.title, r.difficulty, level, const, r.score, r.lamp, is_new, r.idx))
         return sorted(out, key=_sort_key, reverse=True)
 
     return B50(

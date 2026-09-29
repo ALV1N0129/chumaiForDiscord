@@ -66,3 +66,14 @@ def test_maimai_profile_parts():
     p = net_parsers.parse_maimai_player(html)
     assert p.icon_url.endswith("/Icon/abc.png") and p.plate_url.endswith("/NamePlate/p.png")
     assert (p.title, p.title_rarity) == ("称号", "gold")
+
+
+def test_chunithm_lamps_from_a_record_page():
+    def form(idx, icons):
+        imgs = "".join(f'<img src="https://chunithm-net-eng.com/mobile/images/icon_{i}.png">' for i in icons)
+        return (f'<form action="x"><div class="musiclist_box bg_master"><div class="music_title">T{idx}</div>'
+                f'<div class="play_musicdata_icon">{imgs}</div><input name="idx" type="hidden" value="{idx}"/></div></form>')
+
+    html = form(1, ["clear", "alljusticecritical"]) + form(2, ["clear", "alljustice"]) + form(3, ["fullcombo"]) + \
+        form(4, ["clear"])
+    assert net_parsers.parse_chunithm_lamps(html) == {1: "AJC", 2: "AJ", 3: "FC"}

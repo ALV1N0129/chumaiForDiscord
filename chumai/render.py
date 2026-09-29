@@ -417,11 +417,23 @@ def _we_attribute(level: str) -> tuple[str, int] | None:
     return (m.group(1), int(m.group(2))) if m else None
 
 
+def _star(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, fill) -> None:
+    """A five-pointed star (drawn, so every one is the same size and shape)."""
+    import math
+
+    pts = []
+    for k in range(10):
+        a = -math.pi / 2 + k * math.pi / 5
+        rr = r if k % 2 == 0 else r * 0.45
+        pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
+    draw.polygon(pts, fill=fill)
+
+
 def _we_badge(kanji: str, stars: int, size: int) -> Image.Image:
     """The in-game WORLD'S END attribute tile: a white tile, a dark bar of gold stars on top and the
     attribute kanji in the rainbow under it. `size` is its width; it is a bit taller than wide."""
     w, h = size, round(size * 1.18)
-    bar = max(7, round(h * 0.2))
+    bar = max(8, round(h * 0.24))
     tile = Image.new("RGBA", (w + 4, h + 6), (0, 0, 0, 0))
     shadow = Image.new("L", tile.size, 0)
     ImageDraw.Draw(shadow).rounded_rectangle((2, 4, w + 1, h + 3), radius=max(3, size // 12), fill=110)
@@ -429,12 +441,10 @@ def _we_badge(kanji: str, stars: int, size: int) -> Image.Image:
     body = Image.new("RGBA", (w, h), (255, 255, 255, 255))
     draw = ImageDraw.Draw(body)
     draw.rectangle((0, 0, w, bar), fill=(22, 50, 66))
-    star_font = cjk(max(8, bar - 1))
-    sw = draw.textlength("★", font=star_font)
-    sx = (w - sw * 5) / 2
+    r = bar * 0.42  # five evenly spaced stars across the bar, lit up to `stars`
+    step = (w - 6) / 5
     for i in range(5):
-        draw.text((sx + i * sw, bar / 2 + 0.5), "★", font=star_font, fill=(255, 210, 60) if i < stars else (70, 90, 104),
-                  anchor="lm")
+        _star(draw, 3 + step * (i + 0.5), bar / 2 + 0.5, r, (255, 210, 60) if i < stars else (64, 86, 100))
     k = _rainbow_text(kanji, cjk(round((h - bar) * 0.8)))
     body.alpha_composite(k, ((w - k.width) // 2, bar + (h - bar - k.height) // 2 + 1))
     body.putalpha(_rounded_mask((w, h), max(3, size // 12)))
@@ -1131,12 +1141,14 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
     sx = tx + draw.textlength(score, font=num(40)) + 16
     draw.text((sx, y + h - 18), e.rank, font=num(24), fill=st["rank"] if e.rank in RANK_COLORS else st["muted"],
               anchor="ls")
-    if e.lamp:
+    if e.lamp:  # a box around AJC/AJ/FC, centred on the rank's letters
+        rb = num(24).getbbox(e.rank or "S", anchor="ls")
+        mid = y + h - 18 + (rb[1] + rb[3]) / 2
         lx = sx + draw.textlength(e.rank, font=num(24)) + 10
         lw = draw.textlength(e.lamp, font=num(16)) + 12
         lamp_color = LAMP_COLORS.get(e.lamp, st["muted"])
-        draw.rounded_rectangle((lx, y + h - 40, lx + lw, y + h - 20), radius=5, outline=lamp_color, width=2)
-        draw.text((lx + lw / 2, y + h - 30), e.lamp, font=num(16), fill=lamp_color, anchor="mm")
+        draw.rounded_rectangle((lx, mid - 11, lx + lw, mid + 11), radius=5, outline=lamp_color, width=2)
+        draw.text((lx + lw / 2, mid), e.lamp, font=num(16), fill=lamp_color, anchor="mm")
 
 
 def render_credit(game: str, player: str, entries: list[Entry], badges: list, date: str,

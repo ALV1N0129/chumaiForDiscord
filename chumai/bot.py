@@ -355,6 +355,7 @@ async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str, image
                 pages = await asyncio.gather(*(net.get(p) for p in paths))
                 best, new = (net_parsers.parse_chunithm_rating_list(p) for p in pages)
                 if images:
+                    await _chunithm_lamps(net, best + new)
                     try:
                         player.plate_url = net_parsers.parse_chunithm_nameplate(
                             await net.get("/mobile/collection/customise/")
@@ -405,6 +406,21 @@ async def _cached_image(bot: ChumaiBot, net: NetClient, game: str, url: str | No
 
 
 CHUNITHM_RECORD_DIFFS = ["BASIC", "ADVANCED", "EXPERT", "MASTER", "ULTIMA"]
+
+
+async def _chunithm_lamps(net: NetClient, records: list) -> None:
+    """Fill in AJC/AJ/FC from the record pages of the difficulties in `records` (the rating lists
+    don't show them). One page at a time: each lists every song."""
+    try:
+        for diff in [d for d in CHUNITHM_RECORD_DIFFS if any(r.difficulty == d for r in records)]:
+            html = await net.post(f"/mobile/record/musicGenre/send{diff.capitalize()}", {"genre": "99"})
+            lamps = net_parsers.parse_chunithm_lamps(html)
+            del html
+            for r in records:
+                if r.difficulty == diff:
+                    r.lamp = lamps.get(r.idx)
+    except Exception:
+        log.warning("could not load CHUNITHM lamps", exc_info=True)
 
 
 async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None) -> dict[tuple[str, str], float]:

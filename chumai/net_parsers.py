@@ -27,6 +27,7 @@ class ChunithmRecord:
     title: str
     difficulty: str
     score: int
+    lamp: str | None = None  # "AJC" / "AJ" / "FC" (only the record pages show it)
 
 
 @dataclass
@@ -118,6 +119,28 @@ def parse_chunithm_rating_list(html: str | bytes) -> list[ChunithmRecord]:
             )
         )
     return records
+
+
+CHUNITHM_LAMP_ICONS = (("alljusticecritical", "AJC"), ("alljustice", "AJ"), ("fullcombo", "FC"))
+_IDX = re.compile(r'<input[^>]*name="idx"[^>]*value="(\d+)"|<input[^>]*value="(\d+)"[^>]*name="idx"')
+
+
+def parse_chunithm_lamps(html: str | bytes) -> dict[int, str]:
+    """{music idx: "AJC"/"AJ"/"FC"} from a record page (musicGenre/send<Difficulty>).
+
+    These pages list every song, so they are read with plain string searches (one song's <form>
+    at a time) instead of a parsed tree, which would take tens of MB on a small host."""
+    text = html.decode("utf-8", "replace") if isinstance(html, bytes) else html
+    lamps = {}
+    for chunk in text.split("<form")[1:]:
+        m = _IDX.search(chunk)
+        if not m:
+            continue
+        for name, lamp in CHUNITHM_LAMP_ICONS:
+            if name in chunk:
+                lamps[int(m.group(1) or m.group(2))] = lamp
+                break
+    return lamps
 
 
 # ------------------------------------------------------------------ maimai

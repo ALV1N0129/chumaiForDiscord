@@ -23,7 +23,7 @@ from .fonts import ensure_font
 from .logos import download_logos
 from .playlog import badges as play_badges, to_entry
 from .render import render_b50, render_credit
-from .segaid import LoginFailed, NetClient, SegaError, login
+from .segaid import LoginFailed, NetClient, SegaError, forget_sessions, login
 from .songdb import SongDB
 from .storage import LinkStore
 
@@ -156,6 +156,9 @@ def register_commands(bot: ChumaiBot) -> None:
 
     @tree.command(name="logout", description="저장된 SEGA ID 로그인 정보를 삭제합니다")
     async def logout(interaction: discord.Interaction) -> None:
+        token = bot.links.get_sega_token(interaction.user.id)
+        if token:
+            forget_sessions(token)
         removed = bot.links.delete_sega_token(interaction.user.id)
         msg = "로그인 정보를 삭제했어요." if removed else "저장된 로그인 정보가 없어요."
         await interaction.response.send_message(msg, ephemeral=True)

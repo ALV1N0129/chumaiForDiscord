@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from http.cookies import SimpleCookie
 
 import aiohttp
 from yarl import URL
@@ -169,10 +170,24 @@ async def login(sega_id: str, password: str, otp: str | None = None) -> str:
         return clal
 
 
+# Game-site session cookies from the last visit, keyed by (game, clal), so the next visit (e.g. the
+# play log check every minute) can skip the gateway login while the site still accepts them.
+# Memory only; a stale entry just costs one login.
+_site_cookies: dict[tuple[str, str], SimpleCookie] = {}
+SITE_COOKIE_LIMIT = 500
+
+
+def forget_sessions(clal: str) -> None:
+    """Drop the remembered game-site sessions of a token (on logout)."""
+    for key in [k for k in _site_cookies if k[1] == clal]:
+        del _site_cookies[key]
+
+
 class NetClient:
     """Authenticated session for one game site. Use as `async with`."""
 
     def __init__(self, game: str, clal: str):
+        self.game = game
         self.site = SITES[game]
         self.clal = clal
         self._session: aiohttp.ClientSession | None = None
@@ -181,12 +196,24 @@ class NetClient:
     async def __aenter__(self) -> "NetClient":
         self._session = _new_session()
         self._session.cookie_jar.update_cookies({"clal": self.clal}, GATEWAY)
+        saved = _site_cookies.get((self.game, self.clal))
+        if saved:
+            # try the old session first; get()/post() log in again if the site bounces us
+            self._session.cookie_jar.update_cookies(saved, self.site.base)
+            self._authed = True
         return self
 
     async def __aexit__(self, *exc) -> None:
         if self._session is not None:
+            old = (self.game, self.clal)
             # The gateway may rotate the token; remember the latest one.
             self.clal = _get_clal(self._session) or self.clal
+            _site_cookies.pop(old, None)
+            cookies = self._session.cookie_jar.filter_cookies(self.site.base)
+            if cookies:
+                if len(_site_cookies) >= SITE_COOKIE_LIMIT:
+                    _site_cookies.pop(next(iter(_site_cookies)))
+                _site_cookies[(self.game, self.clal)] = cookies
             await self._session.close()
 
     async def _authenticate(self) -> None:

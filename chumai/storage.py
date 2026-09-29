@@ -43,6 +43,13 @@ class LinkStore:
                 rating TEXT NOT NULL,
                 PRIMARY KEY (discord_id, game)
             );
+            CREATE TABLE IF NOT EXISTS song_aliases (
+                guild_id INTEGER NOT NULL,
+                game TEXT NOT NULL,
+                title TEXT NOT NULL,
+                alias TEXT NOT NULL,
+                PRIMARY KEY (guild_id, game, title, alias)
+            );
             CREATE TABLE IF NOT EXISTS sega_tokens (
                 discord_id INTEGER PRIMARY KEY,
                 token TEXT NOT NULL,
@@ -174,6 +181,23 @@ class LinkStore:
             (discord_id, game, rating),
         )
         self._db.commit()
+
+    # nicknames for songs in the guessing games, per server (0 outside servers)
+    def add_alias(self, guild_id: int, game: str, title: str, alias: str) -> bool:
+        cur = self._db.execute("INSERT OR IGNORE INTO song_aliases VALUES (?, ?, ?, ?)", (guild_id, game, title, alias))
+        self._db.commit()
+        return cur.rowcount > 0
+
+    def remove_alias(self, guild_id: int, game: str, title: str, alias: str) -> bool:
+        cur = self._db.execute("DELETE FROM song_aliases WHERE guild_id = ? AND game = ? AND title = ? AND alias = ?",
+                               (guild_id, game, title, alias))
+        self._db.commit()
+        return cur.rowcount > 0
+
+    def aliases(self, guild_id: int, game: str, title: str) -> list[str]:
+        rows = self._db.execute("SELECT alias FROM song_aliases WHERE guild_id = ? AND game = ? AND title = ? "
+                                "ORDER BY rowid", (guild_id, game, title))
+        return [r[0] for r in rows]
 
     def close(self) -> None:
         self._db.close()

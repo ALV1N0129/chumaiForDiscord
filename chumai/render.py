@@ -482,25 +482,6 @@ def _maimai_label(text: str, font, color: tuple[int, int, int], deep: tuple[int,
     return out
 
 
-@lru_cache(maxsize=16)
-def _utage_badge(kanji: str, size: int) -> Image.Image:
-    """A 宴 chart's kanji (協, 蔵, ...) on a magenta tile, drawn at 4x and shrunk."""
-    ss = 4
-    s = size * ss
-    body = _horizontal_gradient((s, s), [(250, 110, 230), UTAGE_PINK, (190, 30, 170)]).convert("RGBA")
-    k = _maimai_label(kanji, cjk(round(s * 0.62)), UTAGE_DEEP, (110, 0, 95))
-    body.alpha_composite(k, ((s - k.width) // 2, (s - k.height) // 2))
-    ImageDraw.Draw(body).rounded_rectangle((0, 0, s - 1, s - 1), radius=s // 6, outline=WHITE, width=3 * ss)
-    body.putalpha(_rounded_mask((s, s), s // 6))
-    body = body.resize((size, size), Image.LANCZOS)
-    tile = Image.new("RGBA", (size + 4, size + 6), (0, 0, 0, 0))
-    shadow = Image.new("L", tile.size, 0)
-    ImageDraw.Draw(shadow).rounded_rectangle((2, 4, size + 1, size + 3), radius=size // 6, fill=110)
-    tile.putalpha(shadow.filter(ImageFilter.GaussianBlur(2)))
-    tile.alpha_composite(body, (2, 1))
-    return tile
-
-
 def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: dict, st: dict,
                title_reserve: int = 0) -> None:
     """One chart card. title_reserve: room kept free at the right of the title row (drops the #n)."""
@@ -1169,8 +1150,8 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
         draw = ImageDraw.Draw(canvas)
 
     label, name, color, _ = _diff_info(e.difficulty)
-    kanji, title = _utage_title(e.title) if label == "宴" else (None, e.title)
-    draw.text((tx, y + 14), _fit(draw, title, cjk(24), right - side - 24 - tx), font=cjk(24), fill=st["text"])
+    kanji = _utage_title(e.title)[0] if label == "宴" else None  # the title keeps its [協]
+    draw.text((tx, y + 14), _fit(draw, e.title, cjk(24), right - side - 24 - tx), font=cjk(24), fill=st["text"])
     level = f"{e.level_const:.1f}" if e.level_const else e.level  # just the constant (unrated charts: their level)
     if label == "WE":  # WORLD'S END in the label's rainbow; the attribute tile on the jacket, as in the game
         info_font = num(21, "SemiBold")  # the same font and baseline as the other difficulties
@@ -1186,8 +1167,9 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
         _over(canvas, tag, (tx - 2, y + 48))
         lv = _maimai_label(level, num(22), UTAGE_PINK, UTAGE_DEEP)
         _over(canvas, lv, (tx - 2 + tag.width + 8, y + 48))
-        if kanji:
-            _over(canvas, _utage_badge(kanji, 38), (x + 40, y + h - 44))
+        if kanji:  # the kanji alone over the jacket's bottom left, lettered like the U·TA·GE label
+            mark = _maimai_label(kanji, cjk(30), UTAGE_PINK, UTAGE_DEEP)
+            _over(canvas, mark, (x + 42, y + h - mark.height - 4))
         draw = ImageDraw.Draw(canvas)
     else:
         info_font = num(21, "SemiBold") if level.isascii() else cjk(18)

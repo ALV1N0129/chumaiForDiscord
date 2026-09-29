@@ -301,3 +301,34 @@ def test_jacket_failure_is_retried_later(tmp_path, monkeypatch):
     store._failed["a.png"] -= jackets.RETRY_FAILED_SECONDS + 1  # ten minutes later
     assert asyncio.run(store.fetch("maimai", [key])) == {0: tmp_path / "maimai" / "a.png"}
     assert "a.png" not in store._failed
+
+
+def test_jacket_download_retries_a_busy_server():
+    import asyncio
+
+    from aiohttp import web
+
+    from chumai import jackets
+
+    hits = []
+
+    async def image(request):
+        hits.append(1)
+        return web.Response(status=503) if len(hits) == 1 else web.Response(body=b"PNG")
+
+    async def main():
+        app = web.Application()
+        app.router.add_get("/a.png", image)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        try:
+            store = jackets.JacketStore(".")
+            async with store._session() as s:
+                return await store._download(s, [f"http://127.0.0.1:{port}/a.png"])
+        finally:
+            await runner.cleanup()
+
+    assert asyncio.run(main()) == b"PNG" and len(hits) == 2

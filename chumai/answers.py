@@ -45,15 +45,20 @@ def _is_wide(ch: str) -> bool:
     return ord(ch) >= 0x2E80  # kana, kanji, Hangul: one character says a lot
 
 
-def _close(a: str, k: str, fuzzy: float, min_part: float = MIN_PART) -> bool:
-    """Same, nearly the same, or a long enough part of k."""
+def _close(a: str, k: str, fuzzy: float, min_part: float = MIN_PART, part: bool = True) -> bool:
+    """Same, nearly the same, or (if `part`) a long enough part of k."""
     if not a or not k:
         return False
     if a == k or difflib.SequenceMatcher(None, a, k).ratio() >= fuzzy:
         return True
-    long_enough = len(a) >= 4 or (len(a) >= 2 and any(_is_wide(c) for c in a))
-    # the start of a title is a natural short form; elsewhere it must be a fair share of it
-    return long_enough and (k.startswith(a) or (a in k and len(a) >= min_part * len(k)))
+    if not part:
+        return False
+    wide = any(_is_wide(c) for c in a)
+    long_enough = len(a) >= 4 or (len(a) >= 2 and wide)
+    # the start of a title is a natural short form, and so is its end (a subtitle: 「風唄」) when
+    # a bit longer; elsewhere it must be a fair share of it
+    return long_enough and (k.startswith(a) or (k.endswith(a) and (len(a) >= 5 or wide))
+                            or (a in k and len(a) >= min_part * len(k)))
 
 
 # --------------------------------------------------------------- kana -> Hangul
@@ -201,27 +206,45 @@ def korean_readings(title: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
-# Community nicknames collected by GCM-bot (https://github.com/lomotos10/GCM-bot): Korean for maimai,
-# English/romaji for both. Downloaded when the bot runs and kept in the cache folder, not shipped here.
+# Community nicknames, downloaded when the bot runs and kept in the cache folders, not shipped here:
+# - GCM-bot (https://github.com/lomotos10/GCM-bot): Korean for maimai, English/romaji for both;
+# - chuni-penguin (https://github.com/beer-psi/chuni-penguin, 0BSD): English/romaji for CHUNITHM, from
+#   the song data the chart game already downloads (charts.py).
 COMMUNITY_URL = "https://raw.githubusercontent.com/lomotos10/GCM-bot/main/data/aliases/{lang}/{name}.tsv"
 COMMUNITY_FILES = {"chunithm": [("en", "chuni")], "maimai": [("ko", "maimai"), ("en", "maimai")]}
 COMMUNITY_REFRESH = 7 * 24 * 60 * 60
-_community: dict[str, dict[str, list[str]]] = {"chunithm": {}, "maimai": {}}
+# (source, game) -> {folded title: [nickname]}
+_community: dict[tuple[str, str], dict[str, list[str]]] = {}
 
 
-def load_community(game: str, text: str) -> None:
-    """Add the nicknames of a GCM-bot alias file (title<TAB>nickname<TAB>...)."""
-    table = _community[game]
-    for line in text.splitlines():
-        title, *names = line.split("\t")
-        names = [n.strip() for n in names if n.strip()]
-        if title.strip() and names:
+def set_community(source: str, game: str, rows) -> None:
+    """Replace one source's nicknames for a game: rows of (title, [nickname])."""
+    table: dict[str, list[str]] = {}
+    for title, names in rows:
+        names = [n.strip() for n in names if n and n.strip()]
+        if title and title.strip() and names:
             found = table.setdefault(fold(title), [])
             found.extend(n for n in names if n not in found)
+    _community[(source, game)] = table
+
+
+def load_community(game: str, text: str, source: str = "gcm") -> None:
+    """Load a GCM-bot alias file (title<TAB>nickname<TAB>...)."""
+    rows = [(line.split("\t")[0], line.split("\t")[1:]) for line in text.splitlines()]
+    set_community(source, game, [*_rows(source, game), *rows])
+
+
+def _rows(source: str, game: str):
+    return [(t, n) for t, n in _community.get((source, game), {}).items()]
 
 
 def community_aliases(game: str, title: str) -> list[str]:
-    return _community.get(game, {}).get(fold(title), [])
+    key = fold(title)
+    out: list[str] = []
+    for (_, g), table in _community.items():
+        if g == game:
+            out.extend(n for n in table.get(key, []) if n not in out)
+    return out
 
 
 async def update_community(cache_dir: str | Path) -> None:
@@ -233,7 +256,7 @@ async def update_community(cache_dir: str | Path) -> None:
     cache.mkdir(parents=True, exist_ok=True)
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as s:
         for game, files in COMMUNITY_FILES.items():
-            _community[game] = {}
+            _community.pop(("gcm", game), None)
             for lang, name in files:
                 path = cache / f"{lang}_{name}.tsv"
                 if not path.exists() or time.time() - path.stat().st_mtime > COMMUNITY_REFRESH:
@@ -245,7 +268,7 @@ async def update_community(cache_dir: str | Path) -> None:
                         log.warning("could not download community nicknames %s/%s: %s", lang, name, e)
                 if path.exists():
                     load_community(game, path.read_text(encoding="utf-8"))
-    log.info("community nicknames: %s", {g: len(t) for g, t in _community.items()})
+    log.info("community nicknames: %s", {f"{s}/{g}": len(t) for (s, g), t in _community.items()})
 
 
 def initials(name: str) -> str:
@@ -257,11 +280,49 @@ def initials(name: str) -> str:
     return "".join(w[0] for w in words)
 
 
+_PARTS = re.compile(r"[「」『』《》〚〛【】()（）\[\]{}<>＜＞～~〜\-―－/／\"“”]+|\s-\s|\sfeat\.?\s", re.I)
+
+
+def title_parts(title: str) -> list[str]:
+    """The parts of a title that name it on their own: グラウンドスライダー協奏曲第一番「風唄」 ->
+    グラウンドスライダー協奏曲第一番, 風唄 ([] for a title of one part)."""
+    parts = [p.strip() for p in _PARTS.split(title) if len(fold(p)) >= 2]
+    return parts if len(parts) > 1 else []
+
+
+_ROMAJI = dict(zip("アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン",
+                   "a i u e o ka ki ku ke ko sa si su se so ta ti tu te to na ni nu ne no ha hi hu he ho "
+                   "ma mi mu me mo ya yu yo ra ri ru re ro wa o n".split()))
+
+
+def romaji_fold(text: str) -> str:
+    """Kana or romaji as folded romaji, for comparing romaji answers with the official readings:
+    voicing and the spellings of the same sound don't matter (kazeuta = kaseuta, shoushitsu = sositu)."""
+    text = kana_fold(text)
+    if _KANA.search(text):
+        out = ""
+        for ch in text:
+            if ch in "ヤユヨ" and out.endswith("i") and len(out) > 1 and out[-2] not in "aiueo":
+                out = out[:-1] + _ROMAJI[ch]  # シヨ -> sho (the readings write small ョ full size)
+            elif ch == "ッ":
+                continue
+            else:
+                out += _ROMAJI.get(ch, ch)
+        text = out
+    for a, b in (("sh", "s"), ("ch", "t"), ("ts", "t"), ("sy", "s"), ("ty", "t"), ("j", "s"), ("z", "s"), ("f", "h"), ("g", "k"),
+                 ("d", "t"), ("b", "h"), ("p", "h"), ("v", "h"), ("l", "r"), ("ou", "o"), ("oo", "o"),
+                 ("uu", "u"), ("ei", "e"), ("aa", "a"), ("ii", "i"), ("y", "i")):
+        text = text.replace(a, b)
+    return text
+
+
 def matches(answer: str, titles: list[str], readings: list[str] = (), aliases: list[str] = ()) -> bool:
     """Whether `answer` names the song with these titles, official readings and nicknames."""
     a = fold(answer)
-    if not a:
-        return False
+    if not a:  # only symbols: a title of only symbols (∀) as it is
+        a = unicodedata.normalize("NFKC", answer).strip()
+        return bool(a) and any(a == unicodedata.normalize("NFKC", t).strip() for t in [*titles, *aliases])
+    titles = [*titles, *(p for t in titles for p in title_parts(t))]
     spoken_titles = [p for t in titles for p in pronunciations(t)]
     if any(_close(a, fold(k), FUZZY) for k in [*titles, *aliases, *spoken_titles]):
         return True
@@ -275,7 +336,10 @@ def matches(answer: str, titles: list[str], readings: list[str] = (), aliases: l
         spoken += [hangul_key(k) for t in titles for k in korean_readings(t)]
         spoken += [hangul_key(fold(p)) for p in [*spoken_titles, *aliases] if _HANGUL.search(p)]
         # compared as letters (ㄴㅗㅅㅛ), about twice as long as syllables: a smaller share will do
-        return any(_close(key, k, FUZZY_KOREAN, MIN_PART * 0.8) for k in spoken)
+        # one syllable (링) is too little to be part of a title: only the whole thing
+        part = len(_HANGUL.findall(a)) >= 2
+        return any(_close(key, k, FUZZY_KOREAN, MIN_PART * 0.8, part) for k in spoken)
     if _KANA.search(a):
         return any(_close(kana_fold(a), kana_fold(r), FUZZY) for r in readings)
-    return False
+    # romaji: compared with the readings in romaji
+    return any(_close(romaji_fold(a), romaji_fold(r), FUZZY) for r in readings)

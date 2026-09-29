@@ -87,7 +87,7 @@ def test_initials_of_korean_names():
 
 def test_community_nicknames(monkeypatch):
     from chumai import answers
-    monkeypatch.setattr(answers, "_community", {"chunithm": {}, "maimai": {}})
+    monkeypatch.setattr(answers, "_community", {})
     answers.load_community("maimai", "女々しくて\t메메시쿠테\t소심하니까\nGarden\n残酷な天使のテーゼ\t에반게리온\n")
     answers.load_community("chunithm", "違う、そうじゃない\tCHIGAU SOUJANAI\tChigau Sou Jya Nai\n")
     assert answers.community_aliases("maimai", "女々しくて") == ["메메시쿠테", "소심하니까"]
@@ -96,3 +96,16 @@ def test_community_nicknames(monkeypatch):
     assert matches("chigau sou jya nai", ["違う、そうじゃない"], [],
                    answers.community_aliases("chunithm", "違う、そうじゃない"))
     assert not matches("에반게리온", ["女々しくて"], [], answers.community_aliases("maimai", "女々しくて"))
+
+
+def test_title_parts_romaji_and_symbols():
+    from chumai.answers import title_parts
+    title, reading = "グラウンドスライダー協奏曲第一番「風唄」", ["クラウントスライタアキヨウソウキヨクタイイチハンカセウタ"]
+    assert title_parts(title) == ["グラウンドスライダー協奏曲第一番", "風唄"]
+    assert matches("풍패", [title], reading)  # 風唄 in its Korean reading
+    assert matches("kazeuta", [title], reading)  # romaji of the reading's end
+    assert matches("shoushitsu", ["初音ミクの消失"], ["ハツネミクノシヨウシツ"])
+    assert matches("senbonzakura", ["千本桜"], ["センホンサクラ"])
+    assert not matches("kazeuta", ["千本桜"], ["センホンサクラ"])
+    assert not matches("링", ["名前のない怪物"], ["ナマエノナイカイフツ"])  # one syllable: only a whole name
+    assert matches("∀", ["∀"]) and not matches("∀", ["Aleph-0"])

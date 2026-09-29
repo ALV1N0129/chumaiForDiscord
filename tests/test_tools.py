@@ -178,6 +178,18 @@ def test_maimai_proven_is_the_usual_rank_nearby():
     assert tools.usual_rank("maimai", played, 12.0, tools.USUAL_PLAYED) == 99.0  # 5th of 7: 99.1
 
 
+def test_entry_score_is_the_exact_cut():
+    from fractions import Fraction
+
+    cut = tools.entry_score("maimai", 14.3, Fraction(309))
+    assert cut == 100.3627
+    assert tools.chart_rating("maimai", 14.3, cut) == 310 and tools.chart_rating("maimai", 14.3, 100.3626) == 309
+    cut = tools.entry_score("chunithm", 15.5, Fraction("17.45"))
+    assert cut == 1_007_300 and tools.chart_rating("chunithm", 15.5, cut) == Fraction("17.46")
+    assert tools.chart_rating("chunithm", 15.5, cut - 1) == Fraction("17.45")  # equal to the cut is not enough
+    assert tools.entry_score("maimai", 12.0, Fraction(309)) is None
+
+
 def test_maimai_entry_and_target():
     from fractions import Fraction
 

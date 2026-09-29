@@ -424,8 +424,9 @@ def register(bot: ChumaiBot) -> None:
             else:
                 right = f"+{tools.fmt_rating(game, r.after - r.before)}"
             sub_line = f"목표 {_rank(game, r.target_score)}"
-            if r.entry is not None and r.entry < r.target_score:  # the least that still counts
-                sub_line += f" · 최소 {_rank(game, r.entry)}"
+            # the exact score that still counts, unless it is the target itself (100.4999% for SSS+)
+            if r.cut is not None and r.cut < r.target_score - (0.0001 if game == "maimai" else 1) - 1e-9:
+                sub_line += f" · 최소 {tools.fmt_score(game, r.cut)}"
             if r.best is not None:
                 sub_line += f" · 현재 {r.best:.2f}%" if game == "maimai" else f" · 현재 {tools.fmt_score(game, r.best)}"
             rows.append(_chart_row(

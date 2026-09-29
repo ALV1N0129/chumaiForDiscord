@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import unicodedata
 from datetime import datetime
 from functools import lru_cache
@@ -410,6 +411,37 @@ def _rainbow_text(text: str, font, outline: bool = False, pad: int = 3) -> Image
     return out
 
 
+def _we_attribute(level: str) -> tuple[str, int] | None:
+    """("狂", 5) from a WORLD'S END level like "狂☆5"."""
+    m = re.match(r"^(.)☆(\d)$", level or "")
+    return (m.group(1), int(m.group(2))) if m else None
+
+
+def _we_badge(kanji: str, stars: int, size: int) -> Image.Image:
+    """The in-game WORLD'S END attribute tile: a white tile, a dark bar of gold stars on top and the
+    attribute kanji in the rainbow under it. `size` is its width; it is a bit taller than wide."""
+    w, h = size, round(size * 1.18)
+    bar = max(7, round(h * 0.2))
+    tile = Image.new("RGBA", (w + 4, h + 6), (0, 0, 0, 0))
+    shadow = Image.new("L", tile.size, 0)
+    ImageDraw.Draw(shadow).rounded_rectangle((2, 4, w + 1, h + 3), radius=max(3, size // 12), fill=110)
+    tile.putalpha(shadow.filter(ImageFilter.GaussianBlur(2)))
+    body = Image.new("RGBA", (w, h), (255, 255, 255, 255))
+    draw = ImageDraw.Draw(body)
+    draw.rectangle((0, 0, w, bar), fill=(22, 50, 66))
+    star_font = cjk(max(8, bar - 1))
+    sw = draw.textlength("★", font=star_font)
+    sx = (w - sw * 5) / 2
+    for i in range(5):
+        draw.text((sx + i * sw, bar / 2 + 0.5), "★", font=star_font, fill=(255, 210, 60) if i < stars else (70, 90, 104),
+                  anchor="lm")
+    k = _rainbow_text(kanji, cjk(round((h - bar) * 0.8)))
+    body.alpha_composite(k, ((w - k.width) // 2, bar + (h - bar - k.height) // 2 + 1))
+    body.putalpha(_rounded_mask((w, h), max(3, size // 12)))
+    tile.alpha_composite(body, (2, 1))
+    return tile
+
+
 def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: dict, st: dict,
                title_reserve: int = 0) -> None:
     """One chart card. title_reserve: room kept free at the right of the title row (drops the #n)."""
@@ -453,13 +485,12 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
         _spaced_text(td, (JACKET / 2 + 1, tag_h / 2 + 1), "WORLD'S END", num(18), WE_OUTLINE, 1.6)
         _spaced_text(td, (JACKET / 2, tag_h / 2), "WORLD'S END", num(18), WE_TEXT, 1.6)
         canvas.paste(tag, (jx, jy + JACKET - tag_h))
-        # the attribute and stars ("狂☆5") in rainbow letters on a white chip at the jacket's top right
-        chip = _rainbow_text(const, cjk(16), outline=True)
-        cw = chip.width + 8
-        draw = ImageDraw.Draw(canvas)
-        draw.rounded_rectangle((jx + JACKET - 4 - cw, jy + 4, jx + JACKET - 4, jy + 6 + chip.height), radius=6,
-                               fill=WHITE)
-        _over(canvas, chip, (jx + JACKET - cw, jy + 5))
+        # the attribute tile at the jacket's top right, as in the game
+        attr = _we_attribute(const)
+        if attr:
+            tile = _we_badge(*attr, 30)
+            _over(canvas, tile, (jx + JACKET - tile.width - 2, jy + 2))
+            draw = ImageDraw.Draw(canvas)
     else:
         draw.rectangle((jx, jy + JACKET - tag_h, jx + JACKET - 1, jy + JACKET - 1),
                        fill=(12, 12, 14) if ultima else color)
@@ -1081,10 +1112,12 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
     draw.text((tx, y + 14), _fit(draw, e.title, cjk(24), right - side - 24 - tx), font=cjk(24), fill=st["text"])
     label, name, color, _ = _diff_info(e.difficulty)
     level = f"{e.level_const:.1f}" if e.level_const else e.level  # just the constant (unrated charts: their level)
-    if label == "WE":  # in the WORLD'S END label's colors, the name and the attribute each their own rainbow
-        we_name = _rainbow_text(name, cjk(19))
-        _over(canvas, we_name, (tx - 3, y + 50))
-        _over(canvas, _rainbow_text(level, cjk(19)), (tx - 3 + we_name.width + 8, y + 50))
+    if label == "WE":  # WORLD'S END in the label's rainbow; the attribute tile on the jacket, as in the game
+        _over(canvas, _rainbow_text(name, cjk(19)), (tx - 3, y + 50))
+        attr = _we_attribute(level)
+        if attr:
+            tile = _we_badge(*attr, 38)
+            _over(canvas, tile, (x + 40, y + h - tile.height + 2))
         draw = ImageDraw.Draw(canvas)
     else:
         info_font = num(21, "SemiBold") if level.isascii() else cjk(18)

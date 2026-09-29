@@ -62,7 +62,8 @@ class ChumaiBot(discord.Client):
         self._charts_task = asyncio.create_task(self._load_charts())  # large download; don't wait
         render.release_memory()
         render.LOGO_DIR = Path(self.config.logo_dir)
-        await download_logos(self.config.logo_dir, self.config.logo_urls)
+        # the game logos from .env, and CHUNITHM-NET's WORLD'S END label for play log cards
+        await download_logos(self.config.logo_dir, {**self.config.logo_urls, "we_label": render.WE_LABEL_URL})
         if await ensure_font(render.FONT_DIR):
             render.cjk.cache_clear()
         self.refresh_songdb.start()

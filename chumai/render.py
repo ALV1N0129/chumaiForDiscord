@@ -69,40 +69,30 @@ DIFFS = {
     "utage": ("宴", (208, 8, 176)),  # maimai DX NET's U·TA·GE magenta
 }
 
-# CHUNITHM-NET's WORLD'S END label: diagonal rainbow bands with cream text
-WE_BANDS = [(12, 110, 243), (96, 180, 89), (226, 176, 5), (211, 78, 27), (215, 8, 144)]
+# CHUNITHM-NET's WORLD'S END label (musiclevel_worldsend.png, 140x20): bands leaning "/" (0.9 height
+# across per height down), each 1.8 heights wide (red half that), in this order; cream, outlined text
+WE_BANDS = [((12, 110, 243), 1.8), ((96, 180, 89), 1.8), ((226, 176, 5), 1.8), ((211, 40, 30), 0.9),
+            ((215, 8, 144), 1.8)]
 WE_TEXT = (249, 249, 219)
-
-
-WE_LABEL_URL = "https://chunithm-net-eng.com/mobile/images/musiclevel_worldsend.png"  # saved as LOGO_DIR/we_label.png
-
-
-@lru_cache(maxsize=2)
-def _we_label(width: int) -> Image.Image:
-    """CHUNITHM-NET's "WORLD'S END" label at `width` (drawn alike if it could not be downloaded)."""
-    try:
-        with Image.open(LOGO_DIR / "we_label.png") as im:
-            label = im.convert("RGBA")
-        return label.resize((width, max(1, round(label.height * width / label.width))), Image.LANCZOS)
-    except Exception:
-        h = max(14, width // 7)
-        label = _we_rainbow(width, h).convert("RGBA")
-        ImageDraw.Draw(label).text((width / 2, h / 2), "WORLD'S END", font=num(h - 3), fill=WE_TEXT, anchor="mm",
-                                   stroke_width=1, stroke_fill=(40, 30, 60))
-        return label
+WE_OUTLINE = (60, 40, 70)
 
 
 @lru_cache(maxsize=4)
-def _we_rainbow(w: int, h: int) -> Image.Image:
-    """w x h of WORLD'S END's slanted rainbow bands."""
-    img = Image.new("RGB", (w, h), WE_BANDS[0])
+def _we_texture(w: int, h: int) -> Image.Image:
+    """w x h of the WORLD'S END label's bands, scaled to the width as on the label (all five colors
+    across, the first blue band cut at the left edge)."""
+    unit = w / 7  # the label is 7 times wider than tall
+    img = Image.new("RGB", (w, h))
     draw = ImageDraw.Draw(img)
-    band = max(12, w // 6)
-    slant = h * 0.6
-    for i in range(-2, w // band + 3):
-        x = i * band
-        draw.polygon([(x, h), (x + band, h), (x + band + slant, 0), (x + slant, 0)], fill=WE_BANDS[i % len(WE_BANDS)])
+    slant = 0.9 * h  # the bands move this far left from top to bottom
+    x = -0.7 * unit
+    while x < w + slant:
+        for color, width in WE_BANDS:
+            bw = width * unit
+            draw.polygon([(x - slant, h), (x + bw - slant, h), (x + bw, 0), (x, 0)], fill=color)
+            x += bw
     return img
+
 
 RANK_COLORS = {
     "SSS+": (255, 214, 80),
@@ -398,8 +388,9 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
     if ultima:  # in-game ULTIMA: black with a red rim
         draw.rounded_rectangle((jx - 5, jy - 5, jx + JACKET + 4, jy + JACKET + 4), radius=11, fill=(210, 20, 50))
         draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=(12, 12, 14))
-    elif worlds_end:  # a light frame; the official label goes along the bottom
-        draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=(235, 235, 240))
+    elif worlds_end:  # the WORLD'S END label's rainbow as the frame
+        frame = _we_texture(JACKET + 6, JACKET + 6)
+        canvas.paste(frame, (jx - 3, jy - 3), _rounded_mask((JACKET + 6, JACKET + 6), 9))
     else:
         draw.rounded_rectangle((jx - 3, jy - 3, jx + JACKET + 2, jy + JACKET + 2), radius=9, fill=color)
     jacket = _load_jacket(e.jacket_path) if e.jacket_path else None
@@ -411,13 +402,12 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
     tag_h = 24
     const = f"{e.level_const:.1f}" if e.level_const else e.level
     tag_font = lambda t: num(17) if t.isascii() else cjk(15)  # noqa: E731  (宴, WORLD'S END's 狂☆5)
-    if worlds_end:  # CHUNITHM-NET's label along the bottom, the attribute and stars in a chip at the top
-        we = _we_label(JACKET)
-        _over(canvas, we, (jx, jy + JACKET - we.height))
+    if worlds_end:  # the level tag drawn like CHUNITHM-NET's WORLD'S END label
+        canvas.paste(_we_texture(JACKET, tag_h), (jx, jy + JACKET - tag_h))
         draw = ImageDraw.Draw(canvas)
-        cw = int(draw.textlength(const, font=tag_font(const))) + 14
-        draw.rounded_rectangle((jx + JACKET - 4 - cw, jy + 4, jx + JACKET - 4, jy + 26), radius=6, fill=(12, 12, 14))
-        draw.text((jx + JACKET - 4 - cw / 2, jy + 15), const, font=tag_font(const), fill=WE_TEXT, anchor="mm")
+        we_text = {"fill": WE_TEXT, "stroke_width": 2, "stroke_fill": WE_OUTLINE}
+        draw.text((jx + 6, jy + JACKET - tag_h / 2), label, font=tag_font(label), anchor="lm", **we_text)
+        draw.text((jx + JACKET - 6, jy + JACKET - tag_h / 2), const, font=tag_font(const), anchor="rm", **we_text)
     else:
         draw.rectangle((jx, jy + JACKET - tag_h, jx + JACKET - 1, jy + JACKET - 1),
                        fill=(12, 12, 14) if ultima else color)

@@ -133,7 +133,8 @@ Windows와 Mac은 따로 설치할 필요가 없고, Linux는 `sudo apt install 
 
 ### 신곡 기준 버전
 
-어떤 곡이 "신곡"인지는 버전으로 판정합니다. 기본값은 `maimaiでらっくす CiRCLE`, `CHUNITHM X-VERSE-X`이며
+어떤 곡이 "신곡"인지는 버전으로 판정합니다. 기본값은 `maimaiでらっくす CiRCLE`·`maimaiでらっくす CiRCLE PLUS`
+(PLUS 버전 기간에는 무印 버전 곡도 신곡), `CHUNITHM X-VERSE-X`이며
 새 버전이 나오거나 국제판 버전이 다르면 `.env`의 `MAIMAI_NEW_VERSIONS` / `CHUNITHM_NEW_VERSIONS`를 바꾸면 됩니다.
 
 ## 개발

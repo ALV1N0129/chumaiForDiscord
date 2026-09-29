@@ -279,3 +279,25 @@ def test_songdb_download_streams_to_disk(tmp_path):
     p = tmp_path / "items.json"
     p.write_text(json.dumps([{"a": 1.5}, {"b": [1, 2]}]))
     assert list(jsonstream.iter_items(p)) == [{"a": 1.5}, {"b": [1, 2]}]
+
+
+def test_jacket_failure_is_retried_later(tmp_path, monkeypatch):
+    import asyncio
+
+    from chumai import jackets
+
+    store = jackets.JacketStore(tmp_path)
+    store.maimai = {"song": [("maimai", "a.png")]}
+    calls = []
+
+    async def download(session, urls):
+        calls.append(urls[0])
+        return None if len(calls) == 1 else b"PNG"
+
+    monkeypatch.setattr(store, "_download", download)
+    key = ("Song", "maimai")
+    assert asyncio.run(store.fetch("maimai", [key])) == {}
+    assert asyncio.run(store.fetch("maimai", [key])) == {} and len(calls) == 1  # not hammered right away
+    store._failed["a.png"] -= jackets.RETRY_FAILED_SECONDS + 1  # ten minutes later
+    assert asyncio.run(store.fetch("maimai", [key])) == {0: tmp_path / "maimai" / "a.png"}
+    assert "a.png" not in store._failed

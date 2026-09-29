@@ -73,6 +73,7 @@ DIFFS = {
 # across per height down), each 1.8 heights wide (red half that), in this order
 WE_BANDS = [((12, 110, 243), 1.8), ((96, 180, 89), 1.8), ((226, 176, 5), 1.8), ((211, 40, 30), 0.9),
             ((215, 8, 144), 1.8)]
+WE_TEXT = (249, 249, 219)  # the label's cream letters
 WE_OUTLINE = (60, 40, 70)
 
 
@@ -401,14 +402,22 @@ def _draw_card(canvas: Image.Image, x: int, y: int, idx: int, e: Entry, theme: d
     tag_h = 24
     const = f"{e.level_const:.1f}" if e.level_const else e.level
     tag_font = lambda t: num(17) if t.isascii() else cjk(15)  # noqa: E731  (宴, WORLD'S END's 狂☆5)
-    if worlds_end:  # like CHUNITHM-NET's WORLD'S END label, in our tag's font
-        canvas.paste(_we_texture(JACKET, tag_h), (jx, jy + JACKET - tag_h))
-        draw = ImageDraw.Draw(canvas)
-        size = 17
-        while size > 11 and draw.textlength("WORLD'S END", font=num(size)) > JACKET - 10:
+    if worlds_end:  # like CHUNITHM-NET's WORLD'S END label: cream, rounded letters with a soft shadow
+        tag = _we_texture(JACKET, tag_h).convert("RGBA")
+        size = 15
+        while size > 10 and ImageDraw.Draw(tag).textlength("WORLD'S END", font=cjk(size)) > JACKET - 12:
             size -= 1
-        draw.text((jx + JACKET / 2, jy + JACKET - tag_h / 2), "WORLD'S END", font=num(size), fill=WHITE, anchor="mm",
-                  stroke_width=1, stroke_fill=WE_OUTLINE)
+        shadow = Image.new("RGBA", tag.size, (0, 0, 0, 0))
+        ImageDraw.Draw(shadow).text((JACKET / 2 + 1, tag_h / 2 + 1), "WORLD'S END", font=cjk(size),
+                                    fill=(*WE_OUTLINE, 200), anchor="mm")
+        tag.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(1.2)))
+        ImageDraw.Draw(tag).text((JACKET / 2, tag_h / 2), "WORLD'S END", font=cjk(size), fill=WE_TEXT, anchor="mm")
+        canvas.paste(tag.convert("RGB"), (jx, jy + JACKET - tag_h))
+        draw = ImageDraw.Draw(canvas)
+        # the attribute and stars ("狂☆5") in a dark chip at the jacket's top right
+        cw = int(draw.textlength(const, font=tag_font(const))) + 14
+        draw.rounded_rectangle((jx + JACKET - 4 - cw, jy + 4, jx + JACKET - 4, jy + 26), radius=6, fill=(12, 12, 14))
+        draw.text((jx + JACKET - 4 - cw / 2, jy + 15), const, font=tag_font(const), fill=WE_TEXT, anchor="mm")
     else:
         draw.rectangle((jx, jy + JACKET - tag_h, jx + JACKET - 1, jy + JACKET - 1),
                        fill=(12, 12, 14) if ultima else color)

@@ -693,10 +693,10 @@ def _title_badge(text: str, rarity: str | None, max_w: int) -> Image.Image:
     return badge
 
 
-def _draw_player(canvas: Image.Image, name: str, icon: bytes | None, kicker: str, chips: list[tuple[str, str]],
-                 max_right: int, theme: dict, st: dict) -> int:
+def _draw_player(canvas: Image.Image, name: str, icon: bytes | None, kicker: str, stats: list[tuple[str, str]],
+                 max_right: int, theme: dict, st: dict) -> None:
     """The player at the top left without a plate, like the play log: icon, kicker and name, and a
-    row of stat chips under them. Returns the x right after the last chip."""
+    line of stats (label, value) under them."""
     cx, cy, size = MARGIN, 44, 116
     tx = cx
     ic = _open_image(icon)
@@ -711,32 +711,27 @@ def _draw_player(canvas: Image.Image, name: str, icon: bytes | None, kicker: str
     draw.text((tx, cy + 26), kicker, font=num(26, "SemiBold"), fill=theme["accent"], anchor="ls")
     draw.text((tx - 2, cy + 104), _fit(draw, name, cjk(60), max_right - tx), font=cjk(60), fill=WHITE, anchor="ls")
 
-    sx, sy = cx, cy + size + 22
-    for label, value in chips:
-        lw = draw.textlength(label, font=num(15, "SemiBold"))
-        vw = draw.textlength(value, font=num(22))
-        w = int(lw + vw + 30)
-        chip = Image.new("RGBA", (w, 34), (0, 0, 0, 0))
-        chip.paste(Image.new("RGBA", (w, 34), (10, 8, 18, 150)), (0, 0), _rounded_mask((w, 34), 17))
-        _over(canvas, chip, (sx, sy))
-        draw.text((sx + 12, sy + 17), label, font=num(15, "SemiBold"), fill=st["faint"], anchor="lm")
-        draw.text((sx + w - 12, sy + 18), value, font=num(22), fill=st["text"], anchor="rm")
-        sx += w + 8
-    return sx
+    sx, base = cx + 2, cy + size + 46
+    for label, value in stats:
+        draw.text((sx, base), label, font=num(20, "SemiBold"), fill=st["muted"], anchor="ls")
+        sx += draw.textlength(label, font=num(20, "SemiBold")) + 10
+        draw.text((sx, base), value, font=num(30), fill=WHITE, anchor="ls")
+        sx += draw.textlength(value, font=num(30)) + 36
 
 
 def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dict) -> None:
     old_slots, new_slots = SLOTS[b50.game]
     _draw_logo(canvas, b50.game, width, theme)
 
-    fmt = (lambda v: f"{float(v):.2f}") if b50.game == "chunithm" else (lambda v: str(int(v)))
+    # CHUNITHM's rating is an average, so the two averages; maimai's is a sum, so the two sums
+    if b50.game == "chunithm":
+        stats = [(f"BEST {old_slots} AVG", b50.average_text(b50.old)),
+                 (f"NEW {new_slots} AVG", b50.average_text(b50.new))]
+    else:
+        stats = [(f"BEST {old_slots}", str(int(b50.old_sum))), (f"NEW {new_slots}", str(int(b50.new_sum)))]
     logo_left = (width - min(_logo_image(b50.game).width, width - 2 * (MARGIN + 580))) // 2
-    _draw_player(canvas, b50.username, b50.icon, f"{GAME_NAMES[b50.game].upper()}  PLAYER", [
-        (f"BEST {old_slots}", fmt(b50.old_sum)),
-        (f"NEW {new_slots}", fmt(b50.new_sum)),
-        (f"B{old_slots} AVG", b50.average_text(b50.old)),
-        (f"N{new_slots} AVG", b50.average_text(b50.new)),
-    ], logo_left - 24, theme, st)
+    _draw_player(canvas, b50.username, b50.icon, f"{GAME_NAMES[b50.game].upper()}  PLAYER", stats,
+                 logo_left - 24, theme, st)
 
     # the rating at the top right without a plate, like the play log: label and tier, then the number
     rating = b50.official_rating or b50.total_text()

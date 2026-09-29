@@ -175,12 +175,15 @@ def test_font_download(tmp_path):
     assert missing is None and not list((tmp_path / "other").iterdir())
 
 
-def test_maimai_proven_needs_two_charts_that_hard():
-    pts = [(12.2, 100.6), (11.9, 100.52), (12.8, 99.6), (12.7, 99.55), (13.7, 99.1), (12.9, 98.2)]
-    assert tools.maimai_proven(pts, 11.9) == 100.5  # SSS+ on 12.2 and 11.9
-    assert tools.maimai_proven(pts, 12.0) == 99.5  # one SSS+ at 12.2 is not enough
-    assert tools.maimai_proven(pts, 12.8) == 99.0  # SS+ only on 12.8; SS on 12.8 and 13.7
-    assert tools.maimai_proven(pts, 13.0) is None  # only the 13.7 is that hard
+def test_maimai_proven_is_the_usual_rank_nearby():
+    # RURU's 14.7~15.0: two SSS, six SS+ -> SS+
+    pts = [(14.8, 100.09), (14.9, 99.55), (14.8, 99.97), (14.8, 99.78), (14.8, 99.70), (14.7, 99.86),
+           (14.7, 99.69), (14.7, 100.36)]
+    assert tools.maimai_proven(pts, 14.7) == 99.5
+    more = pts + [(14.6, 100.40), (14.6, 100.25), (14.6, 100.11), (14.6, 100.08), (14.6, 100.0), (14.6, 100.26)]
+    assert tools.maimai_proven(more, 14.6) == 100.0  # 8 of 14 are SSS
+    assert tools.maimai_proven(pts, 15.0) is None  # nothing that hard
+    assert tools.maimai_proven([(12.0, 100.6), (12.1, 100.0)], 12.0) is None  # too few
 
 
 def test_maimai_entry_and_target():

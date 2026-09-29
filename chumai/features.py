@@ -442,7 +442,7 @@ def register(bot: ChumaiBot) -> None:
         if game == "chunithm":
             sub = f"현재 {tools.fmt_rating(game, b50.total)} · {tools.chunithm_advice(float(b50.total))}"
         else:
-            sub = f"현재 {tools.fmt_rating(game, b50.total)} · 2곡 이상 받아본 랭크 기준"
+            sub = f"현재 {tools.fmt_rating(game, b50.total)} · 비슷한 상수에서 보통 받는 랭크 기준"
         png = await asyncio.to_thread(render.render_chart_list, game, "RECOMMEND", "FOR YOU", rows, sub, None, 2)
         await interaction.followup.send(file=_image(png, f"recommend_{game}"))
 

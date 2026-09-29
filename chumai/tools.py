@@ -265,7 +265,8 @@ def chunithm_advice(rating: float) -> str:
 # maimai: the rating formula jumps at these achievements (rank borders), so they are the targets
 MAIMAI_TARGETS = [100.5, 100.0, 99.5, 99.0, 98.0, 97.0]
 MAIMAI_RANK_NAMES = {100.5: "SSS+", 100.0: "SSS", 99.5: "SS+", 99.0: "SS", 98.0: "S+", 97.0: "S"}
-PROOF = 2  # a rank counts as yours on a constant once you have it on this many charts at least that hard
+BAND = 0.5  # the scores that say what you get on a constant: that constant up to this much harder
+MIN_BAND_SCORES = 3
 
 
 def maimai_scores(b50: B50, db: SongDB | None = None) -> list[tuple[float, float]]:
@@ -280,11 +281,13 @@ def maimai_scores(b50: B50, db: SongDB | None = None) -> list[tuple[float, float
 
 
 def maimai_proven(points: list[tuple[float, float]], const: float) -> float | None:
-    """The best rank border you have reached on at least PROOF charts of `const` or harder."""
-    for t in MAIMAI_TARGETS:
-        if sum(1 for c, a in points if c >= const - 1e-9 and a >= t) >= PROOF:
-            return t
-    return None
+    """The rank you usually get around `const`: the border under the median of your scores on
+    charts from `const` to BAND harder (None if you have fewer than MIN_BAND_SCORES there)."""
+    band = sorted(a for c, a in points if const - 1e-9 <= c <= const + BAND + 1e-9)
+    if len(band) < MIN_BAND_SCORES:
+        return None
+    median = band[(len(band) - 1) // 2]  # the lower middle: a typical play, not a good day
+    return next((t for t in MAIMAI_TARGETS if median >= t), None)
 
 
 def maimai_entry(const: float, floor: Fraction) -> float | None:
@@ -304,8 +307,8 @@ def recommend(db: SongDB, b50: B50, new_versions: list[str], count: int = 5,
     """Charts outside the B50 where a realistic score would push out the weakest entry.
 
     CHUNITHM: the target score comes from chunithm_target (how far the chart is below your
-    rating). maimai: only the rating formula and your own scores: the rank you have reached on
-    at least two charts that hard (maimai_proven), if it is enough to push out the weakest entry.
+    rating). maimai: only the rating formula and your own scores: the rank you usually get on
+    charts about that hard (maimai_proven), if it is enough to push out the weakest entry.
     """
     game = b50.game
     entries = b50.old + b50.new

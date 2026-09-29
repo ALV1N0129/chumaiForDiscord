@@ -291,7 +291,7 @@ def test_jacket_failure_is_retried_later(tmp_path, monkeypatch):
     assert "a.png" not in store._failed
 
 
-def test_jacket_download_retries_a_busy_server():
+def test_jacket_download_retries_a_busy_server_or_a_stray_404():
     import asyncio
 
     from aiohttp import web
@@ -302,7 +302,7 @@ def test_jacket_download_retries_a_busy_server():
 
     async def image(request):
         hits.append(1)
-        return web.Response(status=503) if len(hits) == 1 else web.Response(body=b"PNG")
+        return web.Response(status=(503, 404)[len(hits) % 2]) if len(hits) in (1, 3) else web.Response(body=b"PNG")
 
     async def main():
         app = web.Application()
@@ -315,8 +315,9 @@ def test_jacket_download_retries_a_busy_server():
         try:
             store = jackets.JacketStore(".")
             async with store._session() as s:
-                return await store._download(s, [f"http://127.0.0.1:{port}/a.png"])
+                url = f"http://127.0.0.1:{port}/a.png"
+                return await store._download(s, [url]), await store._download(s, [url])
         finally:
             await runner.cleanup()
 
-    assert asyncio.run(main()) == b"PNG" and len(hits) == 2
+    assert asyncio.run(main()) == (b"PNG", b"PNG") and len(hits) == 4  # a 503, then a stray 404

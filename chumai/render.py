@@ -565,6 +565,9 @@ def _logo_image(game: str) -> Image.Image:
 
 def _draw_logo(canvas: Image.Image, game: str, width: int, theme: dict) -> None:
     logo = _logo_image(game)
+    room = width - 2 * (MARGIN + 560 + 20)  # between the player plate and the rating plate
+    if logo.width > room:
+        logo = logo.resize((room, round(logo.height * room / logo.width)), Image.LANCZOS)
     _over(canvas, logo, ((width - logo.width) // 2, 10 + (LOGO_BOX[1] - logo.height) // 2))
 
 
@@ -603,9 +606,10 @@ def _title_badge(text: str, rarity: str | None, max_w: int) -> Image.Image:
     return badge
 
 
-def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> None:
-    """Simple plate: the player's icon and name."""
-    old_slots, new_slots = SLOTS[b50.game]
+def _draw_player_plate(canvas: Image.Image, game: str, name: str, icon: bytes | None, kicker: str,
+                       chips: list[tuple[str, str]], theme: dict, st: dict) -> int:
+    """The player's icon and name on a plate at the top left, with a row of stat chips under it.
+    Returns the x right after the last chip."""
     cw, ch = 560, 136  # same height as the rating plate
     cx, cy = MARGIN, 40
 
@@ -618,35 +622,26 @@ def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> N
     draw = ImageDraw.Draw(canvas)
 
     tx = cx + 30
-    icon = _open_image(b50.icon)
-    if icon is not None:
+    ic = _open_image(icon)
+    if ic is not None:
         size = ch - 28
-        icon = ImageOps.fit(icon, (size, size), Image.LANCZOS)
+        ic = ImageOps.fit(ic, (size, size), Image.LANCZOS)
         ix, iy = cx + 20, cy + 14
         framed = Image.new("RGBA", (size, size), (20, 18, 30, 255))
-        framed.alpha_composite(icon)
+        framed.alpha_composite(ic)
         out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         out.paste(framed, (0, 0), _rounded_mask((size, size), 14))
         _over(canvas, out, (ix, iy))
         draw.rounded_rectangle((ix - 1, iy - 1, ix + size, iy + size), radius=15, outline=(255, 255, 255, 90), width=2)
         tx = ix + size + 24
 
-    name = unicodedata.normalize("NFKC", b50.username)  # official sites use full-width letters
-    draw.text((tx, cy + 34), f"{GAME_NAMES[b50.game].upper()}  PLAYER", font=num(18, "SemiBold"),
-              fill=theme["accent"], anchor="ls")
+    name = unicodedata.normalize("NFKC", name)  # official sites use full-width letters
+    draw.text((tx, cy + 34), kicker, font=num(18, "SemiBold"), fill=theme["accent"], anchor="ls")
     draw.text((tx - 2, cy + 94), _fit(draw, name, cjk(46), cx + cw - 20 - tx), font=cjk(46), fill=st["text"],
               anchor="ls")
 
-    # stats as a row of chips under the card
-    fmt = (lambda v: f"{float(v):.2f}") if b50.game == "chunithm" else (lambda v: str(int(v)))
-    stats = [
-        (f"BEST {old_slots}", fmt(b50.old_sum)),
-        (f"NEW {new_slots}", fmt(b50.new_sum)),
-        (f"B{old_slots} AVG", b50.average_text(b50.old)),
-        (f"N{new_slots} AVG", b50.average_text(b50.new)),
-    ]
     sx, sy = cx, cy + ch + 10
-    for label, value in stats:
+    for label, value in chips:
         lw = draw.textlength(label, font=num(15, "SemiBold"))
         vw = draw.textlength(value, font=num(22))
         w = int(lw + vw + 30)
@@ -656,6 +651,18 @@ def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> N
         draw.text((sx + 12, sy + 17), label, font=num(15, "SemiBold"), fill=st["faint"], anchor="lm")
         draw.text((sx + w - 12, sy + 18), value, font=num(22), fill=st["text"], anchor="rm")
         sx += w + 8
+    return sx
+
+
+def _draw_player_card(canvas: Image.Image, b50: B50, theme: dict, st: dict) -> None:
+    old_slots, new_slots = SLOTS[b50.game]
+    fmt = (lambda v: f"{float(v):.2f}") if b50.game == "chunithm" else (lambda v: str(int(v)))
+    _draw_player_plate(canvas, b50.game, b50.username, b50.icon, f"{GAME_NAMES[b50.game].upper()}  PLAYER", [
+        (f"BEST {old_slots}", fmt(b50.old_sum)),
+        (f"NEW {new_slots}", fmt(b50.new_sum)),
+        (f"B{old_slots} AVG", b50.average_text(b50.old)),
+        (f"N{new_slots} AVG", b50.average_text(b50.new)),
+    ], theme, st)
 
 
 def _draw_header(canvas: Image.Image, b50: B50, width: int, theme: dict, st: dict) -> None:
@@ -950,9 +957,6 @@ def _paint(strips, size: tuple[int, int], background, scale: float) -> bytes:
 
 # ------------------------------------------------------------ play log card
 
-ROW_H = 132
-
-
 def _play_badge_style(game: str, badge):
     """(text, gradient colors or None, text color) for a play badge."""
     if badge.kind == "new":
@@ -994,29 +998,6 @@ def _draw_play_badge(canvas: Image.Image, right: int, y: int, game: str, badge) 
     return bx
 
 
-def _draw_credit_summary(canvas: Image.Image, box: tuple[int, int, int, int], game: str, entries: list[Entry],
-                         badges: list, theme: dict) -> None:
-    """Tracks played, new records and the average song rating, as a card in an unplayed slot."""
-    x0, y0, x1, y1 = box
-    _panel(canvas, box, theme["card"], alpha=200, radius=RADIUS)
-    draw = ImageDraw.Draw(canvas)
-    draw.text((x0 + 18, y0 + 16), "CREDIT", font=num(16, "SemiBold"), fill=theme["accent"])
-    ratings = [e.rating for e in entries if e.rated]  # WORLD'S END / 宴 have no rating
-    avg = sum(ratings) / len(ratings) if ratings else None
-    new = sum(1 for b in badges if b is not None and b.kind == "new")
-    stats = [
-        ("TRACKS", str(len(entries)), WHITE),
-        ("NEW RECORD", str(new), (255, 200, 120) if new else WHITE),
-        ("AVG RATING", "-" if avg is None else f"{float(avg):.0f}" if game == "maimai" else f"{float(avg):.2f}",
-         WHITE),
-    ]
-    col = (x1 - x0 - 36) / len(stats)
-    for k, (label, value, color) in enumerate(stats):
-        cx = x0 + 18 + col * k
-        draw.text((cx, y1 - 26), label, font=num(14, "SemiBold"), fill=MUTED, anchor="ls")
-        draw.text((cx, y1 - 42), value, font=num(38), fill=color, anchor="ls")
-
-
 RISE = (90, 220, 140)  # rating went up
 
 
@@ -1047,12 +1028,62 @@ def _up_pill(canvas: Image.Image, right: int, y: int, text: str, size: int) -> i
     return x
 
 
-CREDIT_LOGO = (190, 92)  # logo box in the play log header
+PLAY_ROW_H = 128  # one track of a credit
+
+
+def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Entry, badge, game: str,
+                   theme: dict, st: dict) -> None:
+    """A track as a wide row: number, jacket, title, difficulty, score, rank and lamp; the badge,
+    the rating gain and the song rating on the right."""
+    h = PLAY_ROW_H
+    _panel(canvas, (x, y, x + w, y + h), theme["card"], alpha=225, radius=RADIUS)
+    draw = ImageDraw.Draw(canvas)
+    draw.text((x + 26, y + h / 2), str(idx), font=num(40), fill=(120, 122, 150), anchor="mm")
+    js = h - 24
+    _framed_jacket(canvas, x + 52, y + 12, js, e.jacket_path, e.difficulty)
+    draw = ImageDraw.Draw(canvas)
+    tx, right = x + 52 + js + 22, x + w - 20
+
+    # right side: badge on top, the rating gain under it, the song rating at the bottom
+    rating_text = e.rating_text
+    maxed = e.rated and e.score >= (100.5 if game == "maimai" else 1_009_000)
+    draw.text((right, y + h - 16), rating_text, font=num(46), fill=MAX_RATING if maxed else st["text"], anchor="rs")
+    side = int(draw.textlength(rating_text, font=num(46)))
+    if badge is not None:
+        side = max(side, right - _draw_play_badge(canvas, right, y + 14, game, badge))
+        if badge.gain:
+            gain = f"+{float(badge.gain):.3f}" if game == "chunithm" else f"+{int(badge.gain)}"
+            _up_pill(canvas, right, y + 44, gain, 15)
+        draw = ImageDraw.Draw(canvas)
+
+    draw.text((tx, y + 14), _fit(draw, e.title, cjk(24), right - side - 24 - tx), font=cjk(24), fill=st["text"])
+    label, name, color, _ = _diff_info(e.difficulty)
+    level = f"{e.level}  {e.level_const:.1f}" if e.level_const else e.level
+    if label == "WE":  # in the WORLD'S END label's colors
+        _over(canvas, _rainbow_text(f"{name}  {level}", cjk(19)), (tx - 3, y + 50))
+        draw = ImageDraw.Draw(canvas)
+    else:
+        info_font = num(21, "SemiBold") if level.isascii() else cjk(18)
+        draw.text((tx, y + 70), f"{name}  {level}", font=info_font,
+                  fill=tuple(min(255, v + 50) for v in color), anchor="ls")
+
+    score = e.score_text
+    draw.text((tx, y + h - 14), score, font=num(40), fill=st["text"], anchor="ls")
+    sx = tx + draw.textlength(score, font=num(40)) + 16
+    draw.text((sx, y + h - 18), e.rank, font=num(24), fill=st["rank"] if e.rank in RANK_COLORS else st["muted"],
+              anchor="ls")
+    if e.lamp:
+        lx = sx + draw.textlength(e.rank, font=num(24)) + 10
+        lw = draw.textlength(e.lamp, font=num(16)) + 12
+        lamp_color = LAMP_COLORS.get(e.lamp, st["muted"])
+        draw.rounded_rectangle((lx, y + h - 40, lx + lw, y + h - 20), radius=5, outline=lamp_color, width=2)
+        draw.text((lx + lw / 2, y + h - 30), e.lamp, font=num(16), fill=lamp_color, anchor="mm")
 
 
 def render_credit(game: str, player: str, entries: list[Entry], badges: list, date: str,
                   icon: bytes | None = None, rating: str | None = None, rating_before: str | None = None) -> bytes:
-    """One credit as a fixed-size 2x2 grid, so every credit shows at the same size in Discord.
+    """One credit, laid out like the B50 page: the player plate, logo and rating plate on top, then
+    a wide row per track.
 
     badges: a playlog.Badge (or None) per entry.
     """
@@ -1060,85 +1091,34 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
 
     theme = THEMES[game]
     st = STYLES["version"]
-    cols, slots = 2, 4
-    header = 118
-    width = MARGIN * 2 + cols * CARD_W + (cols - 1) * GAP_X
-    height = header + (slots // cols) * (CARD_H + GAP_Y) + 26
+    width = MARGIN * 2 + 4 * CARD_W + 3 * GAP_X
+    height = HEADER_H + len(entries) * (PLAY_ROW_H + GAP_Y) + 26
     stub = SimpleNamespace(game=game, old=entries, new=[], icon=icon)
     canvas = _rgb(_background(stub, (width, height), theme, st))
-    draw = ImageDraw.Draw(canvas)
 
-    x = MARGIN
-    ic = _open_image(icon)
-    if ic is not None:
-        ic = ImageOps.fit(ic, (64, 64), Image.LANCZOS)
-        out = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-        out.paste(ic, (0, 0), _rounded_mask((64, 64), 12))
-        _over(canvas, out, (x, 30))
-        x += 80
-    # game logo in the middle of the header
-    logo = _logo_image(game).copy()
-    logo.thumbnail(CREDIT_LOGO, Image.LANCZOS)
-    logo_x = (width - logo.width) // 2
-    _over(canvas, logo, (logo_x, 14 + (CREDIT_LOGO[1] - logo.height) // 2))
-    draw = ImageDraw.Draw(canvas)
-    draw.text((x, 30), f"PLAY LOG  ·  {date}", font=num(17, "SemiBold"), fill=theme["accent"])
-    name = unicodedata.normalize("NFKC", player)
-    draw.text((x, 52), _fit(draw, name, cjk(34), logo_x - x - 16), font=cjk(34), fill=WHITE)
-
-    right = width - MARGIN
-    if rating:
-        colors = _plate_colors(game, rating)
-        number = _gradient_text(rating, num(50), [tuple(min(255, c + 40) for c in col) for col in colors])
-        _over(canvas, number, (right - number.width + 8, 44))
-        change = _rating_change(game, rating_before, rating)
-        label = f"RATING   {rating_before} »" if change else "RATING"
-        draw.text((right, 24), label, font=num(15, "SemiBold"), fill=st["muted"], anchor="ra")
-        right -= number.width + 10
-        if change:
-            right = _up_pill(canvas, right, 62, change, 18) - 10
+    _draw_logo(canvas, game, width, theme)
+    new = sum(1 for b in badges if b is not None and b.kind == "new")
+    chips_end = _draw_player_plate(canvas, game, player, icon, f"PLAY LOG  ·  {date}",
+                                   [("TRACKS", str(len(entries))), ("NEW RECORD", str(new))], theme, st)
     if len(entries) >= 4:  # extra track bought with C to C
-        bw, bh = 78, 26
-        bx, by = right - bw, 56
+        bw, bh = 78, 34
         badge = _gradient_fill((bw, bh), [theme["accent"], theme["glow2"]])
-        badge.putalpha(_rounded_mask((bw, bh), 13))
-        _over(canvas, badge, (bx, by))
-        draw.text((bx + bw // 2, by + bh // 2), "C to C", font=num(17), fill=(20, 18, 30), anchor="mm")
+        badge.putalpha(_rounded_mask((bw, bh), 17))
+        _over(canvas, badge, (chips_end, 186))
+        ImageDraw.Draw(canvas).text((chips_end + bw // 2, 186 + bh // 2), "C to C", font=num(17), fill=(20, 18, 30),
+                                    anchor="mm")
+    if rating:
+        _draw_plate(canvas, game, rating, width, st)
+        change = _rating_change(game, rating_before, rating)
+        if change:  # where it came from, under the plate
+            draw = ImageDraw.Draw(canvas)
+            text = f"{rating_before}  »  {rating}"
+            draw.text((width - MARGIN, 190), text, font=num(18, "SemiBold"), fill=MUTED, anchor="ra")
+            _up_pill(canvas, width - MARGIN - int(draw.textlength(text, font=num(18, "SemiBold"))) - 12, 179, change, 18)
 
-    # an unplayed slot shows a summary of the credit instead of an empty card
-    summary_at = {1: 1, 2: 2, 3: 3}.get(len(entries), -1)
-    for i in range(slots):
-        r, c = divmod(i, cols)
-        cx, cy = MARGIN + c * (CARD_W + GAP_X), header + r * (CARD_H + GAP_Y)
-        if i >= len(entries) and i == summary_at:
-            if len(entries) == 2:  # the whole second row
-                box = (cx, cy, cx + 2 * CARD_W + GAP_X, cy + CARD_H)
-            else:
-                box = (cx, cy, cx + CARD_W, cy + CARD_H)
-            _draw_credit_summary(canvas, box, game, entries, badges, theme)
-            continue
-        if i >= len(entries):
-            if len(entries) == 2:
-                continue  # covered by the summary
-            empty = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
-            empty.paste(Image.new("RGBA", (CARD_W, CARD_H), (10, 8, 18, 90)), (0, 0), _rounded_mask((CARD_W, CARD_H), RADIUS))
-            _over(canvas, empty, (cx, cy))
-            draw.text((cx + CARD_W // 2, cy + CARD_H // 2), f"TRACK {i + 1}", font=num(20, "SemiBold"),
-                      fill=(110, 112, 130), anchor="mm")
-            continue
-        badge = badges[i]
-        right = cx + CARD_W - 14
-        # same spots in both games: the badge at the end of the title row (a maimai achievement is
-        # too long to share its row), the rating gain at the end of the score row
-        _draw_card(canvas, cx, cy, i + 1, entries[i], theme, st,
-                   title_reserve=_play_badge_width(game, badge) if badge is not None else 0)
-        if badge is not None:
-            _draw_play_badge(canvas, right, cy + 10, game, badge)
-            if badge.gain:
-                gain = f"+{float(badge.gain):.3f}" if game == "chunithm" else f"+{int(badge.gain)}"
-                _up_pill(canvas, right, cy + 40, gain, 15)
-        draw = ImageDraw.Draw(canvas)
-
+    for i, e in enumerate(entries):
+        _draw_play_row(canvas, MARGIN, HEADER_H + i * (PLAY_ROW_H + GAP_Y), width - 2 * MARGIN, i + 1, e,
+                       badges[i] if i < len(badges) else None, game, theme, st)
     return encode(canvas)
 
 
@@ -1215,7 +1195,7 @@ def render_profile(game: str, name: str, rating: str | None, title: str | None, 
 # ------------------------------------------------------- song / list pages
 
 DIFF_FULL = {"BAS": "BASIC", "ADV": "ADVANCED", "EXP": "EXPERT", "MAS": "MASTER", "Re:M": "Re:MASTER",
-             "ULT": "ULTIMA", "WE": "WORLD'S END"}
+             "ULT": "ULTIMA", "WE": "WORLD'S END", "宴": "U·TA·GE"}
 ULTIMA_RIM = (210, 20, 50)
 
 
@@ -1267,6 +1247,8 @@ def _framed_jacket(canvas: Image.Image, x: int, y: int, size: int, path, difficu
         draw.rounded_rectangle((x - pad - 2, y - pad - 2, x + size + pad + 1, y + size + pad + 1),
                                radius=radius + 4, fill=ULTIMA_RIM)
         color = (12, 12, 14)
+    elif label == "WE":
+        color = (245, 245, 248)
     draw.rounded_rectangle((x - pad, y - pad, x + size + pad - 1, y + size + pad - 1), radius=radius + 2, fill=color)
     jacket = None
     if path:

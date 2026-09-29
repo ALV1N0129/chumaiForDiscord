@@ -61,9 +61,9 @@ def test_unrated_plays_show_their_level_and_no_rating(tmp_path):
     assert (utage.title, utage.difficulty) == ("[協]Love You", "UTAGE")  # 宴 is no longer skipped
 
     store = JacketStore(tmp_path)
-    store.load_index([{"id": "8330", "title": "ヤババイナ", "we_kanji": "狂", "we_star": "5", "image": "a.jpg"}],
+    store.load_index([{"id": "8330", "title": "ヤババイナ", "we_kanji": "狂", "we_star": "9", "image": "a.jpg"}],
                      [{"title": "[協]Love You", "lev_utage": "12?", "kanji": "協", "image_url": "b.png"}])
-    assert store.unrated_level("ヤババイナ", "WORLD'S END") == "狂☆5"
+    assert store.unrated_level("ヤババイナ", "WORLD'S END") == "狂☆5"  # we_star 9 is ☆5 (1, 3, 5, 7, 9)
     assert store.unrated_level("Love You", "UTAGE") == "12?"  # also without the [協]
 
     e = to_entry("maimai", utage, SongDB(), store.unrated_level)

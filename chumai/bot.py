@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Literal
@@ -29,8 +30,17 @@ from .storage import LinkStore
 log = logging.getLogger("chumai")
 
 GameChoice = Literal["maimai", "chunithm"]
-PLAYLOG_ACTIVE_INTERVAL = 5 * 60
-PLAYLOG_IDLE_INTERVAL = 15 * 60
+
+
+def _minutes(name: str, default: float) -> float:
+    try:
+        return max(1.0, float(os.environ.get(name) or default))
+    except ValueError:
+        return default
+
+
+# how often each linked play log is checked (one page per check); PLAYLOG_INTERVAL_MINUTES in .env
+PLAYLOG_INTERVAL = _minutes("PLAYLOG_INTERVAL_MINUTES", 1) * 60
 PLAYLOG_PATHS = {"chunithm": "/mobile/record/playlog", "maimai": "/maimai-mobile/record/"}
 
 
@@ -100,9 +110,7 @@ class ChumaiBot(discord.Client):
                 found = False
             if found:
                 active = now
-            # 5 minutes for an hour after activity, otherwise 15 minutes
-            interval = PLAYLOG_ACTIVE_INTERVAL if now - active < 3600 else PLAYLOG_IDLE_INTERVAL
-            self._playlog_schedule[(discord_id, game)] = (time.time() + interval, active)
+            self._playlog_schedule[(discord_id, game)] = (time.time() + PLAYLOG_INTERVAL, active)
 
     @poll_playlogs.before_loop
     async def _wait_ready(self) -> None:
@@ -213,7 +221,7 @@ def register_commands(bot: ChumaiBot) -> None:
         bot._playlog_schedule.pop((interaction.user.id, game), None)
         await interaction.followup.send(
             f"이제 {'maimai DX' if game == 'maimai' else 'CHUNITHM'} 플레이 기록을 이 채널에 올릴게요. "
-            "크레딧이 끝나고 공식 사이트에 반영된 뒤 5~15분 안에 올라와요.",
+            f"크레딧이 끝나고 공식 사이트에 반영된 뒤 {PLAYLOG_INTERVAL / 60:g}분 안에 올라와요.",
             ephemeral=True,
         )
 

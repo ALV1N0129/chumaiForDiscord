@@ -260,23 +260,21 @@ def register(bot: ChumaiBot) -> None:
             return
         await interaction.followup.send(file=discord.File(io.BytesIO(images[-1]), filename=render.filename(f"recent_{game}")))
 
-    @tree.command(name="today", description="오늘 플레이한 것 정리: 크레딧·곡·신기록 수, 레이팅 변화, 플레이한 곡 전부")
+    @tree.command(name="today", description="오늘 플레이한 것 정리: 크레딧·플레이·신기록 수, 레이팅 변화, 신기록과 그 외 곡")
     @app_commands.describe(game="게임")
     async def today(interaction: discord.Interaction, game: GameChoice) -> None:
         from .bot import render_today
 
         await interaction.response.defer(thinking=True)
         try:
-            images = await render_today(bot, interaction.user.id, game)
+            png = await render_today(bot, interaction.user.id, game)
         except SegaError as e:
             await interaction.followup.send(str(e))
             return
-        if not images:
+        if png is None:
             await interaction.followup.send("최근 플레이 기록이 없어요.")
             return
-        await interaction.followup.send(files=[
-            discord.File(io.BytesIO(png), filename=render.filename(f"today_{game}_{i + 1}"))
-            for i, png in enumerate(images)])
+        await interaction.followup.send(file=discord.File(io.BytesIO(png), filename=render.filename(f"today_{game}")))
 
     # ------------------------------------------------------------------ song info
 

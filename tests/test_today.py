@@ -28,14 +28,12 @@ def test_rating_history(tmp_path):
 
 def test_render_day_without_new_records():
     png = render.render_day("maimai", "p", "2026/09/30", [("크레딧", "2"), ("곡", "6"), ("신기록", "0"),
-                                                         ("AP·FC", "0")], [], [], None, "15212", None)
+                                                         ("AP·FC", "0")], [], [], [], 0, None, "15212", None)
     assert png[:4] in (b"RIFF", b"\x89PNG", b"\xff\xd8\xff\xe0")
 
 
-def test_a_long_day_goes_on_further_images():
+def test_day_columns():
     assert [render.day_columns(n) for n in (1, 3, 4, 12, 13, 50)] == [1, 1, 2, 2, 3, 3]
-    png = render.render_day("maimai", "p", "2026/09/30", None, [], [], first=19, cols=3)
-    assert png[:4] in (b"RIFF", b"\x89PNG", b"\xff\xd8\xff\xe0")
 
 
 def test_a_chart_played_again_is_one_row():
@@ -53,3 +51,13 @@ def test_a_chart_played_again_is_one_row():
         ("A", 1_007_900, "FC", 4), ("C", 990_000, None, 1), ("B", 1_000_000, None, 1)]
     assert rows[0][1].kind == "new" and rows[0][1].delta == 2400
     assert rows[1][1] is None and rows[2][1].kind == "best"
+
+
+def test_render_day_with_new_records_and_the_rest():
+    from chumai.b50 import make_entry
+    from chumai.playlog import Badge
+
+    entries = [make_entry("chunithm", f"T{i}", "MASTER", "14", 14.0, 1_005_000, None, False) for i in range(14)]
+    badges = [Badge("new", delta=100)] * 11 + [Badge("best", best=1_007_000), None, Badge("tie")]
+    png = render.render_day("chunithm", "p", "2026/09/30", [("플레이", "20")], entries, badges, [3] + [1] * 13, 11)
+    assert png[:4] in (b"RIFF", b"\x89PNG", b"\xff\xd8\xff\xe0")

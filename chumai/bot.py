@@ -672,7 +672,6 @@ async def render_credits(bot: ChumaiBot, discord_id: int, game: str, select,
 
 JST = datetime.timezone(datetime.timedelta(hours=9))
 DAY_STARTS = datetime.timedelta(hours=4)  # plays until 4am count for the day before
-TODAY_PAGE = 18  # rows per /today image (3 columns of 6): one bigger image needed too much memory
 
 
 def play_time(record) -> datetime.datetime:
@@ -683,18 +682,18 @@ def play_day(record) -> datetime.date:
     return (play_time(record) - DAY_STARTS).date()
 
 
-async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> list[bytes]:
+async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> bytes | None:
     """The latest day of play (/today): credits, tracks, new records and lamps, the rating from
-    before the day's first play to now, and every chart played (once each, with how many times),
-    the new records first, on as many images as it takes. Empty if the play log is. The official
-    site keeps the last 50 plays, so a long day may be cut short."""
+    before the day's first play to now, and every chart played (once each, with how many times):
+    the new records, then the rest. None if the play log is empty. The official site keeps the
+    last 50 plays, so a long day may be cut short."""
     token = bot.links.get_sega_token(discord_id)
     if token is None:
         raise SegaError("`/login` 으로 먼저 SEGA ID 로그인을 해 주세요.")
     async with NetClient(game, token) as net:
         records = parse_playlog(game, await net.get(PLAYLOG_PATHS[game]))
         if not records:
-            return []
+            return None
         day = max(play_day(r) for r in records)
         plays = sorted((r for r in records if play_day(r) == day), key=lambda r: r.key)
         if game == "chunithm":
@@ -722,21 +721,17 @@ async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> list[bytes
         stats = [("크레딧", str(len(net_parsers.group_credits(plays)))), ("플레이", str(len(plays))),
                  ("신기록", str(sum(1 for _, b, _ in rows if b is not None and b.kind == "new"))),
                  (lamp_label, str(sum(1 for r, _, _ in rows if r.lamp)))]
-        cols = render.day_columns(len(rows))
-        images = []
-        for start in range(0, len(rows), TODAY_PAGE):  # one image at a time
-            page = rows[start:start + TODAY_PAGE]
-            entries = [to_entry(game, r, bot.songdb, bot.jackets.unrated_level) for r, _, _ in page]
-            paths = await asyncio.gather(*(_cached_image(bot, net, game, r.jacket_url) for r, _, _ in page))
-            for e, path in zip(entries, paths):
-                e.jacket_path = path
-            images.append(await asyncio.to_thread(
-                render.render_day, game, player.name, day.strftime("%Y/%m/%d"), stats if start == 0 else None,
-                entries, [b for _, b, _ in page], icon, player.rating, before, start + 1, cols,
-                [n for _, _, n in page]))
+        fresh = sum(1 for _, b, _ in rows if b is not None and b.kind == "new")
+        entries = [to_entry(game, r, bot.songdb, bot.jackets.unrated_level) for r, _, _ in rows]
+        paths = await asyncio.gather(*(_cached_image(bot, net, game, r.jacket_url) for r, _, _ in rows))
+        for e, path in zip(entries, paths):
+            e.jacket_path = path
+        png = await asyncio.to_thread(
+            render.render_day, game, player.name, day.strftime("%Y/%m/%d"), stats, entries,
+            [b for _, b, _ in rows], [n for _, _, n in rows], fresh, icon, player.rating, before)
     if net.clal != token:
         bot.links.set_sega_token(discord_id, net.clal)
-    return images
+    return png
 
 
 def latest_credit(records):

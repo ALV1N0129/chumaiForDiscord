@@ -1113,10 +1113,10 @@ def _draw_play_badge(canvas: Image.Image, right: int, y: int, game: str, badge) 
     return bx
 
 
-def _draw_count_pill(canvas: Image.Image, right: int, y: int, count: int) -> int:
+def _draw_count_pill(canvas: Image.Image, right: int, y: int, count: int, size: int = 26) -> int:
     """"×N" (played N times) in a bright pill, right-aligned at `right`. Returns its left edge."""
-    text, f = f"×{count}", num(26)
-    bw, bh = int(ImageDraw.Draw(canvas).textlength(text, font=f)) + 16, 32
+    text, f = f"×{count}", num(size)
+    bw, bh = int(ImageDraw.Draw(canvas).textlength(text, font=f)) + size * 16 // 26, size * 32 // 26
     pill = _gradient_fill((bw, bh), [(255, 236, 120), (255, 170, 60)])
     pill.putalpha(_rounded_mask((bw, bh), 10))
     ImageDraw.Draw(pill).rounded_rectangle((0, 0, bw - 1, bh - 1), radius=10, outline=(40, 24, 10), width=2)
@@ -1301,51 +1301,133 @@ def _draw_play_header(canvas: Image.Image, game: str, player: str, icon: bytes |
 DAY_STATS_H = 92
 
 
+DAY_FULL = 9  # new records drawn as full play rows; the rest of the day as small tiles
+TILE_W, TILE_H = 452, 84
+DAY_LABEL_H = 40
+
+
 def day_columns(count: int) -> int:
-    """Columns for /today's rows: more side by side, so a page stays wide, not long."""
+    """Columns of full rows for /today: more side by side, so the page stays wide, not long."""
     return 1 if count <= 3 else 2 if count <= 12 else 3
 
 
-def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]] | None, entries: list[Entry],
-               badges: list, icon: bytes | None = None, rating: str | None = None,
-               rating_before: str | None = None, first: int = 1, cols: int | None = None,
-               counts: list[int] | None = None) -> bytes:
-    """A day of play (/today): the play log's top, a line of numbers (credits, tracks, new records,
-    ...), then play rows (new records first). A long day goes on further images: those have
-    `stats` None (rows only), numbered from `first`, with the first image's `cols`. `counts`: how
-    many times each was played."""
+def _draw_play_tile(canvas: Image.Image, x: int, y: int, w: int, e: Entry, badge, count: int, game: str,
+                    theme: dict, st: dict) -> None:
+    """A play as a small tile (/today): jacket (×N on it), title, difficulty, score, rank, lamp and
+    the song rating; a new record's NEW badge."""
+    h = TILE_H
+    card = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    card.paste(_card_background(e.jacket_path, st["card"], theme["card"], (w, h)), (0, 0), _rounded_mask((w, h), 12))
+    ImageDraw.Draw(card).rounded_rectangle((0, 0, w - 1, h - 1), radius=12, outline=(255, 255, 255, 40), width=2)
+    _over(canvas, card, (x, y))
+    js = h - 16
+    _framed_jacket(canvas, x + 8, y + 8, js, e.jacket_path, e.difficulty)
+    if count > 1:
+        _draw_count_pill(canvas, x + 8 + js + 8, y + 1, count, 23)
+    draw = ImageDraw.Draw(canvas)
+    tx, right = x + 8 + js + 14, x + w - 12
+
+    rating_text = e.rating_text
+    maxed = e.rated and e.score >= (100.5 if game == "maimai" else 1_009_000)
+    draw.text((right, y + h - 10), rating_text, font=num(30), fill=MAX_RATING if maxed else st["text"], anchor="rs")
+    side = int(draw.textlength(rating_text, font=num(30)))
+    if badge is not None and badge.kind == "new":
+        side = max(side, right - _draw_play_badge(canvas, right, y + 8, game, badge))
+        draw = ImageDraw.Draw(canvas)
+    draw.text((tx, y + 8), _fit(draw, e.title, cjk(18), right - side - 10 - tx), font=cjk(18), fill=st["text"])
+
+    label, name, color, _ = _diff_info(e.difficulty)
+    level = f"{e.level_const:.1f}" if e.level_const else e.level
+    info_font = num(16, "SemiBold")
+    if label == "WE":
+        top = info_font.getbbox(name, anchor="ls")
+        _over(canvas, _rainbow_text(name, info_font), (tx + top[0] - 3, y + 48 + top[1] - 3))
+        draw = ImageDraw.Draw(canvas)
+    else:
+        info = f"{name}  {level}" if level.isascii() else name
+        draw.text((tx, y + 48), info, font=info_font, fill=tuple(min(255, v + 50) for v in color), anchor="ls")
+
+    score = e.score_text
+    draw.text((tx, y + h - 9), score, font=num(26), fill=st["text"], anchor="ls")
+    sx = tx + draw.textlength(score, font=num(26)) + 8
+    draw.text((sx, y + h - 11), e.rank, font=num(17), fill=st["rank"] if e.rank in RANK_COLORS else st["muted"],
+              anchor="ls")
+    if e.lamp:
+        lx = sx + draw.textlength(e.rank, font=num(17)) + 7
+        lw = draw.textlength(e.lamp, font=num(13)) + 8
+        lamp_color = LAMP_COLORS.get(e.lamp, st["muted"])
+        draw.rounded_rectangle((lx, y + h - 27, lx + lw, y + h - 11), radius=4, outline=lamp_color, width=2)
+        draw.text((lx + lw / 2, y + h - 19), e.lamp, font=num(13), fill=lamp_color, anchor="mm")
+
+
+def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], entries: list[Entry],
+               badges: list, counts: list[int], fresh: int, icon: bytes | None = None, rating: str | None = None,
+               rating_before: str | None = None) -> bytes:
+    """A day of play (/today) on one image: the play log's top, a line of numbers (credits, plays,
+    new records, ...), then the charts played, one each (`counts`: how many times): the first
+    `fresh` are new records, the biggest first as play rows, and the rest of the day as small tiles."""
     from types import SimpleNamespace
 
     theme = THEMES[game]
     st = STYLES["version"]
     row_w = 2 * CARD_W + GAP_X  # a play log row
-    cols = cols or day_columns(len(entries))
-    per_col = -(-len(entries) // cols)
+    full = min(fresh, DAY_FULL)
+    cols = day_columns(len(entries))
     width = MARGIN * 2 + cols * row_w + (cols - 1) * GAP_X
-    top = CREDIT_HEADER_H + DAY_STATS_H if stats is not None else 26
-    rows_h = per_col * (PLAY_ROW_H + GAP_Y) if entries else 70
-    height = top + rows_h + 26
+    inner = width - 2 * MARGIN
+    tile_cols = max(1, (inner + GAP_X) // (TILE_W + GAP_X))
+    tile_w = (inner - (tile_cols - 1) * GAP_X) // tile_cols
+    row_cols = min(cols, full) or 1
+    rows_h = -(-full // row_cols) * (PLAY_ROW_H + GAP_Y)
+    # the tiles: new records past the rows, then the rest; each group starts on a new line
+    groups = [(start, end) for start, end in ((full, fresh), (fresh, len(entries))) if end > start]
+    tile_lines = [-(-(end - start) // tile_cols) for start, end in groups]
+    sections = int(fresh > 0) + int(len(entries) > fresh)
+    top = CREDIT_HEADER_H + DAY_STATS_H
+    height = top + sections * DAY_LABEL_H + rows_h + sum(tile_lines) * (TILE_H + 10) + (70 if not entries else 0) + 20
+
     stub = SimpleNamespace(game=game, old=entries, new=[], icon=icon)
     canvas = _rgb(_background(stub, (width, height), theme, st))
+    _draw_play_header(canvas, game, player, icon, f"TODAY  ·  {date}", rating, rating_before, width, theme, st)
+    # the day in numbers: a big figure over a small label, spread across the width
     draw = ImageDraw.Draw(canvas)
-    if stats is not None:
-        _draw_play_header(canvas, game, player, icon, f"TODAY  ·  {date}", rating, rating_before, width, theme, st)
-        # the day in numbers: a big figure over a small label, spread across the width
-        draw = ImageDraw.Draw(canvas)
-        y = CREDIT_HEADER_H + 4
-        step = (width - 2 * MARGIN) / max(1, len(stats))
-        for i, (label, value) in enumerate(stats):
-            cx = MARGIN + step * i + step / 2
-            draw.text((cx, y + 44), value, font=num(46), fill=WHITE, anchor="ms")
-            draw.text((cx, y + 72), label, font=cjk(17), fill=st["muted"], anchor="ms")
-        draw.line((MARGIN, top - 8, width - MARGIN, top - 8), fill=(*st["faint"], 90), width=1)
-
+    y = CREDIT_HEADER_H + 4
+    step = inner / max(1, len(stats))
+    for i, (label, value) in enumerate(stats):
+        cx = MARGIN + step * i + step / 2
+        draw.text((cx, y + 44), value, font=num(46), fill=WHITE, anchor="ms")
+        draw.text((cx, y + 72), label, font=cjk(17), fill=st["muted"], anchor="ms")
+    draw.line((MARGIN, top - 8, width - MARGIN, top - 8), fill=(*st["faint"], 90), width=1)
     if not entries:
         draw.text((width / 2, top + 36), "플레이 기록이 없어요", font=cjk(22), fill=st["muted"], anchor="mm")
-    for i, e in enumerate(entries):  # down the first column, then the next
-        col, row = divmod(i, per_col)
-        _draw_play_row(canvas, MARGIN + col * (row_w + GAP_X), top + row * (PLAY_ROW_H + GAP_Y), row_w, first + i,
-                       e, badges[i] if i < len(badges) else None, game, theme, st, counts[i] if counts else 1)
+
+    def label(y: int, text: str, count: int) -> None:
+        d = ImageDraw.Draw(canvas)
+        d.text((MARGIN + 4, y + 28), text, font=cjk(22), fill=st["text"], anchor="ls")
+        d.text((MARGIN + 4 + d.textlength(text, font=cjk(22)) + 10, y + 28), str(count), font=num(24),
+               fill=st["muted"], anchor="ls")
+
+    def tiles(y: int, start: int, end: int) -> int:
+        for i in range(start, end):
+            line, col = divmod(i - start, tile_cols)
+            _draw_play_tile(canvas, MARGIN + col * (tile_w + GAP_X), y + line * (TILE_H + 10), tile_w, entries[i],
+                            badges[i], counts[i], game, theme, st)
+        return y + -(-(end - start) // tile_cols) * (TILE_H + 10)
+
+    y = top
+    if fresh:
+        label(y, "신기록", fresh)
+        y += DAY_LABEL_H
+        for i in range(full):  # left to right, then the next line
+            row, col = divmod(i, row_cols)
+            _draw_play_row(canvas, MARGIN + col * (row_w + GAP_X), y + row * (PLAY_ROW_H + GAP_Y), row_w, i + 1,
+                           entries[i], badges[i], game, theme, st, counts[i])
+        y += rows_h
+        if fresh > full:
+            y = tiles(y, full, fresh)
+    if len(entries) > fresh:
+        label(y, "그 외", len(entries) - fresh)
+        y = tiles(y + DAY_LABEL_H, fresh, len(entries))
     return encode(canvas)
 
 

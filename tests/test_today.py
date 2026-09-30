@@ -32,8 +32,11 @@ def test_render_day_without_new_records():
     assert png[:4] in (b"RIFF", b"\x89PNG", b"\xff\xd8\xff\xe0")
 
 
-def test_day_columns():
-    assert [render.day_columns(n) for n in (1, 3, 4, 12, 13, 50)] == [1, 1, 2, 2, 3, 3]
+def test_day_layout_keeps_the_sides_about_as_tall():
+    assert render._day_layout(1, 2) == (1, 1)
+    assert render._day_layout(0, 40)[0] == 0 and render._day_layout(5, 0)[1] == 0
+    left, right = render._day_layout(13, 31)
+    assert abs(-(-13 // left) * 142 - -(-31 // right) * 94) < 400
 
 
 def test_a_chart_played_again_is_one_row():

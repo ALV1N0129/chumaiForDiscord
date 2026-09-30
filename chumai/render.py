@@ -1301,14 +1301,8 @@ def _draw_play_header(canvas: Image.Image, game: str, player: str, icon: bytes |
 DAY_STATS_H = 92
 
 
-DAY_FULL = 9  # new records drawn as full play rows; the rest of the day as small tiles
-TILE_W, TILE_H = 452, 84
+TILE_W, TILE_H = 452, 84  # the rest of the day's plays as small tiles
 DAY_LABEL_H = 40
-
-
-def day_columns(count: int) -> int:
-    """Columns of full rows for /today: more side by side, so the page stays wide, not long."""
-    return 1 if count <= 3 else 2 if count <= 12 else 3
 
 
 def _draw_play_tile(canvas: Image.Image, x: int, y: int, w: int, e: Entry, badge, count: int, game: str,
@@ -1360,31 +1354,49 @@ def _draw_play_tile(canvas: Image.Image, x: int, y: int, w: int, e: Entry, badge
         draw.text((lx + lw / 2, y + h - 19), e.lamp, font=num(13), fill=lamp_color, anchor="mm")
 
 
+def _day_layout(fresh: int, rest: int) -> tuple[int, int]:
+    """(columns of new-record rows on the left, columns of tiles on the right) for /today: the two
+    sides about as tall as each other, the image not too tall nor too wide."""
+    best = None
+    for left in ([0] if not fresh else range(1, 4)):
+        for right in ([0] if not rest else range(1, 5)):
+            w = 2 * MARGIN + left * DAY_ROW_W + max(0, left - 1) * GAP_X + right * TILE_W + max(0, right - 1) * GAP_X
+            w += DAY_SPLIT if left and right else 0
+            if w > DAY_MAX_W and (left, right) not in ((1, 0), (0, 1), (1, 1)):
+                continue
+            h = max(-(-fresh // left) * (PLAY_ROW_H + GAP_Y) if left else 0,
+                    -(-rest // right) * (TILE_H + 10) if right else 0) + 300
+            cost = w * h * (1 + max(0.0, h / w - 0.75) * 2)
+            if best is None or cost < best[0]:
+                best = (cost, left, right)
+    return best[1], best[2]
+
+
+DAY_ROW_W = 2 * CARD_W + GAP_X  # a play log row
+DAY_SPLIT = 40  # between the new records and the rest
+DAY_MAX_W = 3100
+
+
 def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], entries: list[Entry],
                badges: list, counts: list[int], fresh: int, icon: bytes | None = None, rating: str | None = None,
                rating_before: str | None = None) -> bytes:
     """A day of play (/today) on one image: the play log's top, a line of numbers (credits, plays,
-    new records, ...), then the charts played, one each (`counts`: how many times): the first
-    `fresh` are new records, the biggest first as play rows, and the rest of the day as small tiles."""
+    new records, ...), then the charts played, one each (`counts`: how many times). The first
+    `fresh` are new records, the biggest first: play rows on the left; the rest of the day as small
+    tiles on the right."""
     from types import SimpleNamespace
 
     theme = THEMES[game]
     st = STYLES["version"]
-    row_w = 2 * CARD_W + GAP_X  # a play log row
-    full = min(fresh, DAY_FULL)
-    cols = day_columns(len(entries))
-    width = MARGIN * 2 + cols * row_w + (cols - 1) * GAP_X
-    inner = width - 2 * MARGIN
-    tile_cols = max(1, (inner + GAP_X) // (TILE_W + GAP_X))
-    tile_w = (inner - (tile_cols - 1) * GAP_X) // tile_cols
-    row_cols = min(cols, full) or 1
-    rows_h = -(-full // row_cols) * (PLAY_ROW_H + GAP_Y)
-    # the tiles: new records past the rows, then the rest; each group starts on a new line
-    groups = [(start, end) for start, end in ((full, fresh), (fresh, len(entries))) if end > start]
-    tile_lines = [-(-(end - start) // tile_cols) for start, end in groups]
-    sections = int(fresh > 0) + int(len(entries) > fresh)
+    rest = len(entries) - fresh
+    left, right = _day_layout(fresh, rest)
+    left_w = left * DAY_ROW_W + max(0, left - 1) * GAP_X
+    right_w = right * TILE_W + max(0, right - 1) * GAP_X
+    width = max(2 * MARGIN + left_w + right_w + (DAY_SPLIT if left and right else 0), 2 * MARGIN + DAY_ROW_W)
+    left_h = -(-fresh // left) * (PLAY_ROW_H + GAP_Y) if left else 0
+    right_h = -(-rest // right) * (TILE_H + 10) if right else 0
     top = CREDIT_HEADER_H + DAY_STATS_H
-    height = top + sections * DAY_LABEL_H + rows_h + sum(tile_lines) * (TILE_H + 10) + (70 if not entries else 0) + 20
+    height = top + (DAY_LABEL_H + max(left_h, right_h) if entries else 70) + 20
 
     stub = SimpleNamespace(game=game, old=entries, new=[], icon=icon)
     canvas = _rgb(_background(stub, (width, height), theme, st))
@@ -1392,7 +1404,7 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
     # the day in numbers: a big figure over a small label, spread across the width
     draw = ImageDraw.Draw(canvas)
     y = CREDIT_HEADER_H + 4
-    step = inner / max(1, len(stats))
+    step = (width - 2 * MARGIN) / max(1, len(stats))
     for i, (label, value) in enumerate(stats):
         cx = MARGIN + step * i + step / 2
         draw.text((cx, y + 44), value, font=num(46), fill=WHITE, anchor="ms")
@@ -1401,33 +1413,29 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
     if not entries:
         draw.text((width / 2, top + 36), "플레이 기록이 없어요", font=cjk(22), fill=st["muted"], anchor="mm")
 
-    def label(y: int, text: str, count: int) -> None:
+    def label(x: int, text: str, count: int) -> None:
         d = ImageDraw.Draw(canvas)
-        d.text((MARGIN + 4, y + 28), text, font=cjk(22), fill=st["text"], anchor="ls")
-        d.text((MARGIN + 4 + d.textlength(text, font=cjk(22)) + 10, y + 28), str(count), font=num(24),
+        d.text((x + 4, top + 28), text, font=cjk(22), fill=st["text"], anchor="ls")
+        d.text((x + 4 + d.textlength(text, font=cjk(22)) + 10, top + 28), str(count), font=num(24),
                fill=st["muted"], anchor="ls")
 
-    def tiles(y: int, start: int, end: int) -> int:
-        for i in range(start, end):
-            line, col = divmod(i - start, tile_cols)
-            _draw_play_tile(canvas, MARGIN + col * (tile_w + GAP_X), y + line * (TILE_H + 10), tile_w, entries[i],
-                            badges[i], counts[i], game, theme, st)
-        return y + -(-(end - start) // tile_cols) * (TILE_H + 10)
-
-    y = top
+    y = top + DAY_LABEL_H
     if fresh:
-        label(y, "신기록", fresh)
-        y += DAY_LABEL_H
-        for i in range(full):  # left to right, then the next line
-            row, col = divmod(i, row_cols)
-            _draw_play_row(canvas, MARGIN + col * (row_w + GAP_X), y + row * (PLAY_ROW_H + GAP_Y), row_w, i + 1,
-                           entries[i], badges[i], game, theme, st, counts[i])
-        y += rows_h
-        if fresh > full:
-            y = tiles(y, full, fresh)
-    if len(entries) > fresh:
-        label(y, "그 외", len(entries) - fresh)
-        y = tiles(y + DAY_LABEL_H, fresh, len(entries))
+        label(MARGIN, "신기록", fresh)
+        for i in range(fresh):  # left to right, then the next line
+            row, col = divmod(i, left)
+            _draw_play_row(canvas, MARGIN + col * (DAY_ROW_W + GAP_X), y + row * (PLAY_ROW_H + GAP_Y), DAY_ROW_W,
+                           i + 1, entries[i], badges[i], game, theme, st, counts[i])
+    if rest:
+        x0 = MARGIN + (left_w + DAY_SPLIT if left else 0)
+        if left:
+            ImageDraw.Draw(canvas).line((x0 - DAY_SPLIT // 2, top + 6, x0 - DAY_SPLIT // 2, height - 24),
+                                        fill=(*st["faint"], 90), width=1)
+        label(x0, "그 외", rest)
+        for i in range(rest):
+            line, col = divmod(i, right)
+            _draw_play_tile(canvas, x0 + col * (TILE_W + GAP_X), y + line * (TILE_H + 10), TILE_W,
+                            entries[fresh + i], badges[fresh + i], counts[fresh + i], game, theme, st)
     return encode(canvas)
 
 

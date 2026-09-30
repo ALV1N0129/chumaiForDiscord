@@ -43,6 +43,10 @@ class LinkStore:
                 rating TEXT NOT NULL,
                 PRIMARY KEY (discord_id, game)
             );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS song_aliases (
                 guild_id INTEGER NOT NULL,
                 game TEXT NOT NULL,
@@ -198,6 +202,18 @@ class LinkStore:
         rows = self._db.execute("SELECT alias FROM song_aliases WHERE guild_id = ? AND game = ? AND title = ? "
                                 "ORDER BY rowid", (guild_id, game, title))
         return [r[0] for r in rows]
+
+    # bot-wide settings (e.g. the channel live logs go to)
+    def get_setting(self, key: str) -> str | None:
+        row = self._db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_setting(self, key: str, value: str | None) -> None:
+        if value is None:
+            self._db.execute("DELETE FROM settings WHERE key = ?", (key,))
+        else:
+            self._db.execute("INSERT OR REPLACE INTO settings VALUES (?, ?)", (key, value))
+        self._db.commit()
 
     def close(self) -> None:
         self._db.close()

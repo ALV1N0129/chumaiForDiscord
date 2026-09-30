@@ -33,7 +33,7 @@ def test_render_day_without_plays():
     assert png[:4] in (b"RIFF", b"\x89PNG", b"\xff\xd8\xff\xe0")
 
 
-def test_plays_of_a_chart_in_a_row_are_one_slot():
+def test_every_play_has_its_own_slot():
     from chumai.playlog import Badge, day_timeline
 
     def play(t, track, title, score, new, lamp=None):
@@ -42,12 +42,13 @@ def test_plays_of_a_chart_in_a_row_are_one_slot():
     plays = [play(1, 1, "A", 1_004_000, False), play(1, 2, "A", 1_006_500, True, "FC"),
              play(1, 3, "A", 1_005_000, False), play(1, 4, "B", 1_000_000, False),
              play(9, 1, "A", 1_007_900, True)]
-    marks = {plays[1].key: Badge("new", gain=Fraction(3, 1000)), plays[4].key: Badge("new")}
+    marks = {plays[1].key: Badge("new", delta=500, gain=Fraction(3, 1000)), plays[4].key: Badge("new", first=False)}
     credits, steps = day_timeline(plays, marks)
     assert [time for time, _ in credits] == ["20:01", "20:09"]
-    assert [(d.play.title, d.play.score, d.play.lamp, d.new, d.count, d.gain) for d in credits[0][1]] == [
-        ("A", 1_006_500, "FC", True, 3, 0.003), ("B", 1_000_000, None, False, 1, 0)]
-    assert steps == [(0, 0.375, 0.003, 0)]  # the second track, in the first slot
+    assert [(d.play.score, d.new, d.count, d.gain, d.delta) for d in credits[0][1]] == [
+        (1_004_000, False, 1, 0, None), (1_006_500, True, 1, 0.003, 500), (1_005_000, False, 1, 0, None),
+        (1_000_000, False, 1, 0, None)]
+    assert steps == [(0, 0.375, 0.003, 1)]
 
 
 def test_render_day_timeline():

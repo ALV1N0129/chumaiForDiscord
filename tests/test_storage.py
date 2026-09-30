@@ -56,3 +56,24 @@ def test_playlog_for_everyone_logged_in(tmp_path):
     store.delete_auto_playlogs()
     assert [(d, g) for d, g, *_ in store.playlogs()] == [(1, "maimai")]
     store.close()
+
+
+def test_play_marks_kept_for_today(tmp_path):
+    import datetime
+    from fractions import Fraction
+
+    from chumai.playlog import Badge
+
+    store = LinkStore(tmp_path / "db.sqlite")
+    today = datetime.date.today().strftime("%Y/%m/%d")
+    store.save_marks(1, "chunithm", {f"{today} 18:00#01": Badge("new", delta=2450, gain=Fraction(9, 1000)),
+                                     f"{today} 18:00#02": Badge("new", first=True),
+                                     "2000/01/01 00:00#01": Badge("tie")})  # too old: dropped
+    marks = store.get_marks(1, "chunithm")
+    assert set(marks) == {f"{today} 18:00#01", f"{today} 18:00#02"}
+    a = marks[f"{today} 18:00#01"]
+    assert (a.kind, a.delta, round(a.gain, 3), a.first) == ("new", 2450, 0.009, False)
+    assert marks[f"{today} 18:00#02"].first
+    store.delete_sega_token(1)
+    assert store.get_marks(1, "chunithm") == {}
+    store.close()

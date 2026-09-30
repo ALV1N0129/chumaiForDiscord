@@ -1422,7 +1422,7 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
     depth = max((len(c.slots) for c in credits), default=0)
     stats_y = CREDIT_HEADER_H + 4
     graph_y = stats_y + 70
-    graph = rating_start is not None and bool(steps)  # no rise: no graph, a line saying so
+    graph = rating_start is not None and bool(steps)  # no rise: no graph
     raised = []  # the slots that raised the rating
     for c, _, _, slot in steps:
         if all(r is not credits[c].slots[slot] for r in raised):  # once per slot, however many steps
@@ -1433,7 +1433,7 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
     per_row = max(1, (width - MARGIN - chips_x + DAY_CHIP_GAP) // (DAY_CHIP_W + DAY_CHIP_GAP))
     hero_h = (-(-len(raised) // per_row) * (DAY_CHIP_H + DAY_CHIP_GAP)) if raised else 0
     hero_y = graph_y + DAY_GRAPH_H + 20
-    lane_y = graph_y + (DAY_GRAPH_H + 40 + hero_h if graph else 44)
+    lane_y = graph_y + (DAY_GRAPH_H + 40 + hero_h if graph else 10)
     height = lane_y + 76 + depth * slot_h + 20
 
     stub = SimpleNamespace(game=game, old=[c.slots[0].entry for c in credits if c.slots], new=[], icon=icon)
@@ -1446,9 +1446,6 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
         x += draw.textlength(value, font=num(40)) + 8
         draw.text((x, stats_y + 42), label, font=cjk(19), fill=st["muted"], anchor="ls")
         x += draw.textlength(label, font=cjk(19)) + 36
-    if not graph and credits:
-        draw.text((MARGIN, graph_y + 14), "오늘은 레이팅이 오르지 않았어요", font=cjk(20), fill=st["muted"],
-                  anchor="ls")
     if graph:
         points = [(MARGIN + col * (c + frac), gain) for c, frac, gain, _ in steps]
         _day_rating_graph(canvas, (MARGIN, graph_y, width - MARGIN, graph_y + DAY_GRAPH_H), points, rating_start,

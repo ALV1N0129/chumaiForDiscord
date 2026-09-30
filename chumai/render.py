@@ -1287,45 +1287,49 @@ def _draw_play_header(canvas: Image.Image, game: str, player: str, icon: bytes |
 DAY_STATS_H = 92
 
 
-def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], entries: list[Entry],
-               badges: list, more: int = 0, icon: bytes | None = None, rating: str | None = None,
-               rating_before: str | None = None) -> bytes:
+def day_columns(count: int) -> int:
+    """Columns for /today's rows: more side by side, so a page stays wide, not long."""
+    return 1 if count <= 3 else 2 if count <= 12 else 3
+
+
+def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]] | None, entries: list[Entry],
+               badges: list, icon: bytes | None = None, rating: str | None = None,
+               rating_before: str | None = None, first: int = 1, cols: int | None = None) -> bytes:
     """A day of play (/today): the play log's top, a line of numbers (credits, tracks, new records,
-    ...), then play rows (new records first); `more` plays left out."""
+    ...), then play rows (new records first). A long day goes on further images: those have
+    `stats` None (rows only), numbered from `first`, with the first image's `cols`."""
     from types import SimpleNamespace
 
     theme = THEMES[game]
     st = STYLES["version"]
     row_w = 2 * CARD_W + GAP_X  # a play log row
-    cols = 2 if len(entries) > 3 else 1  # more rows side by side, so the page stays wide, not long
+    cols = cols or day_columns(len(entries))
     per_col = -(-len(entries) // cols)
     width = MARGIN * 2 + cols * row_w + (cols - 1) * GAP_X
-    top = CREDIT_HEADER_H + DAY_STATS_H
+    top = CREDIT_HEADER_H + DAY_STATS_H if stats is not None else 26
     rows_h = per_col * (PLAY_ROW_H + GAP_Y) if entries else 70
-    height = top + rows_h + (40 if more else 0) + 26
+    height = top + rows_h + 26
     stub = SimpleNamespace(game=game, old=entries, new=[], icon=icon)
     canvas = _rgb(_background(stub, (width, height), theme, st))
-    _draw_play_header(canvas, game, player, icon, f"TODAY  ·  {date}", rating, rating_before, width, theme, st)
-
-    # the day in numbers: a big figure over a small label, spread across the width
     draw = ImageDraw.Draw(canvas)
-    y = CREDIT_HEADER_H + 4
-    step = (width - 2 * MARGIN) / max(1, len(stats))
-    for i, (label, value) in enumerate(stats):
-        cx = MARGIN + step * i + step / 2
-        draw.text((cx, y + 44), value, font=num(46), fill=WHITE, anchor="ms")
-        draw.text((cx, y + 72), label, font=cjk(17), fill=st["muted"], anchor="ms")
-    draw.line((MARGIN, top - 8, width - MARGIN, top - 8), fill=(*st["faint"], 90), width=1)
+    if stats is not None:
+        _draw_play_header(canvas, game, player, icon, f"TODAY  ·  {date}", rating, rating_before, width, theme, st)
+        # the day in numbers: a big figure over a small label, spread across the width
+        draw = ImageDraw.Draw(canvas)
+        y = CREDIT_HEADER_H + 4
+        step = (width - 2 * MARGIN) / max(1, len(stats))
+        for i, (label, value) in enumerate(stats):
+            cx = MARGIN + step * i + step / 2
+            draw.text((cx, y + 44), value, font=num(46), fill=WHITE, anchor="ms")
+            draw.text((cx, y + 72), label, font=cjk(17), fill=st["muted"], anchor="ms")
+        draw.line((MARGIN, top - 8, width - MARGIN, top - 8), fill=(*st["faint"], 90), width=1)
 
     if not entries:
         draw.text((width / 2, top + 36), "플레이 기록이 없어요", font=cjk(22), fill=st["muted"], anchor="mm")
-    for i, e in enumerate(entries):  # down the first column, then the second
+    for i, e in enumerate(entries):  # down the first column, then the next
         col, row = divmod(i, per_col)
-        _draw_play_row(canvas, MARGIN + col * (row_w + GAP_X), top + row * (PLAY_ROW_H + GAP_Y), row_w, i + 1, e,
-                       badges[i] if i < len(badges) else None, game, theme, st)
-    if more:
-        ImageDraw.Draw(canvas).text((width / 2, top + rows_h + 14), f"{more}곡 더", font=cjk(20),
-                                    fill=st["muted"], anchor="mm")
+        _draw_play_row(canvas, MARGIN + col * (row_w + GAP_X), top + row * (PLAY_ROW_H + GAP_Y), row_w, first + i,
+                       e, badges[i] if i < len(badges) else None, game, theme, st)
     return encode(canvas)
 
 

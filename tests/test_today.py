@@ -28,5 +28,11 @@ def test_rating_history(tmp_path):
 
 def test_render_day_without_new_records():
     png = render.render_day("maimai", "p", "2026/09/30", [("크레딧", "2"), ("곡", "6"), ("신기록", "0"),
-                                                         ("AP·FC", "0")], [], [], 0, None, "15212", None)
+                                                         ("AP·FC", "0")], [], [], None, "15212", None)
+    assert png[:4] in (b"RIFF", b"\x89PNG", b"\xff\xd8\xff\xe0")
+
+
+def test_a_long_day_goes_on_further_images():
+    assert [render.day_columns(n) for n in (1, 3, 4, 12, 13, 50)] == [1, 1, 2, 2, 3, 3]
+    png = render.render_day("maimai", "p", "2026/09/30", None, [], [], first=19, cols=3)
     assert png[:4] in (b"RIFF", b"\x89PNG", b"\xff\xd8\xff\xe0")

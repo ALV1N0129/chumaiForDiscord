@@ -1291,7 +1291,7 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
                badges: list, more: int = 0, icon: bytes | None = None, rating: str | None = None,
                rating_before: str | None = None) -> bytes:
     """A day of play (/today): the play log's top, a line of numbers (credits, tracks, new records,
-    ...), then the day's new records as play rows, the biggest first; `more` of them left out."""
+    ...), then play rows (new records first); `more` plays left out."""
     from types import SimpleNamespace
 
     theme = THEMES[game]
@@ -1318,13 +1318,13 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
     draw.line((MARGIN, top - 8, width - MARGIN, top - 8), fill=(*st["faint"], 90), width=1)
 
     if not entries:
-        draw.text((width / 2, top + 36), "오늘은 신기록이 없어요", font=cjk(22), fill=st["muted"], anchor="mm")
+        draw.text((width / 2, top + 36), "플레이 기록이 없어요", font=cjk(22), fill=st["muted"], anchor="mm")
     for i, e in enumerate(entries):  # down the first column, then the second
         col, row = divmod(i, per_col)
         _draw_play_row(canvas, MARGIN + col * (row_w + GAP_X), top + row * (PLAY_ROW_H + GAP_Y), row_w, i + 1, e,
                        badges[i] if i < len(badges) else None, game, theme, st)
     if more:
-        ImageDraw.Draw(canvas).text((width / 2, top + rows_h + 14), f"신기록 {more}곡 더", font=cjk(20),
+        ImageDraw.Draw(canvas).text((width / 2, top + rows_h + 14), f"{more}곡 더", font=cjk(20),
                                     fill=st["muted"], anchor="mm")
     return encode(canvas)
 

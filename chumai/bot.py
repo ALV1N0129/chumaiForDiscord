@@ -685,8 +685,8 @@ def play_day(record) -> datetime.date:
 
 async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> bytes | None:
     """The latest day of play (/today): credits, tracks, new records and lamps, the rating from
-    before the day's first play to now, and the new records, the biggest gains first. None if the
-    play log is empty. The official site keeps the last 50 plays, so a long day may be cut short."""
+    before the day's first play to now, and the new records, the biggest gains first, then the
+    other plays. None if the play log is empty. The official site keeps the last 50 plays, so a long day may be cut short."""
     token = bot.links.get_sega_token(discord_id)
     if token is None:
         raise SegaError("`/login` 으로 먼저 SEGA ID 로그인을 해 주세요.")
@@ -718,7 +718,9 @@ async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> bytes | No
         new = [r for r in plays if r.new_record]
         new.sort(key=lambda r: (float(getattr(marks.get(r.key), "gain", 0) or 0),
                                 getattr(marks.get(r.key), "delta", 0) or 0), reverse=True)
-        shown = new[:TODAY_ROWS]
+        # new records first, the biggest gains on top; the day's other plays fill what's left, the latest first
+        rest = [r for r in reversed(plays) if not r.new_record]
+        shown = (new + rest)[:TODAY_ROWS]
         entries = [to_entry(game, r, bot.songdb, bot.jackets.unrated_level) for r in shown]
         paths = await asyncio.gather(*(_cached_image(bot, net, game, r.jacket_url) for r in shown))
         for e, path in zip(entries, paths):
@@ -728,7 +730,7 @@ async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> bytes | No
                  ("신기록", str(len(new))), (lamp_label, str(sum(1 for r in plays if r.lamp)))]
         png = await asyncio.to_thread(
             render.render_day, game, player.name, day.strftime("%Y/%m/%d"), stats, entries,
-            [marks.get(r.key) for r in shown], len(new) - len(shown), icon, player.rating, before)
+            [marks.get(r.key) for r in shown], len(plays) - len(shown), icon, player.rating, before)
     if net.clal != token:
         bot.links.set_sega_token(discord_id, net.clal)
     return png

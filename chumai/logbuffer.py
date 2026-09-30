@@ -149,8 +149,16 @@ def summarize(record: logging.LogRecord) -> str | None:
     if exc is not None:
         text += f" (원인: {_cause(exc)})"
     mark = "❌" if record.levelno >= logging.ERROR else "⚠️" if record.levelno >= logging.WARNING else "✅"
+    return _line(record, mark, text)
+
+
+def _line(record: logging.LogRecord, mark: str, text: str) -> str:
     when = datetime.datetime.fromtimestamp(record.created, KST).strftime("%m/%d %H:%M")
     return f"{mark} `{when}` {text}"
+
+
+REPEAT_SECONDS = 60  # the same line again within this: counted on the first one (×N)
+RECONNECTED = ("has connected to Gateway", "has successfully RESUMED")
 
 
 class RecentLogs(logging.Handler):
@@ -161,18 +169,39 @@ class RecentLogs(logging.Handler):
         # can't feed themselves
         self.pending: deque[str] = deque(maxlen=500)
 
+        self._discord_down = False  # a connection error seen, not yet connected again
+        self._last: tuple[str, float, int, str] | None = None  # (line without time, when, count, line)
+
     def emit(self, record: logging.LogRecord) -> None:
         try:
             line = summarize(record)
         except Exception:
             self.handleError(record)
             return
+        library = record.name.startswith("discord")
+        # not a failure to send the live log itself, nor discord.py's own (it may be about sending)
+        live = not record.name.startswith(("chumai.live", "discord")) or "heartbeat" in str(record.msg)
+        if library and line is not None and record.levelno >= logging.ERROR:
+            self._discord_down = True
+        elif library and self._discord_down and any(key in str(record.msg) for key in RECONNECTED):
+            self._discord_down = False
+            line, live = _line(record, "✅", "디스코드에 다시 연결됐어요."), True
         if line is None:
             return
         line = line[:400]
+        same = line.split("` ", 1)[-1] + line[:2]
+        last = self._last
+        if last and last[0] == same and record.created - last[1] < REPEAT_SECONDS:
+            count = last[2] + 1
+            counted = f"{last[3]} ×{count}"
+            for lines in (self.lines, self.pending):  # the line already there, unless it went out
+                if lines and lines[-1].startswith(last[3]):
+                    lines[-1] = counted
+            self._last = (same, last[1], count, last[3])
+            return
+        self._last = (same, record.created, 1, line)
         self.lines.append(line)
-        # not a failure to send the live log itself, nor discord.py's own (it may be about sending)
-        if not record.name.startswith(("chumai.live", "discord")) or "heartbeat" in str(record.msg):
+        if live:
             self.pending.append(line)
 
     def tail(self, count: int) -> list[str]:

@@ -58,3 +58,19 @@ def test_every_logged_message_has_a_summary():
             if template not in logbuffer.SUMMARIES and not korean:
                 missing.append(f"{path.name}: {template}")
     assert missing == []
+
+
+def test_repeats_counted_and_reconnect_noted():
+    buf = RecentLogs(size=10)
+    for _ in range(4):
+        _logged(buf, "discord.client", logging.ERROR, "Attempting a reconnect", exc=OSError("dns"))
+    _logged(buf, "discord.gateway", logging.INFO, "Shard ID %s has successfully RESUMED session %s.", None, "x")
+    _logged(buf, "discord.gateway", logging.INFO, "Shard ID %s has successfully RESUMED session %s.", None, "y")
+    _logged(buf, "chumai.bot", logging.INFO, "song database updated")
+    _logged(buf, "chumai.bot", logging.INFO, "song database updated")
+    lines = buf.tail(10)
+    assert len(lines) == 3
+    assert lines[0].endswith("디스코드 연결에 문제가 생겼어요. (원인: OSError) ×4")
+    assert lines[1].endswith("디스코드에 다시 연결됐어요.")  # once, not for every resume
+    assert lines[2].endswith("곡 데이터를 업데이트했어요. ×2")
+    assert buf.take().split("\n") == lines[1:]  # discord.py's own errors stay off the live channel

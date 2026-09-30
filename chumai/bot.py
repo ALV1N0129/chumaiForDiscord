@@ -488,12 +488,13 @@ async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str, image
                     result.available = await _chunithm_available(net)
             else:
                 player = net_parsers.parse_maimai_player(await net.get("/maimai-mobile/home/"))
-                pages = await asyncio.gather(*(
-                    net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={diff}") for diff in range(5)
-                ))
+                # each page lists every song of a difficulty (MBs): one at a time, read and dropped
                 seen = {d: set() for base in net_parsers.MAIMAI_DIFFS for d in (base, f"DX {base}")}
-                records = [r for diff, html in enumerate(pages)
-                           for r in net_parsers.parse_maimai_scores(html, diff, seen)]
+                records = []
+                for diff in range(5):
+                    html = await net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={diff}")
+                    records += net_parsers.parse_maimai_scores(html, diff, seen)
+                    del html
                 result = b50_from_maimai_net(player, records, bot.songdb, bot.config.new_versions[game])
                 result.played = {(r.title, r.difficulty): r.achievement for r in records}  # for /recommend
                 # every song on the record pages, played or not
@@ -580,10 +581,12 @@ async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None) 
     if game == "chunithm":
         try:
             wanted = [d for d in CHUNITHM_RECORD_DIFFS if diffs is None or d in diffs]
-            pages = await asyncio.gather(*(
-                net.post(f"/mobile/record/musicGenre/send{d.capitalize()}", {"genre": "99"}) for d in wanted))
-            for html in pages:
-                out.update({(r.title, r.difficulty): r.score for r in net_parsers.parse_chunithm_rating_list(html)})
+            # one page at a time: each lists every song, and holding them all at once ran a small host
+            # out of memory
+            for d in wanted:
+                html = await net.post(f"/mobile/record/musicGenre/send{d.capitalize()}", {"genre": "99"})
+                out.update({(r.title, r.difficulty): r.score for r in net_parsers.parse_chunithm_record_scores(html)})
+                del html
         except SegaError:
             # fall back to the B50 lists (only the 50 rated charts, but the same pages /b50 uses)
             log.warning("CHUNITHM record pages failed; using the rating lists", exc_info=True)
@@ -593,10 +596,10 @@ async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None) 
     else:
         wanted = [i for i, base in enumerate(net_parsers.MAIMAI_DIFFS)
                   if diffs is None or base in diffs or f"DX {base}" in diffs]
-        pages = await asyncio.gather(*(
-            net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={i}") for i in wanted))
-        for i, html in zip(wanted, pages):
+        for i in wanted:  # one page at a time: each lists every song of a difficulty
+            html = await net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={i}")
             out.update({(r.title, r.difficulty): r.achievement for r in net_parsers.parse_maimai_scores(html, i)})
+            del html
     return out
 
 

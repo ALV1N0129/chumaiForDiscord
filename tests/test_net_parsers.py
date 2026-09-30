@@ -89,3 +89,13 @@ def test_record_pages_list_unplayed_songs():
             '<form><div class="musiclist_box bg_master"><div class="music_title">B</div>'
             '<input type="hidden" name="idx" value="2995" /></div></form>')
     assert net_parsers.parse_chunithm_music_ids(page) == {12, 2995}
+
+
+def test_chunithm_record_scores_match_the_parsed_tree():
+    def key(r):
+        return (r.idx, r.title, r.difficulty, r.score)
+
+    for name in ("best30.html", "recent10.html"):
+        html = _read(f"chunithm_net/{name}")
+        assert [key(r) for r in net_parsers.parse_chunithm_record_scores(html)] == \
+            [key(r) for r in net_parsers.parse_chunithm_rating_list(html)]

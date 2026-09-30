@@ -1496,9 +1496,12 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
                 tw = int(draw.textlength(label, font=num(18))) + 14
                 pill = _gradient_fill((tw, 22), colors)
                 pill.putalpha(_rounded_mask((tw, 22), 8))
-                _over(canvas, pill, (jx - 4, y - 8))
+                # beside the DX badge, not over it
+                px = jx + 10 + max(24, round(36 * jacket / 228)) if e.difficulty and _diff_info(e.difficulty)[3] \
+                    else jx - 4
+                _over(canvas, pill, (px, y - 8))
                 draw = ImageDraw.Draw(canvas)
-                draw.text((jx - 4 + tw / 2, y + 3), label, font=num(18), fill=(40, 20, 30), anchor="mm")
+                draw.text((px + tw / 2, y + 3), label, font=num(18), fill=(40, 20, 30), anchor="mm")
             if slot.count > 1:
                 _draw_count_pill(canvas, jx + jacket + 10, y - 14, slot.count)
                 draw = ImageDraw.Draw(canvas)

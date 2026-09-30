@@ -680,7 +680,8 @@ def register(bot: ChumaiBot) -> None:
             embed.add_field(name=name, value="\n".join(lines), inline=False)
         from . import updater
 
-        footer = f"접두어 예시: {p}b c · {p}r m 13+ · {p}i c 곡이름 · {p}pl on c (게임: m / mai / c / chuni)" if p else ""
+        footer = (f"접두어 예시: {p}b c · {p}r m 13+ · {p}i c 곡이름 · {p}오늘 츄니 · {p}플레이로그 켜기 마이 "
+                  f"(게임: m / mai / 마이 / c / chuni / 츄니, 한국어 명령어 이름도 돼요)") if p else ""
         if updater.enabled():
             footer += f"\n버전 {await updater.version()}"
         if footer:

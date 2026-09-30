@@ -103,3 +103,18 @@ def test_give_up_aliases(tmp_path, monkeypatch):
     bot = _bot(tmp_path, monkeypatch)
     assert "진행 중인 게임이 없어요" in _run(bot, "!포기")[-1][0]
     assert "진행 중인 게임이 없어요" in _run(bot, "!gu")[-1][0]
+
+
+def test_korean_command_names(tmp_path, monkeypatch):
+    calls = spy_renders(monkeypatch)
+    bot = _bot(tmp_path, monkeypatch)
+    _run(bot, "!곡정보 츄니 aleph")
+    assert calls[-1][0] == "render_song"
+    _run(bot, "!상수표 츄니 14.7-14.9")
+    assert calls[-1][0] == "render_chart_list"
+    r = _run(bot, "!플레이로그")
+    assert "`!플레이로그 <켜기 / 끄기 / 테스트>`" in r[-1][0]
+    r = _run(bot, "!랜덤 마이")
+    assert "사용법: `!랜덤 <game> <level> [count]`" in r[-1][0]
+    r = _run(bot, "!별명 목록 츄니")
+    assert "`!별명 목록" in r[-1][0]

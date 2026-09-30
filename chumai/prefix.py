@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 import discord
 from discord import AppCommandOptionType, app_commands
 
+from . import i18n
+
 if TYPE_CHECKING:
     from .bot import ChumaiBot
 
@@ -29,6 +31,9 @@ ALIASES = {
     "rh": "reach", "w": "whatif", "rec": "recommend", "cal": "calc", "g": "guess", "cg": "chartguess", "ch": "chart", "a": "answer", "gu": "giveup", "포기": "giveup",
     "h": "help", "pl": "playlog",
 }
+# the Korean command names (/오늘 ...) work after the prefix too: !오늘 c, !플레이로그 켜기 c
+KOREAN = {ko: en for en, ko in i18n.COMMANDS.items()}
+CHOICE_WORDS = {"켜기": "on", "끄기": "off"}
 TRUE = {"true", "yes", "on", "1", "y", "켜기", "공개"}
 FALSE = {"false", "no", "off", "0", "n", "끄기", "비공개"}
 
@@ -94,7 +99,7 @@ class MessageInteraction:
 def _convert(param: app_commands.Parameter, raw: str, message: discord.Message) -> Any:
     if param.choices:
         values = [str(c.value) for c in param.choices]
-        value = GAME_ALIASES.get(raw.lower(), raw) if param.name == "game" else raw
+        value = GAME_ALIASES.get(raw.lower(), raw) if param.name == "game" else CHOICE_WORDS.get(raw, raw)
         if value not in values:
             raise UsageError(f"`{param.name}` 은(는) {' / '.join(values)} 중 하나여야 해요.")
         return value
@@ -197,22 +202,22 @@ async def handle(bot: ChumaiBot, message: discord.Message, prefix: str) -> None:
         tokens = message.content[len(prefix):].split()
     if not tokens:
         return
-    name = tokens.pop(0).lower()
-    name = ALIASES.get(name, name)
+    typed = tokens.pop(0).lower()
+    name = ALIASES.get(typed) or KOREAN.get(typed, typed)
     command = bot.tree.get_command(name)
     if command is None:
         return
-    shown = name
+    shown = typed if typed in KOREAN else name
     if isinstance(command, app_commands.Group):
         if not tokens:
-            subs = " / ".join(c.name for c in command.commands)
-            await message.reply(f"`{prefix}{name} <{subs}>` 형식으로 써 주세요.", mention_author=False)
+            names = [i18n.COMMANDS.get(c.name, c.name) if typed in KOREAN else c.name for c in command.commands]
+            await message.reply(f"`{prefix}{shown} <{' / '.join(names)}>` 형식으로 써 주세요.", mention_author=False)
             return
         sub = tokens.pop(0).lower()
-        command = command.get_command(sub)
+        command = command.get_command(KOREAN.get(sub, sub))
         if command is None:
             return
-        shown = f"{name} {sub}"
+        shown = f"{shown} {sub}"
 
     if name == "login":
         await message.reply("아래 버튼을 눌러 로그인해 주세요. 비밀번호는 채팅에 쓰지 마세요!",

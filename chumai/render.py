@@ -1114,13 +1114,14 @@ def _draw_play_badge(canvas: Image.Image, right: int, y: int, game: str, badge) 
 
 
 def _draw_count_pill(canvas: Image.Image, right: int, y: int, count: int) -> int:
-    """"×N" (played N times) as a pill like the play badges, right-aligned at `right`. Returns its left edge."""
-    text, f = f"×{count}", num(15)
-    bw, bh = int(ImageDraw.Draw(canvas).textlength(text, font=f)) + 18, 20
-    pill = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
-    pill.paste(Image.new("RGBA", (bw, bh), (255, 255, 255, 235)), (0, 0), _rounded_mask((bw, bh), 10))
+    """"×N" (played N times) in a bright pill, right-aligned at `right`. Returns its left edge."""
+    text, f = f"×{count}", num(26)
+    bw, bh = int(ImageDraw.Draw(canvas).textlength(text, font=f)) + 16, 32
+    pill = _gradient_fill((bw, bh), [(255, 236, 120), (255, 170, 60)])
+    pill.putalpha(_rounded_mask((bw, bh), 10))
+    ImageDraw.Draw(pill).rounded_rectangle((0, 0, bw - 1, bh - 1), radius=10, outline=(40, 24, 10), width=2)
     _over(canvas, pill, (right - bw, y))
-    ImageDraw.Draw(canvas).text((right - bw // 2, y + bh // 2), text, font=f, fill=(20, 22, 40), anchor="mm")
+    ImageDraw.Draw(canvas).text((right - bw // 2, y + bh // 2 + 1), text, font=f, fill=(40, 24, 10), anchor="mm")
     return right - bw
 
 
@@ -1173,6 +1174,8 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
     draw.text((x + 26, y + h / 2), str(idx), font=num(40), fill=(120, 122, 150), anchor="mm")
     js = h - 24
     _framed_jacket(canvas, x + 52, y + 12, js, e.jacket_path, e.difficulty)
+    if count > 1:  # on the jacket's top right corner, big enough to read at a glance
+        _draw_count_pill(canvas, x + 52 + js + 8, y + 4, count)
     draw = ImageDraw.Draw(canvas)
     tx, right = x + 52 + js + 22, x + w - 20
 
@@ -1181,14 +1184,8 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
     maxed = e.rated and e.score >= (100.5 if game == "maimai" else 1_009_000)
     draw.text((right, y + h - 16), rating_text, font=num(46), fill=MAX_RATING if maxed else st["text"], anchor="rs")
     side = int(draw.textlength(rating_text, font=num(46)))
-    edge = right
     if badge is not None:
-        edge = _draw_play_badge(canvas, right, y + 14, game, badge)
-        side = max(side, right - edge)
-    if count > 1:
-        edge = _draw_count_pill(canvas, edge - (6 if badge is not None else 0), y + 14, count)
-        side = max(side, right - edge)
-    if badge is not None:
+        side = max(side, right - _draw_play_badge(canvas, right, y + 14, game, badge))
         if badge.gain:
             gain = f"+{float(badge.gain):.3f}" if game == "chunithm" else f"+{int(badge.gain)}"
             _up_pill(canvas, right, y + 44, gain, 15)

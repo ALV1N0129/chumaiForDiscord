@@ -1,3 +1,5 @@
+from fractions import Fraction
+
 from chumai import render
 from chumai.bot import play_day
 from chumai.net_parsers import PlayRecord
@@ -26,41 +28,36 @@ def test_rating_history(tmp_path):
     store.close()
 
 
-def test_render_day_without_new_records():
-    png = render.render_day("maimai", "p", "2026/09/30", [("크레딧", "2"), ("곡", "6"), ("신기록", "0"),
-                                                         ("AP·FC", "0")], [], [], [], 0, None, "15212", None)
+def test_render_day_without_plays():
+    png = render.render_day("maimai", "p", "2026/09/30", [("크레딧", "0")], [], [], None, None, "15212", None)
     assert png[:4] in (b"RIFF", b"\x89PNG", b"\xff\xd8\xff\xe0")
 
 
-def test_day_layout_keeps_the_sides_about_as_tall():
-    assert render._day_layout(1, 2) == (1, 1)
-    assert render._day_layout(0, 40)[0] == 0 and render._day_layout(5, 0)[1] == 0
-    left, right = render._day_layout(13, 31)
-    assert abs(-(-13 // left) * 142 - -(-31 // right) * 94) < 400
+def test_plays_of_a_chart_in_a_row_are_one_slot():
+    from chumai.playlog import Badge, day_timeline
+
+    def play(t, track, title, score, new, lamp=None):
+        return PlayRecord(f"2026/09/30 20:{t:02d}", track, title, "MASTER", score, None, lamp, new, None)
+
+    plays = [play(1, 1, "A", 1_004_000, False), play(1, 2, "A", 1_006_500, True, "FC"),
+             play(1, 3, "A", 1_005_000, False), play(1, 4, "B", 1_000_000, False),
+             play(9, 1, "A", 1_007_900, True)]
+    marks = {plays[1].key: Badge("new", gain=Fraction(3, 1000)), plays[4].key: Badge("new")}
+    credits, steps = day_timeline(plays, marks)
+    assert [time for time, _ in credits] == ["20:01", "20:09"]
+    assert [(r.title, r.score, r.lamp, new, n) for r, new, n in credits[0][1]] == [
+        ("A", 1_006_500, "FC", True, 3), ("B", 1_000_000, None, False, 1)]
+    assert steps == [(0, 0.375, 0.003)]
 
 
-def test_a_chart_played_again_is_one_row():
-    from chumai.playlog import Badge, by_chart
-
-    def play(t, title, score, new, lamp=None):
-        return PlayRecord(f"2026/09/30 20:{t:02d}", 1, title, "MASTER", score, None, lamp, new, None)
-
-    plays = [play(1, "A", 1_004_000, False), play(2, "A", 1_006_500, True, "FC"), play(3, "B", 1_000_000, False),
-             play(4, "A", 1_007_900, True), play(5, "A", 1_007_900, False), play(6, "C", 990_000, False)]
-    marks = {plays[1].key: Badge("new", delta=1000), plays[3].key: Badge("new", delta=1400),
-             plays[4].key: Badge("tie"), plays[2].key: Badge("best", best=1_002_000)}
-    rows = by_chart(plays, marks)
-    assert [(r.title, r.score, r.lamp, n) for r, _, n in rows] == [
-        ("A", 1_007_900, "FC", 4), ("C", 990_000, None, 1), ("B", 1_000_000, None, 1)]
-    assert rows[0][1].kind == "new" and rows[0][1].delta == 2400
-    assert rows[1][1] is None and rows[2][1].kind == "best"
-
-
-def test_render_day_with_new_records_and_the_rest():
+def test_render_day_timeline():
     from chumai.b50 import make_entry
-    from chumai.playlog import Badge
 
-    entries = [make_entry("chunithm", f"T{i}", "MASTER", "14", 14.0, 1_005_000, None, False) for i in range(14)]
-    badges = [Badge("new", delta=100)] * 11 + [Badge("best", best=1_007_000), None, Badge("tie")]
-    png = render.render_day("chunithm", "p", "2026/09/30", [("플레이", "20")], entries, badges, [3] + [1] * 13, 11)
+    def slot(score, new, count=1):
+        return render.DaySlot(make_entry("chunithm", "T", "MASTER", "14", 14.0, score, None, False), new, count)
+
+    credits = [render.DayCredit("18:00", [slot(1_005_000, True), slot(1_000_000, False, 3)]),
+               render.DayCredit("18:14", [slot(1_007_000, False)])]
+    png = render.render_day("chunithm", "p", "2026/09/30", [("플레이", "5")], credits, [(0, 0.25, 0.004)], 16.97,
+                            None, "16.97", "16.96")
     assert png[:4] in (b"RIFF", b"\x89PNG", b"\xff\xd8\xff\xe0")

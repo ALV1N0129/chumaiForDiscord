@@ -24,7 +24,7 @@ from .config import Config
 from .jackets import JacketStore
 from .fonts import ensure_font
 from .logos import download_logos
-from .playlog import badges as play_badges, by_chart, to_entry
+from .playlog import badges as play_badges, day_timeline, to_entry
 from .render import render_b50, render_credit
 from .segaid import LoginFailed, NetClient, SegaError, forget_sessions, login
 from .songdb import SongDB, normalize_title
@@ -684,8 +684,8 @@ def play_day(record) -> datetime.date:
 
 async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> bytes | None:
     """The latest day of play (/today): credits, tracks, new records and lamps, the rating from
-    before the day's first play to now, and every chart played (once each, with how many times):
-    the new records, then the rest. None if the play log is empty. The official site keeps the
+    before the day's first play to now as a graph stepping up at each new record, and a column per
+    credit with its charts. None if the play log is empty. The official site keeps the
     last 50 plays, so a long day may be cut short."""
     token = bot.links.get_sega_token(discord_id)
     if token is None:
@@ -715,20 +715,30 @@ async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> bytes | No
             now = {}
         marks = play_badges(plays, cache, cache_key, now, bot.songdb, bot.config.new_versions[game], game)
 
-        # one row per chart, the new records first
-        rows = by_chart(plays, marks)
+        timeline, steps = day_timeline(plays, marks)
         lamp_label = "AJ·FC" if game == "chunithm" else "AP·FC"
-        stats = [("크레딧", str(len(net_parsers.group_credits(plays)))), ("플레이", str(len(plays))),
-                 ("신기록", str(sum(1 for _, b, _ in rows if b is not None and b.kind == "new"))),
-                 (lamp_label, str(sum(1 for r, _, _ in rows if r.lamp)))]
-        fresh = sum(1 for _, b, _ in rows if b is not None and b.kind == "new")
-        entries = [to_entry(game, r, bot.songdb, bot.jackets.unrated_level) for r, _, _ in rows]
-        paths = await asyncio.gather(*(_cached_image(bot, net, game, r.jacket_url) for r, _, _ in rows))
-        for e, path in zip(entries, paths):
-            e.jacket_path = path
+        stats = [("크레딧", str(len(timeline))), ("플레이", str(len(plays))),
+                 ("신기록", str(len({(r.title, r.difficulty) for r in plays if r.new_record}))),
+                 (lamp_label, str(len({(r.title, r.difficulty) for r in plays if r.lamp})))]
+        # the graph ends at the rating now; without it, starts at the one logged before the day
+        gained = sum(g for _, _, g in steps)
+        try:
+            start = float(player.rating) - gained if player.rating else float(before)
+        except (TypeError, ValueError):
+            start = None
+        urls = list({r.jacket_url for _, credit in timeline for r, _, _ in credit if r.jacket_url})
+        jackets = dict(zip(urls, await asyncio.gather(*(_cached_image(bot, net, game, u) for u in urls))))
+        credits = []
+        for time, credit in timeline:
+            slots = []
+            for r, new, count in credit:
+                e = to_entry(game, r, bot.songdb, bot.jackets.unrated_level)
+                e.jacket_path = jackets.get(r.jacket_url)
+                slots.append(render.DaySlot(e, new, count))
+            credits.append(render.DayCredit(time, slots))
         png = await asyncio.to_thread(
-            render.render_day, game, player.name, day.strftime("%Y/%m/%d"), stats, entries,
-            [b for _, b, _ in rows], [n for _, _, n in rows], fresh, icon, player.rating, before)
+            render.render_day, game, player.name, day.strftime("%Y/%m/%d"), stats, credits, steps, start, icon,
+            player.rating, before)
     if net.clal != token:
         bot.links.set_sega_token(discord_id, net.clal)
     return png

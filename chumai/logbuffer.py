@@ -25,7 +25,7 @@ SUMMARIES = {
     # start, updates
     "synced %d commands to server %s: %s": "재부팅 되었어요.",
     "synced %d global commands (GUILD_ID not set; may take a while to show up): %s": "재부팅 되었어요.",
-    "new version pulled; restarting": "새 버전을 받았어요. 재시작할게요.",
+    "new version pulled; restarting": None,  # the bot says so itself (RESTART_NOTICE)
     "updated %s -> %s": lambda old, new, *_: f"업데이트했어요. ({str(old)[:7]} → {str(new)[:7]})",
     "git fetch failed: %s": "업데이트를 확인하지 못했어요.",
     "git pull failed: %s": "업데이트를 받지 못했어요.",

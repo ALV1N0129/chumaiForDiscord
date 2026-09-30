@@ -46,6 +46,8 @@ def _minutes(name: str, default: float) -> float:
 PLAYLOG_INTERVAL = _minutes("PLAYLOG_INTERVAL_MINUTES", 1) * 60
 LIVE_LOG_SETTING = "live_log_channel"
 PLAYLOG_ALL_SETTING = "playlog_all_channel"  # /playlog all: everyone logged in, posted here
+RESTART_NOTICE = "🔄 업데이트를 위해 봇이 재부팅됩니다. (약 1분 소요)"
+RESTART_STATUS = "업데이트 중 · 약 1분 뒤에 돌아와요"
 AUTO_PLAYLOG_TRIES = 3  # first checks that may fail before a game is left out (e.g. never played)
 PLAYLOG_PATHS = {"chunithm": "/mobile/record/playlog", "maimai": "/maimai-mobile/record/"}
 
@@ -203,7 +205,29 @@ class ChumaiBot(discord.Client):
             self.restart_requested = True
             # close() cancels this loop, so it must run in its own task: awaited here, the
             # cancellation would stop it halfway and the old code would keep running
-            self._restart_task = asyncio.create_task(self.close())
+            self._restart_task = asyncio.create_task(self._restart())
+
+    async def _restart(self) -> None:
+        await self.announce_restart()
+        await self.close()
+
+    async def announce_restart(self) -> None:
+        """Say the bot is about to restart for an update: in the live log channel, and as the bot's
+        status. Never holds up the restart for long."""
+        async def announce() -> None:
+            try:
+                await self.change_presence(activity=discord.Game(RESTART_STATUS))
+            except Exception:
+                pass
+            channel_id = self.links.get_setting(LIVE_LOG_SETTING)
+            channel = self.get_channel(int(channel_id)) if channel_id else None
+            if channel is not None:
+                await channel.send(RESTART_NOTICE)
+
+        try:
+            await asyncio.wait_for(announce(), 5)
+        except Exception as e:
+            logging.getLogger("chumai.live").warning("could not send logs to channel %s: %s", "-", e)
 
     @tasks.loop(hours=24)
     async def refresh_songdb(self) -> None:
@@ -488,6 +512,7 @@ def register_commands(bot: ChumaiBot) -> None:
         if not pulled:
             return
         bot.restart_requested = True
+        await bot.announce_restart()
         await bot.close()
 
     @tree.command(name="calc", description="보면 상수와 점수로 단일 곡 레이팅을 계산합니다")

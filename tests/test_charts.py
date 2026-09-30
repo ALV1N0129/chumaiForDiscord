@@ -1,12 +1,11 @@
 import asyncio
 import io
-import random
 
 from aiohttp import web
 from PIL import Image
 
 from chumai import charts
-from test_features_commands import _bot, _call, _interaction
+from test_features_commands import _bot, _call
 
 
 def _png(size, color):

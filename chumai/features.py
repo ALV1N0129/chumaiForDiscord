@@ -272,7 +272,7 @@ def register(bot: ChumaiBot) -> None:
             return
         await interaction.followup.send(file=discord.File(io.BytesIO(images[-1]), filename=render.filename(f"recent_{game}")))
 
-    @tree.command(name="today", description="오늘 플레이한 것 정리: 크레딧·플레이·신기록 수, 레이팅 변화, 신기록과 그 외 곡")
+    @tree.command(name="today", description="오늘(새벽 4시 기준) 플레이 정리: 크레딧별 곡, 신기록, 레이팅 변화 그래프")
     @app_commands.describe(game="게임")
     async def today(interaction: discord.Interaction, game: GameChoice) -> None:
         from .bot import render_today
@@ -284,7 +284,7 @@ def register(bot: ChumaiBot) -> None:
             await interaction.followup.send(str(e))
             return
         if png is None:
-            await interaction.followup.send("최근 플레이 기록이 없어요.")
+            await interaction.followup.send("오늘 플레이 기록이 없어요.")
             return
         await interaction.followup.send(file=discord.File(io.BytesIO(png), filename=render.filename(f"today_{game}")))
 

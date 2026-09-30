@@ -683,20 +683,25 @@ def play_day(record) -> datetime.date:
     return (play_time(record) - DAY_STARTS).date()
 
 
+def today(now: datetime.datetime | None = None) -> datetime.date:
+    """The day /today shows: in Japan time, until 4am still the day before, as for plays."""
+    return ((now or datetime.datetime.now(JST)).astimezone(JST) - DAY_STARTS).date()
+
+
 async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> bytes | None:
-    """The latest day of play (/today): credits, tracks, new records and lamps, the rating from
+    """Today's play (/today): credits, tracks, new records and lamps, the rating from
     before the day's first play to now as a graph stepping up at each new record, and a column per
-    credit with its charts. None if the play log is empty. The official site keeps the
+    credit with its charts. None if nothing was played today. The official site keeps the
     last 50 plays, so a long day may be cut short."""
     token = bot.links.get_sega_token(discord_id)
     if token is None:
         raise SegaError("`/login` 으로 먼저 SEGA ID 로그인을 해 주세요.")
     async with NetClient(game, token) as net:
         records = parse_playlog(game, await net.get(PLAYLOG_PATHS[game]))
-        if not records:
-            return None
-        day = max(play_day(r) for r in records)
+        day = today()
         plays = sorted((r for r in records if play_day(r) == day), key=lambda r: r.key)
+        if not plays:
+            return None
         if game == "chunithm":
             player = net_parsers.parse_chunithm_player(await net.get("/mobile/home/playerData/"))
         else:

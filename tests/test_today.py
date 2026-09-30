@@ -61,3 +61,14 @@ def test_render_day_timeline():
     png = render.render_day("chunithm", "p", "2026/09/30", [("플레이", "5")], credits, [(0, 0.25, 0.004)], 16.97,
                             None, "16.97", "16.96")
     assert png[:4] in (b"RIFF", b"\x89PNG", b"\xff\xd8\xff\xe0")
+
+
+def test_today_turns_over_at_4am_japan_time():
+    import datetime
+
+    from chumai.bot import JST, today
+
+    assert str(today(datetime.datetime(2026, 10, 1, 3, 59, tzinfo=JST))) == "2026-09-30"
+    assert str(today(datetime.datetime(2026, 10, 1, 4, 0, tzinfo=JST))) == "2026-10-01"
+    # 20:00 UTC is 5am the next day in Japan
+    assert str(today(datetime.datetime(2026, 9, 30, 20, 0, tzinfo=datetime.timezone.utc))) == "2026-10-01"

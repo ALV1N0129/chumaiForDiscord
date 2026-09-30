@@ -75,3 +75,29 @@ def test_auto_update_restarts_the_bot(tmp_path, monkeypatch):
 
     bot = asyncio.run(main())
     assert bot.restart_requested and closed == [True]
+
+
+def test_restart_is_announced(tmp_path, monkeypatch):
+    import asyncio
+
+    from test_features_commands import _bot
+
+    from chumai import bot as botmod
+
+    bot = _bot(tmp_path, monkeypatch)
+    sent, status = [], []
+
+    class Channel:
+        async def send(self, text):
+            sent.append(text)
+
+    async def presence(activity=None, **_):
+        status.append(activity.name)
+
+    bot.get_channel = lambda channel_id: Channel() if channel_id == 7 else None
+    bot.change_presence = presence
+    asyncio.run(bot.announce_restart())
+    assert sent == [] and status == [botmod.RESTART_STATUS]  # no live log channel: the status only
+    bot.links.set_setting(botmod.LIVE_LOG_SETTING, "7")
+    asyncio.run(bot.announce_restart())
+    assert sent == ["🔄 업데이트를 위해 봇이 재부팅됩니다. (약 1분 소요)"]

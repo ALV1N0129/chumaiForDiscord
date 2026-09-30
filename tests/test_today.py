@@ -45,20 +45,21 @@ def test_plays_of_a_chart_in_a_row_are_one_slot():
     marks = {plays[1].key: Badge("new", gain=Fraction(3, 1000)), plays[4].key: Badge("new")}
     credits, steps = day_timeline(plays, marks)
     assert [time for time, _ in credits] == ["20:01", "20:09"]
-    assert [(r.title, r.score, r.lamp, new, n) for r, new, n in credits[0][1]] == [
-        ("A", 1_006_500, "FC", True, 3), ("B", 1_000_000, None, False, 1)]
-    assert steps == [(0, 0.375, 0.003)]
+    assert [(r.title, r.score, r.lamp, new, n, g) for r, new, n, g in credits[0][1]] == [
+        ("A", 1_006_500, "FC", True, 3, 0.003), ("B", 1_000_000, None, False, 1, 0)]
+    assert steps == [(0, 0.375, 0.003, 0)]  # the second track, in the first slot
 
 
 def test_render_day_timeline():
     from chumai.b50 import make_entry
 
-    def slot(score, new, count=1):
-        return render.DaySlot(make_entry("chunithm", "T", "MASTER", "14", 14.0, score, None, False), new, count)
+    def slot(score, new, count=1, gain=0.0):
+        return render.DaySlot(make_entry("chunithm", "T", "MASTER", "14", 14.0, score, None, False), new, count,
+                              gain)
 
-    credits = [render.DayCredit("18:00", [slot(1_005_000, True), slot(1_000_000, False, 3)]),
+    credits = [render.DayCredit("18:00", [slot(1_005_000, True, 1, 0.004), slot(1_000_000, False, 3)]),
                render.DayCredit("18:14", [slot(1_007_000, False)])]
-    png = render.render_day("chunithm", "p", "2026/09/30", [("플레이", "5")], credits, [(0, 0.25, 0.004)], 16.97,
+    png = render.render_day("chunithm", "p", "2026/09/30", [("플레이", "5")], credits, [(0, 0.25, 0.004, 0)], 16.97,
                             None, "16.97", "16.96")
     assert png[:4] in (b"RIFF", b"\x89PNG", b"\xff\xd8\xff\xe0")
 

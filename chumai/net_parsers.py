@@ -18,6 +18,11 @@ CHUNITHM_DIFFS = {
 }
 
 MAIMAI_DIFFS = ["Basic", "Advanced", "Expert", "Master", "Re:Master"]
+MAIMAI_UTAGE = 10  # the record page's diff= for 宴 (U·TA·GE)
+
+
+def maimai_diff_name(diff_index: int) -> str:
+    return "UTAGE" if diff_index == MAIMAI_UTAGE else MAIMAI_DIFFS[diff_index]
 
 MAIMAI_LAMPS = {"app": "AP+", "ap": "AP", "fcp": "FC+", "fc": "FC"}
 
@@ -220,7 +225,7 @@ def parse_maimai_scores(html: str | bytes, diff_index: int,
     one block at a time, like parse_chunithm_lamps: a parsed tree of one took tens of MB and
     seconds of blocking on a small host."""
     text = html.decode("utf-8", "replace") if isinstance(html, bytes) else html
-    base_diff = MAIMAI_DIFFS[diff_index]
+    base_diff = maimai_diff_name(diff_index)
     records = []
     genre = ""
     # a genre heading (screw_block) or a song row (w_450 p_r f_0), whatever order the classes are in
@@ -245,7 +250,7 @@ def parse_maimai_scores(html: str | bytes, diff_index: int,
             std = "sta_" in row_id.group(1)
         else:
             std = "music_standard" in chunk
-        difficulty = base_diff if std else f"DX {base_diff}"
+        difficulty = base_diff if std or base_diff == "UTAGE" else f"DX {base_diff}"  # 宴 has no DX
         if seen is not None:
             seen.setdefault(difficulty, set()).add(title)
         score = _MAI_SCORE.search(chunk)

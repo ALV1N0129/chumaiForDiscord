@@ -46,6 +46,8 @@ def _minutes(name: str, default: float) -> float:
 PLAYLOG_INTERVAL = _minutes("PLAYLOG_INTERVAL_MINUTES", 1) * 60
 LIVE_LOG_SETTING = "live_log_channel"
 PLAYLOG_ALL_SETTING = "playlog_all_channel"  # /playlog all: everyone logged in, posted here
+RESTART_NOTICE = "🔄 업데이트를 위해 봇이 재부팅됩니다. (약 1분 소요)"
+RESTART_STATUS = "업데이트 중 · 약 1분 뒤에 돌아와요"
 AUTO_PLAYLOG_TRIES = 3  # first checks that may fail before a game is left out (e.g. never played)
 PLAYLOG_PATHS = {"chunithm": "/mobile/record/playlog", "maimai": "/maimai-mobile/record/"}
 
@@ -203,7 +205,29 @@ class ChumaiBot(discord.Client):
             self.restart_requested = True
             # close() cancels this loop, so it must run in its own task: awaited here, the
             # cancellation would stop it halfway and the old code would keep running
-            self._restart_task = asyncio.create_task(self.close())
+            self._restart_task = asyncio.create_task(self._restart())
+
+    async def _restart(self) -> None:
+        await self.announce_restart()
+        await self.close()
+
+    async def announce_restart(self) -> None:
+        """Say the bot is about to restart for an update: in the live log channel, and as the bot's
+        status. Never holds up the restart for long."""
+        async def announce() -> None:
+            try:
+                await self.change_presence(activity=discord.Game(RESTART_STATUS))
+            except Exception:
+                pass
+            channel_id = self.links.get_setting(LIVE_LOG_SETTING)
+            channel = self.get_channel(int(channel_id)) if channel_id else None
+            if channel is not None:
+                await channel.send(RESTART_NOTICE)
+
+        try:
+            await asyncio.wait_for(announce(), 5)
+        except Exception as e:
+            logging.getLogger("chumai.live").warning("could not send logs to channel %s: %s", "-", e)
 
     @tasks.loop(hours=24)
     async def refresh_songdb(self) -> None:
@@ -488,6 +512,7 @@ def register_commands(bot: ChumaiBot) -> None:
         if not pulled:
             return
         bot.restart_requested = True
+        await bot.announce_restart()
         await bot.close()
 
     @tree.command(name="calc", description="보면 상수와 점수로 단일 곡 레이팅을 계산합니다")
@@ -525,10 +550,90 @@ class SegaLoginModal(discord.ui.Modal, title="SEGA ID 로그인 (국제판)"):
             await interaction.followup.send("SEGA 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.", ephemeral=True)
             return
         self.bot.links.set_sega_token(interaction.user.id, clal)
-        await interaction.followup.send(
-            "로그인 완료. 비밀번호는 저장하지 않으며, `/logout` 으로 로그인 정보를 지울 수 있어요.",
-            ephemeral=True,
-        )
+        head = "로그인 완료. 비밀번호는 저장하지 않으며, `/logout` 으로 로그인 정보를 지울 수 있어요."
+        progress = LoginProgress(head)
+        progress.message = await interaction.followup.send(progress.text(), ephemeral=True, wait=True)
+        self.bot._seed_task = asyncio.create_task(save_all_bests(self.bot, interaction.user.id, progress))
+
+
+class LoginProgress:
+    """The progress bar under the login message while the best scores are fetched."""
+
+    def __init__(self, head: str):
+        self.head = head
+        self.total = sum(1 + BEST_PAGES[g] for g in PLAYLOG_PATHS)  # each game's play log + record pages
+        self.done = 0
+        self.label = "준비 중"
+        self.started = time.time()
+        self.message = None
+        self._shown = 0.0
+
+    def text(self) -> str:
+        filled = round(10 * self.done / self.total)
+        return (f"{self.head}\n`{'▰' * filled}{'▱' * (10 - filled)}` {self.done}/{self.total} · "
+                f"{self.label} 받는 중…")
+
+    async def __call__(self, label: str) -> None:
+        self.done = min(self.total, self.done + 1)
+        self.label = label
+        if time.time() - self._shown >= 1.5:  # at most one edit every 1.5s
+            await self._show(self.text())
+
+    async def skip(self, steps: int, label: str) -> None:
+        """A game that couldn't be read: its steps are done."""
+        self.done = min(self.total, self.done + steps - 1)
+        await self(label)
+
+    async def finish(self, summary: str) -> None:
+        await self._show(f"{self.head}\n✅ 저장 완료 ({time.time() - self.started:.0f}초) · {summary}")
+
+    async def _show(self, content: str) -> None:
+        self._shown = time.time()
+        if self.message is not None:
+            try:
+                await self.message.edit(content=content)
+            except Exception:
+                pass  # the message may be gone; the saving goes on
+
+
+async def save_all_bests(bot: ChumaiBot, discord_id: int, progress: LoginProgress | None = None) -> None:
+    """Right after /login: every game's best scores and where the play log is now, so new
+    records from then on show how much they improved (like a score tracker's first sync). A game
+    never played just fails. While /playlog all is on, this is also its first check."""
+    everyone = bot.links.get_setting(PLAYLOG_ALL_SETTING)
+    saved, summary = [], []
+    for game in PLAYLOG_PATHS:  # one game at a time: each is several full record pages
+        name = "CHUNITHM" if game == "chunithm" else "maimai"
+        token = bot.links.get_sega_token(discord_id)
+        if token is None:
+            return
+        steps = progress.done if progress else 0
+        try:
+            async with NetClient(game, token) as net:
+                last_key = await start_playlog(bot, net, discord_id, game, progress)
+            if net.clal != token:
+                bot.links.set_sega_token(discord_id, net.clal)
+        except Exception:
+            if progress is not None:
+                await progress.skip(1 + BEST_PAGES[game] - (progress.done - steps), f"{name} (기록 없음)")
+            summary.append(f"{name} 기록 없음")
+            continue
+        saved.append(game)
+        summary.append(f"{name} {len(bot.links.get_bests(discord_id, game)[0]):,}개 보면")
+        if progress is not None:  # all of this game's steps, however many pages it took
+            progress.done = max(progress.done, steps + 1 + BEST_PAGES[game])
+        if everyone:
+            bot.links.add_auto_playlogs(int(everyone), (game,))
+            if bot.links.is_auto_playlog(discord_id, game):
+                bot.links.set_playlog(discord_id, game, int(everyone), last_key, auto=True)
+            else:  # their own play log: only where it is
+                bot.links.update_playlog_key(discord_id, game, last_key)
+            bot.playlog_status[(discord_id, game)] = (time.time(), "정상")
+    render.release_memory()
+    if progress is not None:
+        await progress.finish(" · ".join(summary))
+    if saved:
+        log.info("best scores saved for %s: %s", discord_id, ", ".join(saved))
 
 
 async def _fetch_image(net: NetClient, url: str | None) -> bytes | None:
@@ -664,9 +769,16 @@ async def _chunithm_available(net: NetClient) -> dict[str, set] | None:
         return None
 
 
-async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None) -> dict[tuple[str, str], float]:
-    """Best score per (title, difficulty) from the record pages, for `diffs` (all if None)."""
+async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None,
+                      progress=None) -> dict[tuple[str, str], float]:
+    """Best score per (title, difficulty) from the record pages, for `diffs` (all if None),
+    WORLD'S END and 宴 too. `progress(label)` is awaited after each page."""
     out: dict[tuple[str, str], float] = {}
+
+    async def done(label: str) -> None:
+        if progress is not None:
+            await progress(label)
+
     if game == "chunithm":
         try:
             wanted = [d for d in CHUNITHM_RECORD_DIFFS if diffs is None or d in diffs]
@@ -676,6 +788,16 @@ async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None) 
                 html = await net.post(f"/mobile/record/musicGenre/send{d.capitalize()}", {"genre": "99"})
                 out.update({(r.title, r.difficulty): r.score for r in net_parsers.parse_chunithm_record_scores(html)})
                 del html
+                await done(f"CHUNITHM {d}")
+            if diffs is None or "WORLD'S END" in diffs:
+                try:  # extra: without it the others still count
+                    html = await net.get("/mobile/record/worldsEndList")
+                    out.update({(r.title, r.difficulty): r.score
+                                for r in net_parsers.parse_chunithm_record_scores(html)})
+                    del html
+                except Exception:
+                    log.warning("could not load the %s record page", "WORLD'S END", exc_info=True)
+                await done("CHUNITHM WORLD'S END")
         except SegaError:
             # fall back to the B50 lists (only the 50 rated charts, but the same pages /b50 uses)
             log.warning("CHUNITHM record pages failed; using the rating lists", exc_info=True)
@@ -685,25 +807,41 @@ async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None) 
     else:
         wanted = [i for i, base in enumerate(net_parsers.MAIMAI_DIFFS)
                   if diffs is None or base in diffs or f"DX {base}" in diffs]
+        if diffs is None or "UTAGE" in diffs:
+            wanted.append(net_parsers.MAIMAI_UTAGE)
         for i in wanted:  # one page at a time: each lists every song of a difficulty
-            html = await net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={i}")
+            try:
+                html = await net.get(f"/maimai-mobile/record/musicGenre/search/?genre=99&diff={i}")
+            except Exception:
+                if i != net_parsers.MAIMAI_UTAGE:
+                    raise
+                log.warning("could not load the %s record page", "UTAGE", exc_info=True)  # extra, as above
+                await done("maimai UTAGE")
+                continue
             out.update({(r.title, r.difficulty): r.achievement for r in net_parsers.parse_maimai_scores(html, i)})
             del html
+            await done(f"maimai {net_parsers.maimai_diff_name(i)}")
     return out
 
 
-async def start_playlog(bot: ChumaiBot, net: NetClient, discord_id: int, game: str) -> str:
+BEST_PAGES = {"chunithm": len(CHUNITHM_RECORD_DIFFS) + 1, "maimai": len(net_parsers.MAIMAI_DIFFS) + 1}
+
+
+async def start_playlog(bot: ChumaiBot, net: NetClient, discord_id: int, game: str, progress=None) -> str:
     """Where a play log starts: the newest play now (only later ones get posted), with the best
     scores as of then, so the next new records can show how much they improved."""
     records = parse_playlog(game, await net.get(PLAYLOG_PATHS[game]))
+    if progress is not None:
+        await progress(f"{'CHUNITHM' if game == 'chunithm' else 'maimai'} 플레이 기록")
     last_key = max((r.key for r in records), default="")
-    await seed_bests(bot, net, discord_id, game, last_key)
+    await seed_bests(bot, net, discord_id, game, last_key, progress)
     return last_key
 
 
-async def seed_bests(bot: ChumaiBot, net: NetClient, discord_id: int, game: str, play_key: str) -> None:
+async def seed_bests(bot: ChumaiBot, net: NetClient, discord_id: int, game: str, play_key: str,
+                     progress=None) -> None:
     try:
-        bot.links.save_bests(discord_id, game, await fetch_bests(net, game), play_key)
+        bot.links.save_bests(discord_id, game, await fetch_bests(net, game, progress=progress), play_key)
     except Exception:
         log.warning("could not load best scores", exc_info=True)
 
@@ -821,20 +959,20 @@ async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> bytes | No
                  ("신기록", str(len({(r.title, r.difficulty) for r in plays if r.new_record}))),
                  (lamp_label, str(len({(r.title, r.difficulty) for r in plays if r.lamp})))]
         # the graph ends at the rating now; without it, starts at the one logged before the day
-        gained = sum(g for _, _, g in steps)
+        gained = sum(g for _, _, g, _ in steps)
         try:
             start = float(player.rating) - gained if player.rating else float(before)
         except (TypeError, ValueError):
             start = None
-        urls = list({r.jacket_url for _, credit in timeline for r, _, _ in credit if r.jacket_url})
+        urls = list({r.jacket_url for _, credit in timeline for r, *_ in credit if r.jacket_url})
         jackets = dict(zip(urls, await asyncio.gather(*(_cached_image(bot, net, game, u) for u in urls))))
         credits = []
         for time, credit in timeline:
             slots = []
-            for r, new, count in credit:
+            for r, new, count, gain in credit:
                 e = to_entry(game, r, bot.songdb, bot.jackets.unrated_level)
                 e.jacket_path = jackets.get(r.jacket_url)
-                slots.append(render.DaySlot(e, new, count))
+                slots.append(render.DaySlot(e, new, count, gain))
             credits.append(render.DayCredit(time, slots))
         png = await asyncio.to_thread(
             render.render_day, game, player.name, day.strftime("%Y/%m/%d"), stats, credits, steps, start, icon,

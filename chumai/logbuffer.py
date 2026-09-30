@@ -25,7 +25,7 @@ SUMMARIES = {
     # start, updates
     "synced %d commands to server %s: %s": "재부팅 되었어요.",
     "synced %d global commands (GUILD_ID not set; may take a while to show up): %s": "재부팅 되었어요.",
-    "new version pulled; restarting": "새 버전을 받았어요. 재시작할게요.",
+    "new version pulled; restarting": None,  # the bot says so itself (RESTART_NOTICE)
     "updated %s -> %s": lambda old, new, *_: f"업데이트했어요. ({str(old)[:7]} → {str(new)[:7]})",
     "git fetch failed: %s": "업데이트를 확인하지 못했어요.",
     "git pull failed: %s": "업데이트를 받지 못했어요.",
@@ -38,6 +38,8 @@ SUMMARIES = {
     "no permission to post play logs in channel %s (%s)":
         lambda channel, missing: f"<#{channel}> 채널에 플레이 기록을 올릴 권한이 없어요. ({missing})",
     "play log test failed": "플레이 기록 테스트에 실패했어요.",
+    "best scores saved for %s: %s": lambda who, games: (
+        f"<@{who}> 님이 로그인해서 곡별 최고 점수를 저장했어요. ({', '.join(_game(g) for g in str(games).split(', '))})"),
     "play log for everyone on in channel %s": lambda channel: f"로그인한 사람 모두의 플레이 기록을 <#{channel}> 에 올려요.",
     "play log for everyone off": "전체 플레이 기록 업로드를 껐어요.",
     "auto play log started for %s/%s": lambda who, game: f"<@{who}> 님의 {_game(game)} 플레이 기록도 올리기 시작했어요.",
@@ -55,6 +57,7 @@ SUMMARIES = {
     "could not load the CHUNITHM song list": "CHUNITHM 곡 목록을 불러오지 못했어요.",
     "CHUNITHM record pages failed; using the rating lists": "CHUNITHM 기록 페이지를 불러오지 못해서 레이팅 목록으로 대신했어요.",
     "could not load best scores": "최고 점수를 불러오지 못했어요.",
+    "could not load the %s record page": lambda page: f"{page} 기록 페이지를 불러오지 못했어요. (나머지는 저장했어요)",
     # stored data
     "TOKEN_ENCRYPTION_KEY is not set; SEGA login tokens are stored unencrypted":
         "로그인 정보 암호화 키(TOKEN_ENCRYPTION_KEY)가 설정되지 않았어요.",

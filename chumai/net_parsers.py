@@ -14,6 +14,7 @@ CHUNITHM_DIFFS = {
     "expert": "EXPERT",
     "master": "MASTER",
     "ultima": "ULTIMA",
+    "ultimate": "ULTIMA",  # the play log's name for it (musiclevel_ultimate.png)
     "worldsend": "WORLD'S END",
 }
 

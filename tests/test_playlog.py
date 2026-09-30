@@ -365,3 +365,9 @@ def test_best_scores_saved_at_login(tmp_path, monkeypatch):
     keys = {g: k for _, g, _, k in bot.links.playlogs()}
     assert keys == {"chunithm": "2026/09/30 18:00#01"}  # maimai: the next check tries it, as for anyone
 
+
+
+def test_chunithm_playlog_ultima():
+    html = (FIX / "playlog.html").read_text(encoding="utf-8").replace("musiclevel_master", "musiclevel_ultimate", 1)
+    records = net_parsers.parse_chunithm_playlog(html)
+    assert "ULTIMA" in {r.difficulty for r in records} and "ULTIMATE" not in {r.difficulty for r in records}

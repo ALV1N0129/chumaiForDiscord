@@ -147,7 +147,8 @@ class ChumaiBot(discord.Client):
             if channel is None:
                 return
             try:
-                await channel.send(f"```\n{chunk}\n```")
+                # plain lines, so <@user> and <#channel> show as names; nobody is pinged
+                await channel.send(chunk, allowed_mentions=discord.AllowedMentions.none())
             except Exception as e:
                 logging.getLogger("chumai.live").warning("could not send logs to channel %s: %s", channel_id, e)
                 return
@@ -359,7 +360,8 @@ def register_commands(bot: ChumaiBot) -> None:
         room = 1900 - len(text)
         while len(body) > room and "\n" in body:
             body = body.split("\n", 1)[1]  # keep the newest lines
-        await interaction.followup.send(f"{text}\n**최근 로그**\n```\n{body[-room:]}\n```", ephemeral=True)
+        await interaction.followup.send(f"{text}\n**최근 로그**\n{body[-room:]}", ephemeral=True,
+                                        allowed_mentions=discord.AllowedMentions.none())
 
     @logs.command(name="live", description="이 채널에 봇 로그를 실시간으로 올립니다 / 끕니다 (봇 주인만)")
     @app_commands.describe(switch="on: 이 채널에 올리기 / off: 끄기")
@@ -378,7 +380,7 @@ def register_commands(bot: ChumaiBot) -> None:
         bot.links.set_setting(LIVE_LOG_SETTING, str(interaction.channel_id))
         logbuffer.recent.pending.clear()
         await interaction.followup.send(
-            "이제 이 채널에 봇 로그를 실시간으로 올릴게요 (경고·오류, 시작·업데이트, 크레딧 업로드). "
+            "이제 이 채널에 봇 로그를 한국어로 요약해서 실시간으로 올릴게요 (재부팅·업데이트, 오류, 크레딧 업로드). "
             "채널에 있는 사람은 모두 볼 수 있으니 비공개 채널을 추천해요.", ephemeral=True)
         log.info("live logs on in channel %s", interaction.channel_id)
 

@@ -1113,6 +1113,17 @@ def _draw_play_badge(canvas: Image.Image, right: int, y: int, game: str, badge) 
     return bx
 
 
+def _draw_count_pill(canvas: Image.Image, right: int, y: int, count: int) -> int:
+    """"×N" (played N times) as a pill like the play badges, right-aligned at `right`. Returns its left edge."""
+    text, f = f"×{count}", num(15)
+    bw, bh = int(ImageDraw.Draw(canvas).textlength(text, font=f)) + 18, 20
+    pill = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
+    pill.paste(Image.new("RGBA", (bw, bh), (255, 255, 255, 235)), (0, 0), _rounded_mask((bw, bh), 10))
+    _over(canvas, pill, (right - bw, y))
+    ImageDraw.Draw(canvas).text((right - bw // 2, y + bh // 2), text, font=f, fill=(20, 22, 40), anchor="mm")
+    return right - bw
+
+
 RISE = (90, 220, 140)  # rating went up
 
 
@@ -1149,9 +1160,9 @@ CREDIT_LOGO = (190, 100)  # logo box in the play log header
 
 
 def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Entry, badge, game: str,
-                   theme: dict, st: dict) -> None:
+                   theme: dict, st: dict, count: int = 1) -> None:
     """A track as a wide row: number, jacket, title, difficulty, score, rank and lamp; the badge,
-    the rating gain and the song rating on the right."""
+    the rating gain and the song rating on the right. `count` > 1: played that many times (×N)."""
     h = PLAY_ROW_H
     # like the B50 cards: the jacket art shows on the right, fading out to the left
     card = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -1170,8 +1181,14 @@ def _draw_play_row(canvas: Image.Image, x: int, y: int, w: int, idx: int, e: Ent
     maxed = e.rated and e.score >= (100.5 if game == "maimai" else 1_009_000)
     draw.text((right, y + h - 16), rating_text, font=num(46), fill=MAX_RATING if maxed else st["text"], anchor="rs")
     side = int(draw.textlength(rating_text, font=num(46)))
+    edge = right
     if badge is not None:
-        side = max(side, right - _draw_play_badge(canvas, right, y + 14, game, badge))
+        edge = _draw_play_badge(canvas, right, y + 14, game, badge)
+        side = max(side, right - edge)
+    if count > 1:
+        edge = _draw_count_pill(canvas, edge - (6 if badge is not None else 0), y + 14, count)
+        side = max(side, right - edge)
+    if badge is not None:
         if badge.gain:
             gain = f"+{float(badge.gain):.3f}" if game == "chunithm" else f"+{int(badge.gain)}"
             _up_pill(canvas, right, y + 44, gain, 15)
@@ -1294,10 +1311,12 @@ def day_columns(count: int) -> int:
 
 def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]] | None, entries: list[Entry],
                badges: list, icon: bytes | None = None, rating: str | None = None,
-               rating_before: str | None = None, first: int = 1, cols: int | None = None) -> bytes:
+               rating_before: str | None = None, first: int = 1, cols: int | None = None,
+               counts: list[int] | None = None) -> bytes:
     """A day of play (/today): the play log's top, a line of numbers (credits, tracks, new records,
     ...), then play rows (new records first). A long day goes on further images: those have
-    `stats` None (rows only), numbered from `first`, with the first image's `cols`."""
+    `stats` None (rows only), numbered from `first`, with the first image's `cols`. `counts`: how
+    many times each was played."""
     from types import SimpleNamespace
 
     theme = THEMES[game]
@@ -1329,7 +1348,7 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]] |
     for i, e in enumerate(entries):  # down the first column, then the next
         col, row = divmod(i, per_col)
         _draw_play_row(canvas, MARGIN + col * (row_w + GAP_X), top + row * (PLAY_ROW_H + GAP_Y), row_w, first + i,
-                       e, badges[i] if i < len(badges) else None, game, theme, st)
+                       e, badges[i] if i < len(badges) else None, game, theme, st, counts[i] if counts else 1)
     return encode(canvas)
 
 

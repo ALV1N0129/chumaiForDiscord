@@ -36,3 +36,20 @@ def test_a_long_day_goes_on_further_images():
     assert [render.day_columns(n) for n in (1, 3, 4, 12, 13, 50)] == [1, 1, 2, 2, 3, 3]
     png = render.render_day("maimai", "p", "2026/09/30", None, [], [], first=19, cols=3)
     assert png[:4] in (b"RIFF", b"\x89PNG", b"\xff\xd8\xff\xe0")
+
+
+def test_a_chart_played_again_is_one_row():
+    from chumai.playlog import Badge, by_chart
+
+    def play(t, title, score, new, lamp=None):
+        return PlayRecord(f"2026/09/30 20:{t:02d}", 1, title, "MASTER", score, None, lamp, new, None)
+
+    plays = [play(1, "A", 1_004_000, False), play(2, "A", 1_006_500, True, "FC"), play(3, "B", 1_000_000, False),
+             play(4, "A", 1_007_900, True), play(5, "A", 1_007_900, False), play(6, "C", 990_000, False)]
+    marks = {plays[1].key: Badge("new", delta=1000), plays[3].key: Badge("new", delta=1400),
+             plays[4].key: Badge("tie"), plays[2].key: Badge("best", best=1_002_000)}
+    rows = by_chart(plays, marks)
+    assert [(r.title, r.score, r.lamp, n) for r, _, n in rows] == [
+        ("A", 1_007_900, "FC", 4), ("C", 990_000, None, 1), ("B", 1_000_000, None, 1)]
+    assert rows[0][1].kind == "new" and rows[0][1].delta == 2400
+    assert rows[1][1] is None and rows[2][1].kind == "best"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 
 from .b50 import UNRATED, Entry, make_entry
@@ -104,4 +104,38 @@ def badges(plays: list[PlayRecord], cache: dict[tuple[str, str], float], cache_k
     return out
 
 
-__all__ = ["to_entry", "level_to_min_const", "Badge", "badges"]
+LAMP_ORDER = ["AP+", "AJC", "AP", "AJ", "FC+", "FC"]  # best first
+
+
+def by_chart(plays: list[PlayRecord], marks: dict[str, Badge]) -> list[tuple[PlayRecord, Badge | None, int]]:
+    """A day's plays, one row per chart (/today): (the best play, with the day's best lamp; the
+    day's badge; how many times it was played). The day's badge: NEW when any play set a new
+    record, by how much over the best before the day and with the rating gained, else the best
+    play's TIE / BEST. Charts with a new record first, the biggest gains on top, then the rest,
+    the latest played first."""
+    charts: dict[tuple[str, str], list[PlayRecord]] = {}
+    for r in sorted(plays, key=lambda r: r.key):
+        charts.setdefault((r.title, r.difficulty), []).append(r)
+    rows = []
+    for group in charts.values():
+        top = max(group, key=lambda r: (r.score, r.key))
+        lamps = [r.lamp for r in group if r.lamp in LAMP_ORDER]
+        if lamps:
+            top = replace(top, lamp=min(lamps, key=LAMP_ORDER.index))
+        new = [marks[r.key] for r in group if r.new_record and r.key in marks]
+        if new:
+            deltas = [b.delta for b in new]
+            badge = Badge("new", delta=None if None in deltas else sum(deltas),
+                          gain=sum((b.gain for b in new if b.gain), Fraction(0)) or None)
+        elif any(r.new_record for r in group):
+            badge = Badge("new")
+        else:
+            badge = marks.get(top.key)
+        rows.append((top, badge, len(group), group[-1].key))
+    fresh = sorted((row for row in rows if row[1] is not None and row[1].kind == "new"),
+                   key=lambda row: (float(row[1].gain or 0), row[1].delta or 0), reverse=True)
+    rest = sorted((row for row in rows if row[1] is None or row[1].kind != "new"), key=lambda row: row[3], reverse=True)
+    return [row[:3] for row in fresh + rest]
+
+
+__all__ = ["to_entry", "level_to_min_const", "Badge", "badges", "by_chart"]

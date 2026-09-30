@@ -28,7 +28,7 @@ from .playlog import badges as play_badges, day_timeline, to_entry
 from .render import render_b50, render_credit
 from .segaid import LoginFailed, NetClient, SegaError, forget_sessions, login
 from .songdb import SongDB, normalize_title
-from .storage import LinkStore
+from .storage import PLAYLOG_NEW, PLAYLOG_OFF, PLAYLOG_SKIP, LinkStore
 
 log = logging.getLogger("chumai")
 
@@ -45,6 +45,8 @@ def _minutes(name: str, default: float) -> float:
 # how often each linked play log is checked (one page per check); PLAYLOG_INTERVAL_MINUTES in .env
 PLAYLOG_INTERVAL = _minutes("PLAYLOG_INTERVAL_MINUTES", 1) * 60
 LIVE_LOG_SETTING = "live_log_channel"
+PLAYLOG_ALL_SETTING = "playlog_all_channel"  # /playlog all: everyone logged in, posted here
+AUTO_PLAYLOG_TRIES = 3  # first checks that may fail before a game is left out (e.g. never played)
 PLAYLOG_PATHS = {"chunithm": "/mobile/record/playlog", "maimai": "/maimai-mobile/record/"}
 
 
@@ -105,12 +107,20 @@ class ChumaiBot(discord.Client):
     # (discord_id, game) -> (when it was last checked, how it went), for /logs
     playlog_status: dict[tuple[int, str], tuple[float, str]] = {}
 
+    _auto_tries: dict[tuple[int, str], int] = {}
+
     @tasks.loop(minutes=1)
     async def poll_playlogs(self) -> None:
         now = time.time()
+        everyone = self.links.get_setting(PLAYLOG_ALL_SETTING)
+        if everyone:  # whoever logged in since
+            self.links.add_auto_playlogs(int(everyone), tuple(PLAYLOG_PATHS))
         for discord_id, game, channel_id, last_key in self.links.playlogs():
             due, active = self._playlog_schedule.get((discord_id, game), (0.0, 0.0))
             if now < due:
+                continue
+            if last_key == PLAYLOG_NEW:
+                await self._start_auto_playlog(discord_id, game, channel_id)
                 continue
             before = self.playlog_status.get((discord_id, game), (0.0, ""))[1]
             try:
@@ -127,6 +137,33 @@ class ChumaiBot(discord.Client):
             if found:
                 active = now
             self._playlog_schedule[(discord_id, game)] = (time.time() + PLAYLOG_INTERVAL, active)
+
+    async def _start_auto_playlog(self, discord_id: int, game: str, channel_id: int) -> None:
+        """First check of a /playlog all play log: note where the log is, so only later plays are
+        posted. A game that keeps failing (never played?) is left out."""
+        key = (discord_id, game)
+        self._playlog_schedule[key] = (time.time() + PLAYLOG_INTERVAL, 0.0)
+        token = self.links.get_sega_token(discord_id)
+        if token is None:
+            return
+        try:
+            async with NetClient(game, token) as net:
+                last_key = await start_playlog(self, net, discord_id, game)
+            if net.clal != token:
+                self.links.set_sega_token(discord_id, net.clal)
+        except Exception as e:
+            tries = self._auto_tries.get(key, 0) + 1
+            self._auto_tries[key] = tries
+            self.playlog_status[key] = (time.time(), f"시작 실패: {str(e) or type(e).__name__}")
+            if tries >= AUTO_PLAYLOG_TRIES:
+                self.links.set_playlog(discord_id, game, channel_id, PLAYLOG_SKIP, auto=True)
+                self._auto_tries.pop(key, None)
+                log.warning("auto play log for %s/%s left out after %d failed tries", discord_id, game, tries)
+            return
+        self._auto_tries.pop(key, None)
+        self.links.set_playlog(discord_id, game, channel_id, last_key, auto=True)
+        self.playlog_status[key] = (time.time(), "정상")
+        log.info("auto play log started for %s/%s", discord_id, game)
 
     @poll_playlogs.before_loop
     async def _wait_ready(self) -> None:
@@ -273,10 +310,7 @@ def register_commands(bot: ChumaiBot) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             async with NetClient(game, token) as net:
-                records = parse_playlog(game, await net.get(PLAYLOG_PATHS[game]))
-                last_key = max((r.key for r in records), default="")
-                # best scores now, so the next new records can show how much they improved
-                await seed_bests(bot, net, interaction.user.id, game, last_key)
+                last_key = await start_playlog(bot, net, interaction.user.id, game)
         except SegaError as e:
             await interaction.followup.send(str(e), ephemeral=True)
             return
@@ -291,8 +325,10 @@ def register_commands(bot: ChumaiBot) -> None:
     @playlog.command(name="off", description="플레이 기록 자동 업로드를 끕니다")
     @app_commands.describe(game="게임")
     async def playlog_off(interaction: discord.Interaction, game: GameChoice) -> None:
-        removed = bot.links.delete_playlog(interaction.user.id, game)
-        await interaction.response.send_message("껐어요." if removed else "켜져 있지 않아요.", ephemeral=True)
+        on = any(d == interaction.user.id and g == game for d, g, _, _ in bot.links.playlogs())
+        # kept as turned off, so /playlog all doesn't add it back
+        bot.links.set_playlog(interaction.user.id, game, 0, PLAYLOG_OFF, auto=True)
+        await interaction.response.send_message("껐어요." if on else "켜져 있지 않아요.", ephemeral=True)
 
     @playlog.command(name="test", description="최근 크레딧 하나를 이 채널에 바로 올려 봅니다 (자동 업로드 설정은 그대로)")
     @app_commands.describe(game="게임")
@@ -326,6 +362,32 @@ def register_commands(bot: ChumaiBot) -> None:
             return
         await interaction.followup.send("최근 크레딧을 올렸어요.", ephemeral=True)
 
+    @playlog.command(name="all", description="로그인한 사람 모두의 플레이 기록을 이 채널에 올립니다 / 끕니다 (봇 주인만)")
+    @app_commands.describe(switch="on: 이 채널에 올리기 / off: 끄기")
+    async def playlog_all(interaction: discord.Interaction, switch: Literal["on", "off"]) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await owner_only(interaction):
+            return
+        if switch == "off":
+            bot.links.set_setting(PLAYLOG_ALL_SETTING, None)
+            bot.links.delete_auto_playlogs()
+            log.info("play log for everyone off")
+            await interaction.followup.send(
+                "전체 업로드를 껐어요. 각자 `/playlog on` 으로 켠 건 그대로예요.", ephemeral=True)
+            return
+        missing = missing_permissions(interaction.channel)
+        if missing:
+            await interaction.followup.send(permission_message(missing), ephemeral=True)
+            return
+        bot.links.set_setting(PLAYLOG_ALL_SETTING, str(interaction.channel_id))
+        bot.links.add_auto_playlogs(interaction.channel_id, tuple(PLAYLOG_PATHS))
+        log.info("play log for everyone on in channel %s", interaction.channel_id)
+        await interaction.followup.send(
+            f"로그인한 {len(bot.links.sega_users())}명의 maimai·CHUNITHM 플레이 기록을 이 채널에 올릴게요. "
+            "지금부터 친 것만 올라가고, 안 하는 게임은 몇 번 확인해 보고 알아서 빼요. "
+            "각자 `/playlog on` 으로 정한 채널이 있으면 그쪽이 우선이고, `/playlog off` 로 뺄 수도 있어요.",
+            ephemeral=True)
+
     tree.add_command(playlog)
 
     async def owner_only(interaction: discord.Interaction) -> bool:
@@ -347,12 +409,17 @@ def register_commands(bot: ChumaiBot) -> None:
             return
         subs = bot.links.playlogs()
         live = bot.links.get_setting(LIVE_LOG_SETTING)
+        everyone = bot.links.get_setting(PLAYLOG_ALL_SETTING)
         lines = [f"**플레이 로그 자동 업로드** ({len(subs)}개, {PLAYLOG_INTERVAL / 60:g}분마다 · "
-                 f"체커 {'동작 중' if bot.poll_playlogs.is_running() else '**멈춤**'})"]
-        for discord_id, game, _, _ in subs:
+                 f"체커 {'동작 중' if bot.poll_playlogs.is_running() else '**멈춤**'})",
+                 f"전체 업로드: {f'<#{everyone}>' if everyone else '꺼짐 (`/playlog all on`)'}"]
+        for discord_id, game, _, last_key in subs:
             when, how = bot.playlog_status.get((discord_id, game), (0.0, "아직 확인 전"))
+            if last_key == PLAYLOG_NEW and not when:
+                how = "시작 대기"
             at = f"<t:{int(when)}:R>" if when else "-"
-            lines.append(f"· <@{discord_id}> {game}: {how} ({at})")
+            auto = " (전체)" if bot.links.is_auto_playlog(discord_id, game) else ""
+            lines.append(f"· <@{discord_id}> {game}{auto}: {how} ({at})")
         lines.append(f"실시간 로그: {f'<#{live}>' if live else '꺼짐 (`/logs live on`)'}")
         recent = logbuffer.recent.tail(15)
         text = "\n".join(lines)
@@ -607,6 +674,15 @@ async def fetch_bests(net: NetClient, game: str, diffs: set[str] | None = None) 
             out.update({(r.title, r.difficulty): r.achievement for r in net_parsers.parse_maimai_scores(html, i)})
             del html
     return out
+
+
+async def start_playlog(bot: ChumaiBot, net: NetClient, discord_id: int, game: str) -> str:
+    """Where a play log starts: the newest play now (only later ones get posted), with the best
+    scores as of then, so the next new records can show how much they improved."""
+    records = parse_playlog(game, await net.get(PLAYLOG_PATHS[game]))
+    last_key = max((r.key for r in records), default="")
+    await seed_bests(bot, net, discord_id, game, last_key)
+    return last_key
 
 
 async def seed_bests(bot: ChumaiBot, net: NetClient, discord_id: int, game: str, play_key: str) -> None:

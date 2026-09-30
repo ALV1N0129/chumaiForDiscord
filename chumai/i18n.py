@@ -40,6 +40,7 @@ COMMANDS = {
     "add": "추가",
     "remove": "삭제",
     "list": "목록",
+    "all": "전체",
 }
 
 OPTIONS = {

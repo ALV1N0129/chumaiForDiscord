@@ -38,6 +38,11 @@ SUMMARIES = {
     "no permission to post play logs in channel %s (%s)":
         lambda channel, missing: f"<#{channel}> 채널에 플레이 기록을 올릴 권한이 없어요. ({missing})",
     "play log test failed": "플레이 기록 테스트에 실패했어요.",
+    "play log for everyone on in channel %s": lambda channel: f"로그인한 사람 모두의 플레이 기록을 <#{channel}> 에 올려요.",
+    "play log for everyone off": "전체 플레이 기록 업로드를 껐어요.",
+    "auto play log started for %s/%s": lambda who, game: f"<@{who}> 님의 {_game(game)} 플레이 기록도 올리기 시작했어요.",
+    "auto play log for %s/%s left out after %d failed tries":
+        lambda who, game, n: f"<@{who}> 님의 {_game(game)} 기록을 불러오지 못해서 전체 업로드에서 뺐어요. (안 하는 게임?)",
     # SEGA
     "failed to fetch %s data from SEGA NET": lambda game: f"SEGA NET에서 {_game(game)} 정보를 불러오지 못했어요.",
     "SEGA ID login failed": "SEGA ID 로그인에 실패했어요.",

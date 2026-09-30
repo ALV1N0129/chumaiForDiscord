@@ -38,6 +38,8 @@ SUMMARIES = {
     "no permission to post play logs in channel %s (%s)":
         lambda channel, missing: f"<#{channel}> 채널에 플레이 기록을 올릴 권한이 없어요. ({missing})",
     "play log test failed": "플레이 기록 테스트에 실패했어요.",
+    "best scores saved for %s: %s": lambda who, games: (
+        f"<@{who}> 님이 로그인해서 곡별 최고 점수를 저장했어요. ({', '.join(_game(g) for g in str(games).split(', '))})"),
     "play log for everyone on in channel %s": lambda channel: f"로그인한 사람 모두의 플레이 기록을 <#{channel}> 에 올려요.",
     "play log for everyone off": "전체 플레이 기록 업로드를 껐어요.",
     "auto play log started for %s/%s": lambda who, game: f"<@{who}> 님의 {_game(game)} 플레이 기록도 올리기 시작했어요.",

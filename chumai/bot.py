@@ -551,9 +551,41 @@ class SegaLoginModal(discord.ui.Modal, title="SEGA ID 로그인 (국제판)"):
             return
         self.bot.links.set_sega_token(interaction.user.id, clal)
         await interaction.followup.send(
-            "로그인 완료. 비밀번호는 저장하지 않으며, `/logout` 으로 로그인 정보를 지울 수 있어요.",
+            "로그인 완료. 비밀번호는 저장하지 않으며, `/logout` 으로 로그인 정보를 지울 수 있어요.\n"
+            "지금 곡별 최고 점수를 저장해 둘게요(1분 정도). 앞으로 신기록을 내면 이전 BEST보다 얼마나 올랐는지 보여줘요.",
             ephemeral=True,
         )
+        self.bot._seed_task = asyncio.create_task(save_all_bests(self.bot, interaction.user.id))
+
+
+async def save_all_bests(bot: ChumaiBot, discord_id: int) -> None:
+    """Right after /login: every game's best scores and where the play log is now, so new
+    records from then on show how much they improved (like a score tracker's first sync). A game
+    never played just fails. While /playlog all is on, this is also its first check."""
+    everyone = bot.links.get_setting(PLAYLOG_ALL_SETTING)
+    saved = []
+    for game in PLAYLOG_PATHS:  # one game at a time: each is several full record pages
+        token = bot.links.get_sega_token(discord_id)
+        if token is None:
+            return
+        try:
+            async with NetClient(game, token) as net:
+                last_key = await start_playlog(bot, net, discord_id, game)
+            if net.clal != token:
+                bot.links.set_sega_token(discord_id, net.clal)
+        except Exception:
+            continue
+        saved.append(game)
+        if everyone:
+            bot.links.add_auto_playlogs(int(everyone), (game,))
+            if bot.links.is_auto_playlog(discord_id, game):
+                bot.links.set_playlog(discord_id, game, int(everyone), last_key, auto=True)
+            else:  # their own play log: only where it is
+                bot.links.update_playlog_key(discord_id, game, last_key)
+            bot.playlog_status[(discord_id, game)] = (time.time(), "정상")
+    render.release_memory()
+    if saved:
+        log.info("best scores saved for %s: %s", discord_id, ", ".join(saved))
 
 
 async def _fetch_image(net: NetClient, url: str | None) -> bytes | None:

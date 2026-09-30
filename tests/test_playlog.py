@@ -312,3 +312,43 @@ def test_own_settings_wait_while_everyone_is_posted(tmp_path, monkeypatch):
         log = []
         asyncio.run(bot.tree.get_command("playlog").get_command(sub).callback(_interaction(log), game="maimai"))
         assert "<#77>" in log[-1][1] and log[-1][2]["ephemeral"]
+
+
+def test_best_scores_saved_at_login(tmp_path, monkeypatch):
+    import asyncio
+
+    from chumai import bot as botmod
+    from test_features_commands import _bot
+
+    class FakeNet:
+        clal = "t1"
+
+        def __init__(self, game, token):
+            self.game = game
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    started = []
+
+    async def start(bot, net, discord_id, game):
+        if game == "maimai":
+            raise botmod.SegaError("never played")
+        started.append(game)
+        return "2026/09/30 18:00#01"
+
+    monkeypatch.setattr(botmod, "NetClient", FakeNet)
+    monkeypatch.setattr(botmod, "start_playlog", start)
+    bot = _bot(tmp_path, monkeypatch)
+    bot.links.set_sega_token(1, "t1")
+    asyncio.run(botmod.save_all_bests(bot, 1))
+    assert started == ["chunithm"] and bot.links.playlogs() == []  # nothing else turned on
+
+    bot.links.set_setting(botmod.PLAYLOG_ALL_SETTING, "5")  # with /playlog all, its first check too
+    asyncio.run(botmod.save_all_bests(bot, 1))
+    keys = {g: k for _, g, _, k in bot.links.playlogs()}
+    assert keys == {"chunithm": "2026/09/30 18:00#01"}  # maimai: the next check tries it, as for anyone
+

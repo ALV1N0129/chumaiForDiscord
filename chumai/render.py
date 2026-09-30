@@ -1335,22 +1335,15 @@ def _draw_rise(draw: ImageDraw.ImageDraw, x: float, base: float, text: str, size
     draw.text((x + tri + 4, base), text, font=num(size), fill=RISE, anchor="ls")
 
 
-def _number_marker(draw: ImageDraw.ImageDraw, cx: float, cy: float, number: int, color, r: int) -> None:
-    """A numbered dot: ties a step of /today's rating graph to its song below."""
-    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=color, outline=(255, 250, 230), width=2)
-    draw.text((cx, cy + 1), str(number), font=num(int(r * 1.45)), fill=(30, 22, 10), anchor="mm")
-
-
-def _day_rating_graph(canvas: Image.Image, box: tuple[int, int, int, int], steps: list[tuple[float, float, int]],
+def _day_rating_graph(canvas: Image.Image, box: tuple[int, int, int, int], steps: list[tuple[float, float]],
                       start: float, game: str, theme: dict, st: dict) -> None:
     """The rating over the day as a glowing line in `box`: flat, then a step up at each x in
-    `steps` (x, gain, number), each with a numbered marker (the same number is on the song below)
-    and the gain; the value at both ends. Only the box's area is drawn on layers, so it stays
-    light on memory."""
+    `steps` (x, gain), each with the gain; the value at both ends. Only the box's area is drawn on
+    layers, so it stays light on memory."""
     x0, y0, x1, y1 = box
     w, h = x1 - x0, y1 - y0
     acc = theme["accent"]
-    end = start + sum(g for _, g, _ in steps)
+    end = start + sum(g for _, g in steps)
     span = max(end - start, 0.02 if game == "chunithm" else 20)
     lo, hi = start - span * 0.12, start + span * 1.3  # room above for the labels
 
@@ -1358,7 +1351,7 @@ def _day_rating_graph(canvas: Image.Image, box: tuple[int, int, int, int], steps
         return h - (v - lo) / (hi - lo) * h
 
     pts, cur = [(0.0, y_of(start))], start
-    for x, g, _ in steps:
+    for x, g in steps:
         pts.append((x - x0, y_of(cur)))
         cur += g
         pts.append((x - x0, y_of(cur)))
@@ -1389,7 +1382,7 @@ def _day_rating_graph(canvas: Image.Image, box: tuple[int, int, int, int], steps
 
     placed: list[tuple[float, float, float, float]] = []  # labels drawn so far
     cur = start
-    for x, g, number in steps:
+    for x, g in steps:
         cur += g
         px, py = x - x0, y_of(cur)
         text = f"+{g:.3f}" if game == "chunithm" else f"+{g:.0f}"
@@ -1402,8 +1395,8 @@ def _day_rating_graph(canvas: Image.Image, box: tuple[int, int, int, int], steps
                 placed.append(box_)
                 d.text((px, top + th - 4), text, font=num(18), fill=acc, anchor="ms")
                 break
-        placed.append((px - 14, py - 14, px + 14, py + 14))
-        _number_marker(d, px, py, number, acc, 13)
+        placed.append((px - 9, py - 9, px + 9, py + 9))
+        d.ellipse((px - 7, py - 7, px + 7, py + 7), fill=(255, 244, 200), outline=acc, width=3)
     canvas.paste(region.convert("RGB"), (x0, y0))
 
 
@@ -1430,12 +1423,12 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
     stats_y = CREDIT_HEADER_H + 4
     graph_y = stats_y + 70
     graph = rating_start is not None
-    numbers: dict[tuple[int, int], int] = {}  # (credit, slot) -> its number on the graph
+    raised = []  # the slots that raised the rating
     for c, _, _, slot in steps:
-        numbers.setdefault((c, slot), len(numbers) + 1)
+        if all(r is not credits[c].slots[slot] for r in raised):  # once per slot, however many steps
+            raised.append(credits[c].slots[slot])
     # the songs that raised the rating, big and in one place, the biggest gain first
-    raised = sorted(((credits[c].slots[slot], n) for (c, slot), n in numbers.items()),
-                    key=lambda item: -item[0].gain) if graph else []
+    raised = sorted(raised, key=lambda slot: -slot.gain) if graph else []
     chips_x = MARGIN + DAY_CHIP_LABEL_W  # after "레이팅 ▲+0.057"
     per_row = max(1, (width - MARGIN - chips_x + DAY_CHIP_GAP) // (DAY_CHIP_W + DAY_CHIP_GAP))
     hero_h = (-(-len(raised) // per_row) * (DAY_CHIP_H + DAY_CHIP_GAP)) if raised else 0
@@ -1454,17 +1447,17 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
         draw.text((x, stats_y + 42), label, font=cjk(19), fill=st["muted"], anchor="ls")
         x += draw.textlength(label, font=cjk(19)) + 36
     if graph:
-        points = [(MARGIN + col * (c + frac), gain, numbers[(c, slot)]) for c, frac, gain, slot in steps]
+        points = [(MARGIN + col * (c + frac), gain) for c, frac, gain, _ in steps]
         _day_rating_graph(canvas, (MARGIN, graph_y, width - MARGIN, graph_y + DAY_GRAPH_H), points, rating_start,
                           game, theme, st)
 
-    if raised:  # small chips: jacket, number and gain, the biggest first
+    if raised:  # small chips: jacket and gain, the biggest first
         draw = ImageDraw.Draw(canvas)
-        total = sum(slot.gain for slot, _ in raised)
+        total = sum(slot.gain for slot in raised)
         fmt = (lambda v: f"+{v:.3f}") if game == "chunithm" else (lambda v: f"+{v:.0f}")
         draw.text((MARGIN, hero_y + 38), "레이팅", font=cjk(20), fill=st["muted"], anchor="ls")
         _draw_rise(draw, MARGIN + draw.textlength("레이팅", font=cjk(20)) + 10, hero_y + 38, fmt(total), 24)
-        for i, (slot, number) in enumerate(raised):
+        for i, slot in enumerate(raised):
             row, place = divmod(i, per_row)
             x0 = chips_x + place * (DAY_CHIP_W + DAY_CHIP_GAP)
             y0 = hero_y + row * (DAY_CHIP_H + DAY_CHIP_GAP)
@@ -1473,7 +1466,6 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
             js = DAY_CHIP_H - 10
             _framed_jacket(canvas, x0 + 5, y0 + 5, js, slot.entry.jacket_path, slot.entry.difficulty)
             draw = ImageDraw.Draw(canvas)
-            _number_marker(draw, x0 + 7, y0 + 7, number, acc, 11)
             _draw_rise(draw, x0 + js + 14, y0 + DAY_CHIP_H / 2 + 9, fmt(slot.gain), 22)
 
     for ci, credit in enumerate(credits):
@@ -1489,7 +1481,6 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
         jx = int(cx + (col - jacket) / 2)
         for si, slot in enumerate(credit.slots):
             e = slot.entry
-            number = numbers.get((ci, si)) if graph else None
             for k in range(min(slot.count - 1, 3), 0, -1):  # played again: copies stacked behind
                 _framed_jacket(canvas, jx + k * 7, y - k * 7, jacket, e.jacket_path, e.difficulty)
                 _over(canvas, Image.new("RGBA", (jacket, jacket), (8, 10, 20, 150)), (jx + k * 7, y - k * 7))
@@ -1498,12 +1489,8 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
                 ImageDraw.Draw(ring).rounded_rectangle((22, 22, jacket + 38, jacket + 38), radius=12, fill=(*acc, 255))
                 _over(canvas, ring.filter(ImageFilter.GaussianBlur(12)), (jx - 30, y - 30))
             _framed_jacket(canvas, jx, y, jacket, e.jacket_path, e.difficulty)
-            if not slot.new:
-                _over(canvas, Image.new("RGBA", (jacket, jacket), (8, 10, 20, 150)), (jx, y))  # quieter
             draw = ImageDraw.Draw(canvas)
-            if number:  # raised the rating: its number on the graph
-                _number_marker(draw, jx + 6, y + 6, number, acc, 16)
-            elif slot.new:
+            if slot.new:
                 label, colors = (("FIRST", [(80, 220, 200), (120, 170, 255)]) if slot.first
                                  else ("NEW", [(255, 120, 150), (255, 200, 90)]))
                 tw = int(draw.textlength(label, font=num(18))) + 14
@@ -1521,9 +1508,7 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
             # in green how much it raised the rating
             f = num(16, "SemiBold")
             parts = [(e.rank + (f" · {e.lamp}" if e.lamp else ""), RANK_COLORS.get(e.rank, st["muted"]), False)]
-            if slot.first and number:  # the corner shows its number instead of FIRST
-                parts.append(("FIRST", (110, 215, 220), False))
-            elif slot.new and slot.delta and not slot.first:
+            if slot.new and slot.delta and not slot.first:
                 parts.append((f"+{slot.delta:.4f}%" if game == "maimai" else f"+{int(slot.delta):,}", (255, 170, 150),
                               False))
             if slot.gain:

@@ -1,8 +1,8 @@
-"""CHUNITHM chart views from sdvx.in, for the chart guessing game.
+"""CHUNITHM chart views from sdvx.in, for /chart.
 
 Which sdvx.in page belongs to which song comes from chuni-penguin's song data
 (https://github.com/beer-psi/chuni-penguin, BSD Zero Clause License), matched by the
-in-game song id; its community nicknames go to the guessing games. The chart images themselves are downloaded from sdvx.in when needed
+in-game song id; its community nicknames go to the jacket guessing game. The chart images themselves are downloaded from sdvx.in when needed
 and cached on disk. maimai has no such data, so this is CHUNITHM only.
 """
 
@@ -12,7 +12,6 @@ import asyncio
 import io
 import json
 import logging
-import random
 import time
 from pathlib import Path
 
@@ -89,19 +88,6 @@ def compose(bg: bytes, notes: bytes, bar: bytes) -> Image.Image:
     return Image.alpha_composite(out, _layer(bar, base.size)).convert("RGB")
 
 
-def crop_hint(view: Image.Image, notes: Image.Image | None, rng: random.Random, share: float = 0.2) -> Image.Image:
-    """A vertical strip of the chart, picking the busiest of a few random spots."""
-    w, h = view.size
-    sw = max(1, min(w, max(160, int(w * share))))
-    candidates = [rng.randint(0, w - sw) for _ in range(8)] if w > sw else [0]
-    if notes is not None:
-        alpha = notes.getchannel("A")
-        candidates.sort(key=lambda x: -sum(alpha.crop((x, 0, x + sw, h)).histogram()[16:]))
-    x = candidates[0]
-    strip = view.crop((x, 0, x + sw, h))
-    if strip.height > 900:
-        strip = strip.resize((max(1, strip.width * 900 // strip.height), 900), Image.LANCZOS)
-    return strip
 
 
 class ChartViews:

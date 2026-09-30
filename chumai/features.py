@@ -9,14 +9,13 @@ import logging
 import random
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import discord
 from discord import app_commands
 from PIL import Image
 
-from . import answers, charts, net_parsers, rating, render, tools
+from . import answers, charts, i18n, net_parsers, rating, render, tools
 from .b50 import B50
 from .segaid import NetClient, SegaError
 from .songdb import CatalogSong, normalize_title, search
@@ -135,7 +134,6 @@ class GuessRound:
     game: str
     song: CatalogSong
     jacket: str | None  # shown with the answer
-    label: str = ""  # e.g. " (MASTER 14.8)" for the chart game
     started: float = field(default_factory=time.time)
     answered: bool = False
 
@@ -159,14 +157,6 @@ def _crop_hint(path: str, rng: random.Random) -> bytes:
     return render.encode(hint)
 
 
-def _chart_hint(view_path: Path, notes_path: Path, rng: random.Random) -> bytes:
-    with Image.open(view_path) as im:
-        view = im.convert("RGB")
-    with Image.open(notes_path) as im:
-        notes = charts.fit_layer(im.convert("RGBA"), view.size)
-    return render.encode(charts.crop_hint(view, notes, rng))
-
-
 GUESS_SECONDS = 60
 
 
@@ -176,16 +166,36 @@ def _give_up(rounds: dict[int, GuessRound], channel_id: int, who: str) -> tuple[
     if rnd is None or rnd.answered:
         return None
     rnd.answered = True
-    return f"{who} 님이 포기했어요. 정답은 **{rnd.song.title}**{rnd.label} 였어요.", rnd.reveal()
+    return f"{who} 님이 포기했어요. 정답은 **{rnd.song.title}** 였어요.", rnd.reveal()
 
 
-class GiveUpView(discord.ui.View):
-    """A "give up" button under the question."""
+class AnswerModal(discord.ui.Modal, title="정답 입력"):
+    text = discord.ui.TextInput(label="곡 제목 (줄임말·한국어·별명도 돼요)", max_length=100)
 
-    def __init__(self, rounds: dict[int, GuessRound], channel_id: int):
+    def __init__(self, submit):
+        super().__init__()
+        self.submit = submit
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self.submit(interaction, self.text.value)
+
+
+class GuessView(discord.ui.View):
+    """Under the question: a button that opens a box to type the answer in, and one to give up."""
+
+    def __init__(self, rounds: dict[int, GuessRound], channel_id: int, submit):
         super().__init__(timeout=GUESS_SECONDS)
         self.rounds = rounds
         self.channel_id = channel_id
+        self.submit = submit  # (interaction, answer) -> checks it and replies
+
+    @discord.ui.button(label="정답 입력", style=discord.ButtonStyle.primary)
+    async def answer(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        rnd = self.rounds.get(self.channel_id)
+        if rnd is None or rnd.answered:
+            await interaction.response.send_message("이미 끝난 게임이에요.", ephemeral=True)
+            return
+        await interaction.response.send_modal(AnswerModal(self.submit))
 
     @discord.ui.button(label="포기 · 정답 보기", style=discord.ButtonStyle.secondary)
     async def give_up(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -196,6 +206,8 @@ class GiveUpView(discord.ui.View):
         text, reveal = result
         self.stop()
         await interaction.response.send_message(text, **reveal)
+
+
 CONST_LIMIT = 45 if render.LOW_MEMORY else 90  # charts shown in one /const image
 
 
@@ -498,8 +510,8 @@ def register(bot: ChumaiBot) -> None:
         channel_id = interaction.channel_id
         rounds[channel_id] = rnd
         await interaction.followup.send(
-            f"{question} `/answer` 로 답해 주세요. ({GUESS_SECONDS}초 · 모르겠으면 `/giveup` 또는 아래 버튼)",
-            file=_image(hint, "guess"), view=GiveUpView(rounds, channel_id))
+            f"{question} 아래 **정답 입력** 버튼이나 `/answer` 로 답해 주세요. ({GUESS_SECONDS}초)",
+            file=_image(hint, "guess"), view=GuessView(rounds, channel_id, _submit))
 
         async def timeout() -> None:
             await asyncio.sleep(GUESS_SECONDS)
@@ -507,7 +519,7 @@ def register(bot: ChumaiBot) -> None:
                 rnd.answered = True
                 channel = bot.get_channel(channel_id)
                 if channel is not None:
-                    await channel.send(f"시간 종료! 정답은 **{rnd.song.title}**{rnd.label} 였어요.", **rnd.reveal())
+                    await channel.send(f"시간 종료! 정답은 **{rnd.song.title}** 였어요.", **rnd.reveal())
 
         asyncio.create_task(timeout())
 
@@ -537,42 +549,7 @@ def register(bot: ChumaiBot) -> None:
         hint = await asyncio.to_thread(_crop_hint, rnd.jacket, rng)
         await _start_round(interaction, rnd, hint, "이 자켓의 곡은?")
 
-    @tree.command(name="chartguess", description="채보 일부를 보고 곡을 맞히는 게임을 시작합니다 (CHUNITHM, 접두어: !cg)")
-    @app_commands.describe(level=f"문제로 낼 보면의 {tools.LEVEL_HELP} (선택, 기본: 모든 MASTER)")
-    async def chartguess(interaction: discord.Interaction, level: str | None = None) -> None:
-        game = "chunithm"
-        try:
-            lo, hi = tools.parse_level(level, game) if level else (1.0, 16.0)
-        except ValueError as e:
-            await interaction.response.send_message(str(e), ephemeral=True)
-            return
-        if _busy(interaction.channel_id):
-            await interaction.response.send_message("이 채널에서 이미 게임이 진행 중이에요.", ephemeral=True)
-            return
-        diffs = {"EXPERT", "MASTER", "ULTIMA"} if level else {"MASTER"}
-        pool = [(s, c) for s, c in tools.charts_in_range(bot.songdb, game, lo, hi)
-                if c.difficulty in diffs and bot.charts.sdvx_id(s.music_id, c.difficulty)]
-        if not pool:
-            await interaction.response.send_message(
-                "문제로 낼 채보가 없어요. (봇이 막 켜졌다면 채보 목록을 받는 중일 수 있어요)", ephemeral=True)
-            return
-        await interaction.response.defer(thinking=True)
-        rng = random.Random()
-        rng.shuffle(pool)
-        for song, chart in pool[:5]:
-            paths = await bot.charts.fetch(song.music_id, chart.difficulty)
-            if paths:
-                break
-        else:
-            await interaction.followup.send("sdvx.in 에서 채보를 불러오지 못했어요. 잠시 후 다시 해 주세요.")
-            return
-        jacket = (await _jackets(bot, game, [song.jacket_key])).get(0)
-        label = f" ({chart.difficulty} {chart.level_const:.1f})"
-        rnd = GuessRound(game, song, str(jacket) if jacket else None, label)
-        hint = await asyncio.to_thread(_chart_hint, *paths, rng)
-        await _start_round(interaction, rnd, hint, "이 채보의 곡은?")
-
-    @tree.command(name="giveup", description="자켓·채보 맞히기를 포기하고 정답을 봅니다 (접두어: !포기)")
+    @tree.command(name="giveup", description="자켓 맞히기를 포기하고 정답을 봅니다 (접두어: !포기)")
     async def giveup(interaction: discord.Interaction) -> None:
         result = _give_up(rounds, interaction.channel_id, interaction.user.mention)
         if result is None:
@@ -581,9 +558,8 @@ def register(bot: ChumaiBot) -> None:
         text, reveal = result
         await interaction.response.send_message(text, **reveal)
 
-    @tree.command(name="answer", description="자켓·채보 맞히기 게임의 정답을 입력합니다")
-    @app_commands.describe(title="곡 제목")
-    async def answer(interaction: discord.Interaction, title: str) -> None:
+    async def _submit(interaction: discord.Interaction, title: str) -> None:
+        """Check an answer to the running round (from /answer or the answer button)."""
         rnd = rounds.get(interaction.channel_id)
         if rnd is None or rnd.answered:
             await interaction.response.send_message("진행 중인 게임이 없어요. `/guess` 로 시작하세요.", ephemeral=True)
@@ -591,13 +567,20 @@ def register(bot: ChumaiBot) -> None:
         guild_id = getattr(interaction, "guild_id", None) or 0
         nicknames = [*bot.links.aliases(guild_id, rnd.game, rnd.song.title),
                      *answers.community_aliases(rnd.game, rnd.song.title)]
+        typed = " ".join(title.split()).replace("`", "'")  # shown in a code span: no markdown or mentions
         if _answer_matches(rnd.song, title, bot.jackets.reading(rnd.game, rnd.song.title), nicknames):
             rnd.answered = True
             took = time.time() - rnd.started
             await interaction.response.send_message(
-                f"{interaction.user.mention} 정답! **{rnd.song.title}**{rnd.label} ({took:.1f}초)", **rnd.reveal())
+                f"{interaction.user.mention} 정답! **{rnd.song.title}** ({took:.1f}초)\n입력한 답: `{typed}`",
+                **rnd.reveal())
         else:
-            await interaction.response.send_message(f"`{title}` 은(는) 아니에요.", ephemeral=True)
+            await interaction.response.send_message(f"`{typed}` 은(는) 아니에요.", ephemeral=True)
+
+    @tree.command(name="answer", description="자켓 맞히기 게임의 정답을 입력합니다")
+    @app_commands.describe(title="곡 제목")
+    async def answer(interaction: discord.Interaction, title: str) -> None:
+        await _submit(interaction, title)
 
     alias = app_commands.Group(name="alias", description="맞히기 게임에서 정답으로 인정할 곡 별명 (이 서버)")
 
@@ -656,15 +639,17 @@ def register(bot: ChumaiBot) -> None:
     async def help_cmd(interaction: discord.Interaction) -> None:
         from .prefix import ALIASES
 
+        locale = getattr(interaction, "locale", None)  # none for a prefix command
         groups = {
             "계정": [("login", "SEGA ID 로그인"), ("logout", "로그인 정보 삭제"), ("privacy", "다른 사람에게 공개 여부")],
             "기록": [("b50", "베스트 50 레이팅표"), ("profile", "프로필 카드"), ("recent", "최근 크레딧"), ("today", "오늘 플레이 정리"),
-                   ("playlog", "on|off|test — 플레이 기록 자동 업로드")],
+                   ("playlog", "켜기|끄기|테스트 — 플레이 기록 자동 업로드" if locale is discord.Locale.korean
+                    else "on|off|test — 플레이 기록 자동 업로드")],
             "곡": [("info", "곡 정보"), ("jacket", "자켓"), ("const", "상수별 보면 목록"), ("random", "랜덤 선곡"),
                   ("chart", "채보 보기 (CHUNITHM)")],
             "계산": [("calc", "곡 레이팅 계산"), ("reach", "목표 레이팅에 필요한 점수"),
                    ("whatif", "이 점수면 레이팅이 얼마나 오르나"), ("recommend", "추천 곡")],
-            "놀이": [("guess", "자켓 맞히기"), ("chartguess", "채보 맞히기 (CHUNITHM)"), ("answer", "정답 입력"), ("alias", "곡 별명 등록"),
+            "놀이": [("guess", "자켓 맞히기"), ("answer", "정답 입력"), ("alias", "곡 별명 등록"),
                    ("giveup", "포기하고 정답 보기")],
         }
         p = bot.config.prefix
@@ -674,11 +659,12 @@ def register(bot: ChumaiBot) -> None:
             lines = []
             for cmd, desc in cmds:
                 alias = f" · `{p}{short[cmd]}`" if p and cmd in short else ""
-                lines.append(f"/{cmd}{alias} — {desc}")
+                lines.append(f"/{i18n.command_name(cmd, locale)}{alias} — {desc}")
             embed.add_field(name=name, value="\n".join(lines), inline=False)
         from . import updater
 
-        footer = f"접두어 예시: {p}b c · {p}r m 13+ · {p}i c 곡이름 · {p}pl on c (게임: m / mai / c / chuni)" if p else ""
+        footer = (f"접두어 예시: {p}b c · {p}r m 13+ · {p}i c 곡이름 · {p}오늘 츄니 · {p}플레이로그 켜기 마이 "
+                  f"(게임: m / mai / 마이 / c / chuni / 츄니, 한국어 명령어 이름도 돼요)") if p else ""
         if updater.enabled():
             footer += f"\n버전 {await updater.version()}"
         if footer:

@@ -271,7 +271,7 @@ def test_give_up(tmp_path, monkeypatch):
         i.client = bot
         await bot.tree.get_command("guess").callback(i, game="chunithm", level=None)
         view = log[-1][2]["view"]
-        assert isinstance(view, features.GiveUpView)
+        assert isinstance(view, features.GuessView)
         glog = []
         g = _interaction(glog)
         await bot.tree.get_command("giveup").callback(g)
@@ -286,3 +286,32 @@ def test_give_up(tmp_path, monkeypatch):
     glog, again, blog = asyncio.run(run())
     assert "포기" in glog[-1][1] and "정답은" in glog[-1][1] and glog[-1][2]["file"]
     assert again[-1][2]["ephemeral"] and blog[-1][2]["ephemeral"]
+
+
+def test_answer_button(tmp_path, monkeypatch):
+    bot = _bot(tmp_path, monkeypatch)
+    monkeypatch.setattr(features, "GUESS_SECONDS", 3600)
+
+    async def run():
+        log = []
+        i = _interaction(log)
+        i.client = bot
+        await bot.tree.get_command("guess").callback(i, game="chunithm", level=None)
+        view = log[-1][2]["view"]
+        song = next(iter(view.rounds.values())).song
+        modals = []
+        b = _interaction([])
+        b.response.send_modal = lambda modal: modals.append(modal) or asyncio.sleep(0)
+        await view.answer.callback(b)
+        wrong, right = [], []
+        await view.submit(_interaction(wrong), "zzzz not a song")
+        await view.submit(_interaction(right), f"  {song.title}  ")
+        late = []
+        await view.answer.callback(_interaction(late))
+        return song, modals, wrong, right, late
+
+    song, modals, wrong, right, late = asyncio.run(run())
+    assert isinstance(modals[0], features.AnswerModal)
+    assert "아니에요" in wrong[-1][1] and wrong[-1][2]["ephemeral"]
+    assert "정답!" in right[-1][1] and f"입력한 답: `{song.title}`" in right[-1][1] and right[-1][2]["file"]
+    assert late[-1][2]["ephemeral"]

@@ -17,7 +17,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import answers, charts as charts_module, features, logbuffer, net_parsers, prefix, render, updater
+from . import answers, charts as charts_module, features, i18n, logbuffer, net_parsers, prefix, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .charts import ChartViews
 from .config import Config
@@ -86,6 +86,7 @@ class ChumaiBot(discord.Client):
             self.check_update.start()
         self.poll_playlogs.start()
         self.push_live_logs.start()
+        await self.tree.set_translator(i18n.KoreanNames())
         if self.config.guild_id:
             guild = discord.Object(id=self.config.guild_id)
             self.tree.copy_global_to(guild=guild)

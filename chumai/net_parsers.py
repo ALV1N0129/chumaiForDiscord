@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html as html_lib
 import re
 from dataclasses import dataclass
 
@@ -132,6 +133,28 @@ def parse_chunithm_music_ids(html: str | bytes) -> set[int]:
     return {int(m.group(1) or m.group(2)) for m in _IDX.finditer(text)}
 
 
+_CHUNI_BOX = re.compile(r'class="[^"]*musiclist_box[^"]*\bbg_([a-z]+)')
+_CHUNI_TITLE = re.compile(r'class="[^"]*(?:music_title|musiclist_worldsend_title)[^"]*"[^>]*>(.*?)</div>', re.S)
+_CHUNI_SCORE = re.compile(r'play_musicdata_highscore.*?class="[^"]*text_b[^"]*"[^>]*>([\d,]+)<', re.S)
+
+
+def parse_chunithm_record_scores(html: str | bytes) -> list[ChunithmRecord]:
+    """Played charts and their best scores on a record page (musicGenre/send<Difficulty>), the same
+    as parse_chunithm_rating_list gives, read with string searches one song at a time: these pages
+    list every song, and a parsed tree of one took tens of MB on a small host."""
+    text = html.decode("utf-8", "replace") if isinstance(html, bytes) else html
+    records = []
+    for chunk in text.split("<form")[1:]:
+        box, idx, score = _CHUNI_BOX.search(chunk), _IDX.search(chunk), _CHUNI_SCORE.search(chunk)
+        if box is None or idx is None or score is None or box.group(1) not in CHUNITHM_DIFFS:
+            continue
+        title = _CHUNI_TITLE.search(chunk)
+        records.append(ChunithmRecord(idx=int(idx.group(1) or idx.group(2)),
+                                      title=html_lib.unescape(_TAGS.sub("", title.group(1))).strip() if title else "",
+                                      difficulty=CHUNITHM_DIFFS[box.group(1)], score=int(score.group(1).replace(",", ""))))
+    return records
+
+
 def parse_chunithm_lamps(html: str | bytes) -> dict[int, str]:
     """{music idx: "AJC"/"AJ"/"FC"} from a record page (musicGenre/send<Difficulty>).
 
@@ -173,12 +196,17 @@ def parse_maimai_player(html: str | bytes) -> PlayerInfo:
     return info
 
 
-def _maimai_is_std(row: Tag) -> bool:
-    row_id = str(row.get("id", ""))
-    if row_id:
-        return "sta_" in row_id
-    icon = row.select_one(".music_kind_icon")
-    return icon is not None and "_standard" in str(icon.get("src", ""))
+_MAI_DIV = re.compile(r'<div\b([^>]*\bclass="([^"]*)"[^>]*)>')
+_MAI_NAME = re.compile(r'class="music_name_block[^"]*"[^>]*>(.*?)</div>', re.S)
+_MAI_LEVEL = re.compile(r'class="music_lv_block[^"]*"[^>]*>(.*?)</div>', re.S)
+_MAI_SCORE = re.compile(r'class="music_score_block[^"]*"[^>]*>(.*?)</div>', re.S)
+_MAI_LAMP = re.compile(r"music_icon_([a-z]+)\.png")
+_MAI_ROW_ID = re.compile(r'\bid="([^"]*)"')
+_TAGS = re.compile(r"<[^>]+>")
+
+
+def _plain(fragment: str) -> str:
+    return html_lib.unescape(_TAGS.sub("", fragment)).strip()
 
 
 def parse_maimai_scores(html: str | bytes, diff_index: int,
@@ -186,45 +214,52 @@ def parse_maimai_scores(html: str | bytes, diff_index: int,
     """Parse /maimai-mobile/record/musicGenre/search/?genre=99&diff=N.
 
     `seen` collects every song on the page, played or not ({difficulty: {title}}): the charts in
-    the player's region."""
+    the player's region.
+
+    These pages list every song of a difficulty (a few MB), so they are read with string searches
+    one block at a time, like parse_chunithm_lamps: a parsed tree of one took tens of MB and
+    seconds of blocking on a small host."""
+    text = html.decode("utf-8", "replace") if isinstance(html, bytes) else html
     base_diff = MAIMAI_DIFFS[diff_index]
     records = []
     genre = ""
-    for row in _soup(html).select(".main_wrapper.t_c .m_15"):
-        classes = set(row.get("class", []))
+    # a genre heading (screw_block) or a song row (w_450 p_r f_0), whatever order the classes are in
+    blocks = []
+    for m in _MAI_DIV.finditer(text):
+        classes = set(m.group(2).split())
         if "screw_block" in classes:
-            genre = _text(row)
+            blocks.append(("genre", m))
+        elif {"w_450", "p_r", "f_0"} <= classes:
+            blocks.append(("row", m))
+    for n, (kind, m) in enumerate(blocks):
+        chunk = text[m.end():blocks[n + 1][1].start() if n + 1 < len(blocks) else len(text)]
+        if kind == "genre":
+            genre = _plain(chunk.split("</div>", 1)[0])
             continue
-        if not {"w_450", "p_r", "f_0"} <= classes:
+        name = _MAI_NAME.search(chunk)
+        if name is None:
             continue
-        difficulty = base_diff if _maimai_is_std(row) else f"DX {base_diff}"
+        title = _plain(name.group(1))
+        row_id = _MAI_ROW_ID.search(m.group(1))
+        if row_id and row_id.group(1):
+            std = "sta_" in row_id.group(1)
+        else:
+            std = "music_standard" in chunk
+        difficulty = base_diff if std else f"DX {base_diff}"
         if seen is not None:
-            seen.setdefault(difficulty, set()).add(_text(row.select_one(".music_name_block")))
-        score_blocks = row.select(".music_score_block")
-        if not score_blocks:
+            seen.setdefault(difficulty, set()).add(title)
+        score = _MAI_SCORE.search(chunk)
+        if score is None:
             continue  # not played
         try:
-            achievement = float(_text(score_blocks[0]).rstrip("%"))
+            achievement = float(_plain(score.group(1)).rstrip("%"))
         except ValueError:
             continue
-
-        lamp = None
-        for img in row.select("img"):
-            m = re.search(r"music_icon_([a-z]+)\.png", str(img.get("src", "")))
-            if m and m.group(1) in MAIMAI_LAMPS:
-                lamp = MAIMAI_LAMPS[m.group(1)]
-                break
-
-        records.append(
-            MaimaiRecord(
-                title=_text(row.select_one(".music_name_block")),
-                genre=genre,
-                difficulty=difficulty,
-                level=_text(row.select_one(".music_lv_block")),
-                achievement=achievement,
-                lamp=lamp,
-            )
-        )
+        lamp = next((MAIMAI_LAMPS[x] for x in _MAI_LAMP.findall(chunk) if x in MAIMAI_LAMPS), None)
+        level = _MAI_LEVEL.search(chunk)
+        records.append(MaimaiRecord(title=title, genre=genre, difficulty=difficulty,
+                                    level=_plain(level.group(1)) if level else "", achievement=achievement,
+                                    lamp=lamp))
     return records
 
 

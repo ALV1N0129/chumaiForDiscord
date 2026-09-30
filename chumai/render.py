@@ -6,11 +6,12 @@ import io
 import os
 import re
 import unicodedata
+from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
 
 from .b50 import B50, SLOTS, Entry
 
@@ -1113,6 +1114,18 @@ def _draw_play_badge(canvas: Image.Image, right: int, y: int, game: str, badge) 
     return bx
 
 
+def _draw_count_pill(canvas: Image.Image, right: int, y: int, count: int, size: int = 26) -> int:
+    """"×N" (played N times) in a bright pill, right-aligned at `right`. Returns its left edge."""
+    text, f = f"×{count}", num(size)
+    bw, bh = int(ImageDraw.Draw(canvas).textlength(text, font=f)) + size * 16 // 26, size * 32 // 26
+    pill = _gradient_fill((bw, bh), [(255, 236, 120), (255, 170, 60)])
+    pill.putalpha(_rounded_mask((bw, bh), 10))
+    ImageDraw.Draw(pill).rounded_rectangle((0, 0, bw - 1, bh - 1), radius=10, outline=(40, 24, 10), width=2)
+    _over(canvas, pill, (right - bw, y))
+    ImageDraw.Draw(canvas).text((right - bw // 2, y + bh // 2 + 1), text, font=f, fill=(40, 24, 10), anchor="mm")
+    return right - bw
+
+
 RISE = (90, 220, 140)  # rating went up
 
 
@@ -1238,8 +1251,20 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
     width = max(width, round(height * width / three))
     stub = SimpleNamespace(game=game, old=entries, new=[], icon=icon)
     canvas = _rgb(_background(stub, (width, height), theme, st))
+    _draw_play_header(canvas, game, player, icon, f"PLAY LOG  ·  {date}", rating, rating_before, width, theme, st)
+    if len(entries) >= 4:  # the extra track bought with C to C, under the rating
+        ImageDraw.Draw(canvas).text((width - MARGIN, 104), "C to C", font=num(17, "SemiBold"), fill=theme["accent"],
+                                    anchor="ra")
 
-    # player: icon, "PLAY LOG · date" and name
+    for i, e in enumerate(entries):
+        _draw_play_row(canvas, MARGIN, header + i * (PLAY_ROW_H + GAP_Y), width - 2 * MARGIN, i + 1, e,
+                       badges[i] if i < len(badges) else None, game, theme, st)
+    return encode(canvas)
+
+
+def _draw_play_header(canvas: Image.Image, game: str, player: str, icon: bytes | None, kicker: str,
+                      rating: str | None, rating_before: str | None, width: int, theme: dict, st: dict) -> None:
+    """The play log's top: icon, kicker and name at the left, the logo, and the rating at the right."""
     x = MARGIN
     ic = _open_image(icon)
     if ic is not None:
@@ -1253,7 +1278,7 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
     logo_x = (width - logo.width) // 2
     _over(canvas, logo, (logo_x, 10 + (CREDIT_LOGO[1] - logo.height) // 2))
     draw = ImageDraw.Draw(canvas)
-    draw.text((x, 30), f"PLAY LOG  ·  {date}", font=num(18, "SemiBold"), fill=theme["accent"])
+    draw.text((x, 30), kicker, font=num(18, "SemiBold"), fill=theme["accent"])
     name = unicodedata.normalize("NFKC", player)
     draw.text((x, 52), _fit(draw, name, cjk(38), logo_x - x - 16), font=cjk(38), fill=WHITE)
 
@@ -1270,17 +1295,169 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
                   fill=st["muted"], anchor="ra")
         if change:
             _up_pill(canvas, right - number.width - 2, 68, change, 18)
-    if len(entries) >= 4:  # the extra track bought with C to C, under the rating
-        ImageDraw.Draw(canvas).text((width - MARGIN, 104), "C to C", font=num(17, "SemiBold"), fill=theme["accent"],
-                                    anchor="ra")
 
-    for i, e in enumerate(entries):
-        _draw_play_row(canvas, MARGIN, header + i * (PLAY_ROW_H + GAP_Y), width - 2 * MARGIN, i + 1, e,
-                       badges[i] if i < len(badges) else None, game, theme, st)
+
+@dataclass
+class DaySlot:
+    """A chart in /today's timeline: played `count` times in a row, `entry` the best of them."""
+
+    entry: Entry
+    new: bool  # any of them a new record
+    count: int = 1
+
+
+@dataclass
+class DayCredit:
+    time: str  # "18:00"
+    slots: list[DaySlot]
+
+
+DAY_MIN_COL, DAY_MAX_COL = 132, 210  # a credit's column
+DAY_MAX_W = 2600
+DAY_GRAPH_H = 230
+
+
+def _day_rating_graph(canvas: Image.Image, box: tuple[int, int, int, int], steps: list[tuple[float, float]],
+                      start: float, game: str, theme: dict, st: dict) -> None:
+    """The rating over the day as a glowing line in `box`: flat, then a step up at each x in
+    `steps` (x, gain), each labelled; the value at both ends. Only the box's area is drawn on
+    layers, so it stays light on memory."""
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    acc = theme["accent"]
+    end = start + sum(g for _, g in steps)
+    span = max(end - start, 0.02 if game == "chunithm" else 20)
+    lo, hi = start - span * 0.12, start + span * 1.25  # room above for the labels
+
+    def y_of(v: float) -> float:
+        return h - (v - lo) / (hi - lo) * h
+
+    pts, cur = [(0.0, y_of(start))], start
+    for x, g in steps:
+        pts.append((x - x0, y_of(cur)))
+        cur += g
+        pts.append((x - x0, y_of(cur)))
+    pts.append((float(w), y_of(cur)))
+
+    region = canvas.crop((x0, y0, x1, y1)).convert("RGBA")
+    # the area under the line, fading downward
+    area = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(area).polygon(pts + [(w, h), (0, h)], fill=255)
+    fade = Image.linear_gradient("L").resize((w, h)).point(lambda v: int(80 - v * 0.3))
+    area = ImageChops.multiply(area, fade)
+    region.paste(Image.new("RGBA", (w, h), (*acc, 255)), (0, 0), area)
+    for v in (start, end):  # dashed guides at the day's start and end
+        yy = y_of(v)
+        d = ImageDraw.Draw(region)
+        for x in range(0, w, 14):
+            d.line((x, yy, x + 6, yy), fill=(*st["faint"], 160), width=1)
+    glow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(glow).line(pts, fill=(*acc, 255), width=10, joint="curve")
+    glow = glow.filter(ImageFilter.GaussianBlur(9))
+    region.alpha_composite(glow)
+    d = ImageDraw.Draw(region)
+    d.line(pts, fill=(255, 244, 200), width=4, joint="curve")
+    fmt = (lambda v: f"{v:.2f}") if game == "chunithm" else (lambda v: f"{v:.0f}")
+    d.text((w - 2, y_of(end) + 30), fmt(end), font=num(24), fill=st["text"], anchor="rs")  # under the line
+    if steps:
+        d.text((4, y_of(start) - 10), fmt(start), font=num(22, "SemiBold"), fill=st["muted"], anchor="ls")
+    last = -1e9
+    cur = start
+    for x, g in steps:
+        cur += g
+        px, py = x - x0, y_of(cur)
+        d.ellipse((px - 7, py - 7, px + 7, py + 7), fill=(255, 244, 200), outline=acc, width=3)
+        if px - last >= 64:  # skip a label that would sit on the one before
+            text = f"+{g:.3f}" if game == "chunithm" else f"+{g:.0f}"
+            d.text((px, py - 14), text, font=num(19), fill=acc, anchor="ms")
+            last = px
+    canvas.paste(region.convert("RGB"), (x0, y0))
+
+
+def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], credits: list[DayCredit],
+               steps: list[tuple[int, float, float]], rating_start: float | None, icon: bytes | None = None,
+               rating: str | None = None, rating_before: str | None = None) -> bytes:
+    """A day of play (/today) as a timeline: the play log's top, the day's numbers, the rating over
+    the day (a step up at each new record that raised it), then a column per credit with its
+    charts, new records lit up. `steps`: (credit, where in its column 0..1, rating gained);
+    `rating_start`: the rating before the day's first play (None: no graph)."""
+    from types import SimpleNamespace
+
+    theme = THEMES[game]
+    st = STYLES["version"]
+    acc = theme["accent"]
+    n = max(1, len(credits))
+    col = max(DAY_MIN_COL, min(DAY_MAX_COL, (DAY_MAX_W - 2 * MARGIN) // n))
+    width = max(2 * MARGIN + col * n, 1200)
+    col = (width - 2 * MARGIN) / n  # a narrow day: the columns fill the width
+    jacket = int(min(col, DAY_MAX_COL) - 26)
+    slot_h = jacket + 62  # room for a stack of copies behind the next one
+    depth = max((len(c.slots) for c in credits), default=0)
+    stats_y = CREDIT_HEADER_H + 4
+    graph_y = stats_y + 70
+    graph = rating_start is not None
+    lane_y = graph_y + (DAY_GRAPH_H + 40 if graph else 0)
+    height = lane_y + 76 + depth * slot_h + 20
+
+    stub = SimpleNamespace(game=game, old=[c.slots[0].entry for c in credits if c.slots], new=[], icon=icon)
+    canvas = _rgb(_background(stub, (width, height), theme, st))
+    _draw_play_header(canvas, game, player, icon, f"TODAY  ·  {date}", rating, rating_before, width, theme, st)
+    draw = ImageDraw.Draw(canvas)
+    x = MARGIN
+    for label, value in stats:  # the day in numbers, in one line
+        draw.text((x, stats_y + 44), value, font=num(40), fill=WHITE, anchor="ls")
+        x += draw.textlength(value, font=num(40)) + 8
+        draw.text((x, stats_y + 42), label, font=cjk(19), fill=st["muted"], anchor="ls")
+        x += draw.textlength(label, font=cjk(19)) + 36
+    if graph:
+        points = [(MARGIN + col * (c + frac), gain) for c, frac, gain in steps]
+        _day_rating_graph(canvas, (MARGIN, graph_y, width - MARGIN, graph_y + DAY_GRAPH_H), points, rating_start,
+                          game, theme, st)
+
+    for ci, credit in enumerate(credits):
+        cx = MARGIN + col * ci
+        draw = ImageDraw.Draw(canvas)
+        draw.text((cx + col / 2, lane_y + 14), f"CREDIT {ci + 1}", font=num(18, "SemiBold"), fill=st["muted"],
+                  anchor="ms")
+        draw.text((cx + col / 2, lane_y + 40), credit.time, font=num(26), fill=st["text"], anchor="ms")
+        if ci:
+            for yy in range(lane_y, height - 24, 10):
+                draw.line((cx, yy, cx, yy + 4), fill=st["faint"], width=1)
+        y = lane_y + 76
+        jx = int(cx + (col - jacket) / 2)
+        for slot in credit.slots:
+            e = slot.entry
+            for k in range(min(slot.count - 1, 3), 0, -1):  # played again: copies stacked behind
+                _framed_jacket(canvas, jx + k * 7, y - k * 7, jacket, e.jacket_path, e.difficulty)
+                _over(canvas, Image.new("RGBA", (jacket, jacket), (8, 10, 20, 150)), (jx + k * 7, y - k * 7))
+            if slot.new:  # lit up
+                ring = Image.new("RGBA", (jacket + 60, jacket + 60), (0, 0, 0, 0))
+                ImageDraw.Draw(ring).rounded_rectangle((22, 22, jacket + 38, jacket + 38), radius=12, fill=(*acc, 255))
+                _over(canvas, ring.filter(ImageFilter.GaussianBlur(12)), (jx - 30, y - 30))
+            _framed_jacket(canvas, jx, y, jacket, e.jacket_path, e.difficulty)
+            if not slot.new:
+                _over(canvas, Image.new("RGBA", (jacket, jacket), (8, 10, 20, 110)), (jx, y))
+            draw = ImageDraw.Draw(canvas)
+            if slot.new:
+                tw = int(draw.textlength("NEW", font=num(18))) + 14
+                pill = _gradient_fill((tw, 22), [(255, 120, 150), (255, 200, 90)])
+                pill.putalpha(_rounded_mask((tw, 22), 8))
+                _over(canvas, pill, (jx - 4, y - 8))
+                draw = ImageDraw.Draw(canvas)
+                draw.text((jx - 4 + tw / 2, y + 3), "NEW", font=num(18), fill=(40, 20, 30), anchor="mm")
+            if slot.count > 1:
+                _draw_count_pill(canvas, jx + jacket + 10, y - 14, slot.count)
+                draw = ImageDraw.Draw(canvas)
+            draw.text((cx + col / 2, y + jacket + 26), e.score_text, font=num(24),
+                      fill=st["text"] if slot.new else st["muted"], anchor="ms")
+            sub = e.rank + (f" · {e.lamp}" if e.lamp else "")
+            draw.text((cx + col / 2, y + jacket + 43), sub, font=num(16, "SemiBold"),
+                      fill=RANK_COLORS.get(e.rank, st["muted"]), anchor="ms")
+            y += slot_h
+    if not credits:
+        draw.text((width / 2, lane_y + 60), "플레이 기록이 없어요", font=cjk(22), fill=st["muted"],
+                  anchor="mm")
     return encode(canvas)
-
-
-# ---------------------------------------------------------------- profile
 
 
 def render_profile(game: str, name: str, rating: str | None, title: str | None, title_rarity: str | None,
@@ -1834,6 +2011,7 @@ def _one_at_a_time(fn):
 
 render_b50 = _one_at_a_time(render_b50)
 render_credit = _one_at_a_time(render_credit)
+render_day = _one_at_a_time(render_day)
 render_profile = _one_at_a_time(render_profile)
 render_random = _one_at_a_time(render_random)
 render_song = _one_at_a_time(render_song)

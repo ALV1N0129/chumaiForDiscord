@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -43,6 +44,13 @@ class LinkStore:
                 rating TEXT NOT NULL,
                 PRIMARY KEY (discord_id, game)
             );
+            CREATE TABLE IF NOT EXISTS rating_log (
+                discord_id INTEGER NOT NULL,
+                game TEXT NOT NULL,
+                at REAL NOT NULL,
+                rating TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS rating_log_by_player ON rating_log (discord_id, game, at);
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -105,6 +113,7 @@ class LinkStore:
         self._db.execute("DELETE FROM best_scores WHERE discord_id = ?", (discord_id,))
         self._db.execute("DELETE FROM best_scores_at WHERE discord_id = ?", (discord_id,))
         self._db.execute("DELETE FROM player_ratings WHERE discord_id = ?", (discord_id,))
+        self._db.execute("DELETE FROM rating_log WHERE discord_id = ?", (discord_id,))
         self._db.commit()
         return cur.rowcount > 0
 
@@ -185,6 +194,22 @@ class LinkStore:
             (discord_id, game, rating),
         )
         self._db.commit()
+
+    # every rating the bot has seen, when it changed: for the rating before a day of play (/today)
+    def log_rating(self, discord_id: int, game: str, rating: str, at: float | None = None) -> None:
+        last = self._db.execute("SELECT rating FROM rating_log WHERE discord_id = ? AND game = ? "
+                                "ORDER BY at DESC LIMIT 1", (discord_id, game)).fetchone()
+        if last and last[0] == rating:
+            return
+        self._db.execute("INSERT INTO rating_log VALUES (?, ?, ?, ?)",
+                         (discord_id, game, time.time() if at is None else at, rating))
+        self._db.commit()
+
+    def rating_at(self, discord_id: int, game: str, at: float) -> str | None:
+        """The last rating seen before the time `at`."""
+        row = self._db.execute("SELECT rating FROM rating_log WHERE discord_id = ? AND game = ? AND at < ? "
+                               "ORDER BY at DESC LIMIT 1", (discord_id, game, at)).fetchone()
+        return row[0] if row else None
 
     # nicknames for songs in the guessing games, per server (0 outside servers)
     def add_alias(self, guild_id: int, game: str, title: str, alias: str) -> bool:

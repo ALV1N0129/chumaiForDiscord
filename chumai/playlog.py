@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 
 from .b50 import UNRATED, Entry, make_entry
@@ -104,4 +104,35 @@ def badges(plays: list[PlayRecord], cache: dict[tuple[str, str], float], cache_k
     return out
 
 
-__all__ = ["to_entry", "level_to_min_const", "Badge", "badges"]
+LAMP_ORDER = ["AP+", "AJC", "AP", "AJ", "FC+", "FC"]  # best first
+
+
+def day_timeline(plays: list[PlayRecord], marks: dict[str, Badge]):
+    """A day's plays for /today's timeline: ([(credit's time, [(best play, new record?, times in a
+    row)])],
+    [(credit, where in it 0..1, rating gained)]). Plays of one chart in a row within a credit are
+    one slot, its best play with the best lamp of them."""
+    from .net_parsers import group_credits
+
+    credits, steps = [], []
+    for ci, credit in enumerate(group_credits(sorted(plays, key=lambda r: r.key))):
+        slots: list[list[PlayRecord]] = []
+        for ti, r in enumerate(credit):
+            if slots and (slots[-1][-1].title, slots[-1][-1].difficulty) == (r.title, r.difficulty):
+                slots[-1].append(r)
+            else:
+                slots.append([r])
+            gain = getattr(marks.get(r.key), "gain", None)
+            if gain:
+                steps.append((ci, (ti + 0.5) / len(credit), float(gain)))
+        out = []
+        for group in slots:
+            top = max(group, key=lambda r: (r.score, r.key))
+            lamps = [r.lamp for r in group if r.lamp in LAMP_ORDER]
+            if lamps:
+                top = replace(top, lamp=min(lamps, key=LAMP_ORDER.index))
+            out.append((top, any(r.new_record for r in group), len(group)))
+        credits.append((credit[0].date[-5:], out))
+    return credits, steps
+
+__all__ = ["to_entry", "level_to_min_const", "Badge", "badges", "day_timeline"]

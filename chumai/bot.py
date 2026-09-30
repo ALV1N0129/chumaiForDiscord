@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import io
 import json
 import logging
@@ -23,7 +24,7 @@ from .config import Config
 from .jackets import JacketStore
 from .fonts import ensure_font
 from .logos import download_logos
-from .playlog import badges as play_badges, to_entry
+from .playlog import badges as play_badges, day_timeline, to_entry
 from .render import render_b50, render_credit
 from .segaid import LoginFailed, NetClient, SegaError, forget_sessions, login
 from .songdb import SongDB, normalize_title
@@ -505,6 +506,8 @@ async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str, image
                     _fetch_image(net, player.icon_url), _fetch_image(net, player.plate_url))
         if net.clal != token:
             bot.links.set_sega_token(discord_id, net.clal)
+        if result.official_rating:
+            bot.links.log_rating(discord_id, game, result.official_rating)
         now = time.time()
         # only reused for a few minutes; each holds a player's scores and song lists (MBs for maimai)
         for k in [k for k, (at, _) in bot.b50_cache.items() if now - at >= B50_CACHE_SECONDS]:
@@ -630,6 +633,8 @@ async def render_credits(bot: ChumaiBot, discord_id: int, game: str, select,
         else:
             player = net_parsers.parse_maimai_player(await net.get("/maimai-mobile/home/"))
         icon = await _fetch_image(net, player.icon_url)
+        if player.rating:
+            bot.links.log_rating(discord_id, game, player.rating)
 
         cache, cache_key = bot.links.get_bests(discord_id, game)
         latest = max(r.key for r in records)
@@ -663,6 +668,80 @@ async def render_credits(bot: ChumaiBot, discord_id: int, game: str, select,
     if net.clal != token:
         bot.links.set_sega_token(discord_id, net.clal)
     return images, chosen
+
+
+JST = datetime.timezone(datetime.timedelta(hours=9))
+DAY_STARTS = datetime.timedelta(hours=4)  # plays until 4am count for the day before
+
+
+def play_time(record) -> datetime.datetime:
+    return datetime.datetime.strptime(record.date, "%Y/%m/%d %H:%M").replace(tzinfo=JST)
+
+
+def play_day(record) -> datetime.date:
+    return (play_time(record) - DAY_STARTS).date()
+
+
+async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> bytes | None:
+    """The latest day of play (/today): credits, tracks, new records and lamps, the rating from
+    before the day's first play to now as a graph stepping up at each new record, and a column per
+    credit with its charts. None if the play log is empty. The official site keeps the
+    last 50 plays, so a long day may be cut short."""
+    token = bot.links.get_sega_token(discord_id)
+    if token is None:
+        raise SegaError("`/login` 으로 먼저 SEGA ID 로그인을 해 주세요.")
+    async with NetClient(game, token) as net:
+        records = parse_playlog(game, await net.get(PLAYLOG_PATHS[game]))
+        if not records:
+            return None
+        day = max(play_day(r) for r in records)
+        plays = sorted((r for r in records if play_day(r) == day), key=lambda r: r.key)
+        if game == "chunithm":
+            player = net_parsers.parse_chunithm_player(await net.get("/mobile/home/playerData/"))
+        else:
+            player = net_parsers.parse_maimai_player(await net.get("/maimai-mobile/home/"))
+        icon = await _fetch_image(net, player.icon_url)
+        start = play_time(plays[0]).timestamp()
+        before = bot.links.rating_at(discord_id, game, start)
+        if player.rating:
+            bot.links.log_rating(discord_id, game, player.rating)
+
+        cache, cache_key = bot.links.get_bests(discord_id, game)
+        diffs = None if cache_key is None else {r.difficulty for r in plays if r.key > cache_key}
+        try:
+            now = await fetch_bests(net, game, diffs) if diffs != set() else {}
+        except Exception:
+            log.warning("could not load best scores", exc_info=True)
+            now = {}
+        marks = play_badges(plays, cache, cache_key, now, bot.songdb, bot.config.new_versions[game], game)
+
+        timeline, steps = day_timeline(plays, marks)
+        lamp_label = "AJ·FC" if game == "chunithm" else "AP·FC"
+        stats = [("크레딧", str(len(timeline))), ("플레이", str(len(plays))),
+                 ("신기록", str(len({(r.title, r.difficulty) for r in plays if r.new_record}))),
+                 (lamp_label, str(len({(r.title, r.difficulty) for r in plays if r.lamp})))]
+        # the graph ends at the rating now; without it, starts at the one logged before the day
+        gained = sum(g for _, _, g in steps)
+        try:
+            start = float(player.rating) - gained if player.rating else float(before)
+        except (TypeError, ValueError):
+            start = None
+        urls = list({r.jacket_url for _, credit in timeline for r, _, _ in credit if r.jacket_url})
+        jackets = dict(zip(urls, await asyncio.gather(*(_cached_image(bot, net, game, u) for u in urls))))
+        credits = []
+        for time, credit in timeline:
+            slots = []
+            for r, new, count in credit:
+                e = to_entry(game, r, bot.songdb, bot.jackets.unrated_level)
+                e.jacket_path = jackets.get(r.jacket_url)
+                slots.append(render.DaySlot(e, new, count))
+            credits.append(render.DayCredit(time, slots))
+        png = await asyncio.to_thread(
+            render.render_day, game, player.name, day.strftime("%Y/%m/%d"), stats, credits, steps, start, icon,
+            player.rating, before)
+    if net.clal != token:
+        bot.links.set_sega_token(discord_id, net.clal)
+    return png
 
 
 def latest_credit(records):

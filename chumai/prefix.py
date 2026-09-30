@@ -28,7 +28,7 @@ GAME_ALIASES = {
 # short names for prefix commands
 ALIASES = {
     "b": "b50", "p": "profile", "rc": "recent", "td": "today", "i": "info", "j": "jacket", "c": "const", "r": "random",
-    "rh": "reach", "w": "whatif", "rec": "recommend", "cal": "calc", "g": "guess", "cg": "chartguess", "ch": "chart", "a": "answer", "gu": "giveup", "포기": "giveup",
+    "rh": "reach", "w": "whatif", "rec": "recommend", "cal": "calc", "g": "guess", "ch": "chart", "a": "answer", "gu": "giveup", "포기": "giveup",
     "h": "help", "pl": "playlog",
 }
 # the Korean command names (/오늘 ...) work after the prefix too: !오늘 c, !플레이로그 켜기 c

@@ -27,7 +27,6 @@ COMMANDS = {
     "recommend": "추천",
     "chart": "채보",
     "guess": "자켓맞히기",
-    "chartguess": "채보맞히기",
     "giveup": "포기",
     "answer": "정답",
     "alias": "별명",

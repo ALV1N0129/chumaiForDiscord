@@ -10,6 +10,11 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 
+# last_key of an automatic (/playlog all) play log that isn't a play key: not checked yet, turned
+# off by the player, or left out (no records for that game)
+PLAYLOG_NEW, PLAYLOG_OFF, PLAYLOG_SKIP = "?", "off", "-"
+
+
 class LinkStore:
     def __init__(self, path: str | Path, token_key: str | None = None):
         path = Path(path)
@@ -69,6 +74,9 @@ class LinkStore:
             );
             """
         )
+        if "auto" not in {row[1] for row in self._db.execute("PRAGMA table_info(playlog_subs)")}:
+            # 1: added for everyone logged in (/playlog all), not by the player
+            self._db.execute("ALTER TABLE playlog_subs ADD COLUMN auto INTEGER NOT NULL DEFAULT 0")
         self._db.commit()
         self._fernet = None
         if token_key:
@@ -114,8 +122,14 @@ class LinkStore:
         self._db.execute("DELETE FROM best_scores_at WHERE discord_id = ?", (discord_id,))
         self._db.execute("DELETE FROM player_ratings WHERE discord_id = ?", (discord_id,))
         self._db.execute("DELETE FROM rating_log WHERE discord_id = ?", (discord_id,))
+        self._db.execute("DELETE FROM playlog_subs WHERE discord_id = ? AND auto = 1 AND last_key != ?",
+                         (discord_id, PLAYLOG_OFF))
         self._db.commit()
         return cur.rowcount > 0
+
+    def sega_users(self) -> list[int]:
+        """Everyone logged in with a SEGA ID."""
+        return [row[0] for row in self._db.execute("SELECT discord_id FROM sega_tokens")]
 
     def set_public(self, discord_id: int, public: bool) -> bool:
         cur = self._db.execute(
@@ -132,13 +146,38 @@ class LinkStore:
 
     # ---- play log subscriptions
 
-    def set_playlog(self, discord_id: int, game: str, channel_id: int, last_key: str) -> None:
+    def set_playlog(self, discord_id: int, game: str, channel_id: int, last_key: str, auto: bool = False) -> None:
         self._db.execute(
-            "INSERT INTO playlog_subs (discord_id, game, channel_id, last_key) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(discord_id, game) DO UPDATE SET channel_id = excluded.channel_id, last_key = excluded.last_key",
-            (discord_id, game, channel_id, last_key),
+            "INSERT INTO playlog_subs (discord_id, game, channel_id, last_key, auto) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(discord_id, game) DO UPDATE SET channel_id = excluded.channel_id, "
+            "last_key = excluded.last_key, auto = excluded.auto",
+            (discord_id, game, channel_id, last_key, int(auto)),
         )
         self._db.commit()
+
+    def add_auto_playlogs(self, channel_id: int, games: tuple[str, ...]) -> int:
+        """/playlog all: everyone logged in, for each game, unless they have their own setting; the
+        existing ones move to `channel_id`. Returns how many were added. New ones start at
+        PLAYLOG_NEW (the first check only notes where the log is)."""
+        before = self._db.total_changes
+        for game in games:
+            self._db.execute(
+                "INSERT OR IGNORE INTO playlog_subs (discord_id, game, channel_id, last_key, auto) "
+                "SELECT discord_id, ?, ?, ?, 1 FROM sega_tokens", (game, channel_id, PLAYLOG_NEW))
+        added = self._db.total_changes - before
+        self._db.execute("UPDATE playlog_subs SET channel_id = ? WHERE auto = 1", (channel_id,))
+        self._db.commit()
+        return added
+
+    def delete_auto_playlogs(self) -> None:
+        """/playlog all off. Who turned theirs off keeps that, for the next time it's on."""
+        self._db.execute("DELETE FROM playlog_subs WHERE auto = 1 AND last_key != ?", (PLAYLOG_OFF,))
+        self._db.commit()
+
+    def is_auto_playlog(self, discord_id: int, game: str) -> bool:
+        row = self._db.execute("SELECT auto FROM playlog_subs WHERE discord_id = ? AND game = ?",
+                               (discord_id, game)).fetchone()
+        return bool(row and row[0])
 
     def delete_playlog(self, discord_id: int, game: str) -> bool:
         cur = self._db.execute("DELETE FROM playlog_subs WHERE discord_id = ? AND game = ?", (discord_id, game))
@@ -146,7 +185,9 @@ class LinkStore:
         return cur.rowcount > 0
 
     def playlogs(self) -> list[tuple[int, str, int, str]]:
-        return list(self._db.execute("SELECT discord_id, game, channel_id, last_key FROM playlog_subs"))
+        """The play logs to check: (discord_id, game, channel_id, last play key posted)."""
+        return list(self._db.execute("SELECT discord_id, game, channel_id, last_key FROM playlog_subs "
+                                     "WHERE last_key NOT IN (?, ?)", (PLAYLOG_OFF, PLAYLOG_SKIP)))
 
     def update_playlog_key(self, discord_id: int, game: str, last_key: str) -> None:
         self._db.execute(

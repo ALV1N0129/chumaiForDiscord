@@ -250,3 +250,49 @@ def test_rating_change_and_store(tmp_path):
     store.save_rating(1, "chunithm", "16.05")
     store.save_rating(1, "chunithm", "16.07")
     assert store.get_rating(1, "chunithm") == "16.07"
+
+
+def test_first_check_of_an_automatic_play_log(tmp_path, monkeypatch):
+    import asyncio
+
+    from chumai import bot as botmod
+    from chumai.storage import PLAYLOG_NEW, PLAYLOG_SKIP
+    from test_features_commands import _bot
+
+    class FakeNet:
+        clal = "t1"
+
+        def __init__(self, game, token):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    fails = {"maimai": True, "chunithm": False}
+
+    async def start(bot, net, discord_id, game):
+        if fails[game]:
+            raise botmod.SegaError("no maimai data")
+        return "2026/09/30 18:00#01"
+
+    monkeypatch.setattr(botmod, "NetClient", FakeNet)
+    monkeypatch.setattr(botmod, "start_playlog", start)
+    bot = _bot(tmp_path, monkeypatch)
+    bot._auto_tries = {}
+    bot.links.set_sega_token(1, "t1")
+    bot.links.add_auto_playlogs(5, ("chunithm", "maimai"))
+
+    async def run():
+        for _ in range(botmod.AUTO_PLAYLOG_TRIES):
+            for game in ("chunithm", "maimai"):
+                if dict(((d, g), k) for d, g, _, k in bot.links.playlogs()).get((1, game)) == PLAYLOG_NEW:
+                    await bot._start_auto_playlog(1, game, 5)
+
+    asyncio.run(run())
+    keys = {g: k for d, g, _, k in bot.links.playlogs()}
+    assert keys == {"chunithm": "2026/09/30 18:00#01"}  # maimai was left out
+    row = bot.links._db.execute("SELECT last_key FROM playlog_subs WHERE game = 'maimai'").fetchone()
+    assert row[0] == PLAYLOG_SKIP

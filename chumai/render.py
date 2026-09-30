@@ -203,6 +203,9 @@ def release_memory() -> None:
     """Hand freed memory back to the OS (glibc keeps it otherwise, so the peak would stick)."""
     import gc
 
+    # drawn jackets and card backgrounds are cheap to make again; kept, they hold MBs between images
+    _load_jacket.cache_clear()
+    _card_background.cache_clear()
     gc.collect()
     try:
         import ctypes
@@ -337,7 +340,7 @@ def _diff(e: Entry) -> tuple[str, tuple[int, int, int], bool]:
     return label, color, is_dx
 
 
-@lru_cache(maxsize=64)
+@lru_cache(maxsize=8 if LOW_MEMORY else 64)  # a B50 uses each jacket once
 def _load_jacket(path: str) -> Image.Image | None:
     try:
         with Image.open(path) as im:
@@ -346,7 +349,7 @@ def _load_jacket(path: str) -> Image.Image | None:
         return None
 
 
-@lru_cache(maxsize=16)
+@lru_cache(maxsize=4 if LOW_MEMORY else 16)
 def _card_background(path: str | None, mode: str, fallback: tuple[int, int, int],
                      size: tuple[int, int] = (CARD_W, CARD_H)) -> Image.Image:
     """RGBA card background: the jacket art, strongest at the left (behind the jacket) and fading out
@@ -871,7 +874,36 @@ def _stripes(size: tuple[int, int], color, spacing: int = 26) -> Image.Image:
     return layer
 
 
+# finished "version" backgrounds, saved once per game and size: making one decodes, blurs and
+# scales the key art (+14MB for a moment on a small host), opening the saved one costs just the image
+BG_CACHE_DIR = Path(os.environ.get("CACHE_DIR", "data/cache"))
+
+
 def _background(b50: B50, size: tuple[int, int], theme: dict, st: dict) -> Image.Image:
+    if st["bg"] != "version":
+        return _make_background(b50, size, theme, st)
+    art = next((ASSETS / "backgrounds" / f"{b50.game}.{e}" for e in ("webp", "png", "jpg")
+                if (ASSETS / "backgrounds" / f"{b50.game}.{e}").is_file()), None)
+    stamp = int(art.stat().st_mtime) if art else 0
+    path = BG_CACHE_DIR / f"bg_{b50.game}_{size[0]}x{size[1]}_{stamp}.png"
+    try:
+        with Image.open(path) as im:
+            im.load()
+            return im.copy() if im.mode in ("RGB", "RGBA") else im.convert("RGB")
+    except (OSError, ValueError):
+        pass
+    bg = _make_background(b50, size, theme, st)
+    try:
+        BG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        for old in BG_CACHE_DIR.glob(f"bg_{b50.game}_{size[0]}x{size[1]}_*.png"):
+            old.unlink(missing_ok=True)  # an older key art's
+        bg.save(path, compress_level=3)
+    except OSError:
+        pass
+    return bg
+
+
+def _make_background(b50: B50, size: tuple[int, int], theme: dict, st: dict) -> Image.Image:
     w, h = size
     if st["bg"] == "light":
         base = _vertical_gradient(size, (252, 248, 255), (238, 242, 252)).convert("RGBA")

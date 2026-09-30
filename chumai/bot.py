@@ -6,6 +6,7 @@ import asyncio
 import io
 import json
 import logging
+import sys
 import os
 import time
 from pathlib import Path
@@ -496,13 +497,18 @@ async def sega_b50(bot: ChumaiBot, game: str, discord_id: int, token: str, image
                 result = b50_from_maimai_net(player, records, bot.songdb, bot.config.new_versions[game])
                 result.played = {(r.title, r.difficulty): r.achievement for r in records}  # for /recommend
                 # every song on the record pages, played or not
-                result.available = {d: {normalize_title(t) for t in titles} for d, titles in seen.items()}
+                # a title is in several difficulties' lists: one string for all of them (3MB -> <1MB)
+                result.available = {d: {sys.intern(normalize_title(t)) for t in titles} for d, titles in seen.items()}
             if images:
                 result.icon, result.plate = await asyncio.gather(
                     _fetch_image(net, player.icon_url), _fetch_image(net, player.plate_url))
         if net.clal != token:
             bot.links.set_sega_token(discord_id, net.clal)
-        bot.b50_cache[key] = (time.time(), result)
+        now = time.time()
+        # only reused for a few minutes; each holds a player's scores and song lists (MBs for maimai)
+        for k in [k for k, (at, _) in bot.b50_cache.items() if now - at >= B50_CACHE_SECONDS]:
+            del bot.b50_cache[k]
+        bot.b50_cache[key] = (now, result)
         return result
     except SegaError as e:
         return str(e)

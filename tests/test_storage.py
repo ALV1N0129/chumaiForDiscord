@@ -41,11 +41,12 @@ def test_playlog_for_everyone_logged_in(tmp_path):
         store.set_sega_token(who, f"t{who}")
     store.set_playlog(3, "chunithm", 0, PLAYLOG_OFF, auto=True)  # 3 turned CHUNITHM off
 
-    assert store.add_auto_playlogs(99, ("chunithm", "maimai")) == 4
+    assert store.add_auto_playlogs(99, ("chunithm", "maimai")) == 5
     subs = {(d, g): (c, k) for d, g, c, k in store.playlogs()}
-    assert subs[(1, "maimai")] == (10, "k1")  # their own setting stays
+    assert subs[(1, "maimai")] == (10, "k1")  # their own setting stays (the bot posts it to 99 while on)
     assert subs[(1, "chunithm")] == (99, PLAYLOG_NEW) and subs[(2, "maimai")] == (99, PLAYLOG_NEW)
-    assert (3, "chunithm") not in subs and store.is_auto_playlog(2, "maimai")
+    assert subs[(3, "chunithm")] == (99, PLAYLOG_NEW)  # turned off, but it's everyone
+    assert store.is_auto_playlog(2, "maimai")
     assert store.add_auto_playlogs(98, ("chunithm", "maimai")) == 0  # already there; moved
     moved = {(d, g): c for d, g, c, _ in store.playlogs()}
     assert moved[(1, "chunithm")] == 98 and moved[(2, "maimai")] == 98 and moved[(1, "maimai")] == 10
@@ -54,6 +55,4 @@ def test_playlog_for_everyone_logged_in(tmp_path):
     assert not any(d == 2 for d, *_ in store.playlogs())
     store.delete_auto_playlogs()
     assert [(d, g) for d, g, *_ in store.playlogs()] == [(1, "maimai")]
-    store.add_auto_playlogs(99, ("chunithm",))
-    assert (3, "chunithm") not in {(d, g) for d, g, *_ in store.playlogs()}  # still off
     store.close()

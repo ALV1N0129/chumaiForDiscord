@@ -156,21 +156,22 @@ class LinkStore:
         self._db.commit()
 
     def add_auto_playlogs(self, channel_id: int, games: tuple[str, ...]) -> int:
-        """/playlog all: everyone logged in, for each game, unless they have their own setting; the
-        existing ones move to `channel_id`. Returns how many were added. New ones start at
+        """/playlog all: everyone logged in, for each game, turned off or not (only a game left out
+        for having no records stays out). Returns how many were added. New ones start at
         PLAYLOG_NEW (the first check only notes where the log is)."""
         before = self._db.total_changes
         for game in games:
             self._db.execute(
                 "INSERT OR IGNORE INTO playlog_subs (discord_id, game, channel_id, last_key, auto) "
                 "SELECT discord_id, ?, ?, ?, 1 FROM sega_tokens", (game, channel_id, PLAYLOG_NEW))
+        self._db.execute("UPDATE playlog_subs SET last_key = ? WHERE last_key = ?", (PLAYLOG_NEW, PLAYLOG_OFF))
         added = self._db.total_changes - before
         self._db.execute("UPDATE playlog_subs SET channel_id = ? WHERE auto = 1", (channel_id,))
         self._db.commit()
         return added
 
     def delete_auto_playlogs(self) -> None:
-        """/playlog all off. Who turned theirs off keeps that, for the next time it's on."""
+        """/playlog all off: the ones it added go; everyone's own /playlog on stays."""
         self._db.execute("DELETE FROM playlog_subs WHERE auto = 1 AND last_key != ?", (PLAYLOG_OFF,))
         self._db.commit()
 

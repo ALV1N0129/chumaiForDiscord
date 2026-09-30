@@ -550,8 +550,7 @@ class SegaLoginModal(discord.ui.Modal, title="SEGA ID 로그인 (국제판)"):
             await interaction.followup.send("SEGA 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.", ephemeral=True)
             return
         self.bot.links.set_sega_token(interaction.user.id, clal)
-        head = ("로그인 완료. 비밀번호는 저장하지 않으며, `/logout` 으로 로그인 정보를 지울 수 있어요.\n"
-                "앞으로 신기록을 내면 이전 BEST보다 얼마나 올랐는지 보여주려고, 지금 곡별 최고 점수를 받아 둘게요.")
+        head = "로그인 완료. 비밀번호는 저장하지 않으며, `/logout` 으로 로그인 정보를 지울 수 있어요."
         progress = LoginProgress(head)
         progress.message = await interaction.followup.send(progress.text(), ephemeral=True, wait=True)
         self.bot._seed_task = asyncio.create_task(save_all_bests(self.bot, interaction.user.id, progress))

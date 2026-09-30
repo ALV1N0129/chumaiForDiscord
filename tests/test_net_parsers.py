@@ -99,3 +99,8 @@ def test_chunithm_record_scores_match_the_parsed_tree():
         html = _read(f"chunithm_net/{name}")
         assert [key(r) for r in net_parsers.parse_chunithm_record_scores(html)] == \
             [key(r) for r in net_parsers.parse_chunithm_rating_list(html)]
+
+
+def test_maimai_utage_record_page():
+    records = net_parsers.parse_maimai_scores(_read("maimai_music_genre.html"), net_parsers.MAIMAI_UTAGE)
+    assert records and {r.difficulty for r in records} == {"UTAGE"}  # no "DX UTAGE"

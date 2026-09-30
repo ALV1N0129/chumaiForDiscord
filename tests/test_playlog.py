@@ -334,18 +334,31 @@ def test_best_scores_saved_at_login(tmp_path, monkeypatch):
 
     started = []
 
-    async def start(bot, net, discord_id, game):
+    async def start(bot, net, discord_id, game, progress=None):
         if game == "maimai":
             raise botmod.SegaError("never played")
         started.append(game)
+        for _ in range(3 if progress else 0):  # a few of its pages
+            await progress("CHUNITHM page")
+        bot.links.save_bests(discord_id, game, {("A", "MASTER"): 1_000_000.0}, "k")
         return "2026/09/30 18:00#01"
 
     monkeypatch.setattr(botmod, "NetClient", FakeNet)
     monkeypatch.setattr(botmod, "start_playlog", start)
     bot = _bot(tmp_path, monkeypatch)
     bot.links.set_sega_token(1, "t1")
-    asyncio.run(botmod.save_all_bests(bot, 1))
+    shown = []
+
+    class Message:
+        async def edit(self, content):
+            shown.append(content)
+
+    progress = botmod.LoginProgress("로그인 완료")
+    progress.message = Message()
+    asyncio.run(botmod.save_all_bests(bot, 1, progress))
     assert started == ["chunithm"] and bot.links.playlogs() == []  # nothing else turned on
+    assert "▰" in shown[0] and progress.done == progress.total  # a failed game counts as done
+    assert shown[-1].endswith("CHUNITHM 1개 보면 · maimai 기록 없음") and "✅ 저장 완료" in shown[-1]
 
     bot.links.set_setting(botmod.PLAYLOG_ALL_SETTING, "5")  # with /playlog all, its first check too
     asyncio.run(botmod.save_all_bests(bot, 1))

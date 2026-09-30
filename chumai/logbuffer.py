@@ -57,6 +57,7 @@ SUMMARIES = {
     "could not load the CHUNITHM song list": "CHUNITHM 곡 목록을 불러오지 못했어요.",
     "CHUNITHM record pages failed; using the rating lists": "CHUNITHM 기록 페이지를 불러오지 못해서 레이팅 목록으로 대신했어요.",
     "could not load best scores": "최고 점수를 불러오지 못했어요.",
+    "could not load the %s record page": lambda page: f"{page} 기록 페이지를 불러오지 못했어요. (나머지는 저장했어요)",
     # stored data
     "TOKEN_ENCRYPTION_KEY is not set; SEGA login tokens are stored unencrypted":
         "로그인 정보 암호화 키(TOKEN_ENCRYPTION_KEY)가 설정되지 않았어요.",

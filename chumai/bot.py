@@ -42,6 +42,7 @@ def _minutes(name: str, default: float) -> float:
 
 # how often each linked play log is checked (one page per check); PLAYLOG_INTERVAL_MINUTES in .env
 PLAYLOG_INTERVAL = _minutes("PLAYLOG_INTERVAL_MINUTES", 1) * 60
+LIVE_LOG_SETTING = "live_log_channel"
 PLAYLOG_PATHS = {"chunithm": "/mobile/record/playlog", "maimai": "/maimai-mobile/record/"}
 
 
@@ -82,6 +83,7 @@ class ChumaiBot(discord.Client):
             await updater.remember_start()
             self.check_update.start()
         self.poll_playlogs.start()
+        self.push_live_logs.start()
         if self.config.guild_id:
             guild = discord.Object(id=self.config.guild_id)
             self.tree.copy_global_to(guild=guild)
@@ -107,12 +109,17 @@ class ChumaiBot(discord.Client):
             due, active = self._playlog_schedule.get((discord_id, game), (0.0, 0.0))
             if now < due:
                 continue
+            before = self.playlog_status.get((discord_id, game), (0.0, ""))[1]
             try:
                 found = await check_playlog(self, discord_id, game, channel_id, last_key)
                 self.playlog_status[(discord_id, game)] = (time.time(), "새 크레딧 올림" if found else "정상")
+                if before.startswith("실패"):
+                    log.info("play log check for %s/%s works again", discord_id, game)
             except Exception as e:
-                log.exception("play log check failed for %s/%s", discord_id, game)
-                self.playlog_status[(discord_id, game)] = (time.time(), f"실패: {str(e) or type(e).__name__}")
+                status = f"실패: {str(e) or type(e).__name__}"
+                if status != before:  # once per new failure, not every minute
+                    log.exception("play log check failed for %s/%s", discord_id, game)
+                self.playlog_status[(discord_id, game)] = (time.time(), status)
                 found = False
             if found:
                 active = now
@@ -120,6 +127,30 @@ class ChumaiBot(discord.Client):
 
     @poll_playlogs.before_loop
     async def _wait_ready(self) -> None:
+        await self.wait_until_ready()
+
+    @tasks.loop(seconds=5)
+    async def push_live_logs(self) -> None:
+        """Send new log lines to the live log channel (/logs live), a few messages at a time."""
+        channel_id = self.links.get_setting(LIVE_LOG_SETTING)
+        if not channel_id:
+            logbuffer.recent.pending.clear()
+            return
+        channel = self.get_channel(int(channel_id))
+        for _ in range(3):
+            chunk = logbuffer.recent.take()
+            if not chunk:
+                break
+            if channel is None:
+                return
+            try:
+                await channel.send(f"```\n{chunk}\n```")
+            except Exception as e:
+                logging.getLogger("chumai.live").warning("could not send logs to channel %s: %s", channel_id, e)
+                return
+
+    @push_live_logs.before_loop
+    async def _wait_ready_logs(self) -> None:
         await self.wait_until_ready()
 
     @tasks.loop(minutes=1)
@@ -168,6 +199,7 @@ class ChumaiBot(discord.Client):
         self.refresh_songdb.cancel()
         self.check_update.cancel()
         self.poll_playlogs.cancel()
+        self.push_live_logs.cancel()
         await super().close()
 
 
@@ -302,18 +334,22 @@ def register_commands(bot: ChumaiBot) -> None:
             return False
         return True
 
-    @tree.command(name="logs", description="플레이 로그 확인 상태와 최근 경고·오류 로그를 봅니다 (봇 주인만)")
-    async def logs_cmd(interaction: discord.Interaction) -> None:
+    logs = app_commands.Group(name="logs", description="봇 로그와 플레이 로그 확인 상태 (봇 주인만)")
+
+    @logs.command(name="status", description="플레이 로그 확인 상태와 최근 로그를 봅니다 (봇 주인만)")
+    async def logs_status(interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
         if not await owner_only(interaction):
             return
         subs = bot.links.playlogs()
+        live = bot.links.get_setting(LIVE_LOG_SETTING)
         lines = [f"**플레이 로그 자동 업로드** ({len(subs)}개, {PLAYLOG_INTERVAL / 60:g}분마다 · "
                  f"체커 {'동작 중' if bot.poll_playlogs.is_running() else '**멈춤**'})"]
         for discord_id, game, _, _ in subs:
             when, how = bot.playlog_status.get((discord_id, game), (0.0, "아직 확인 전"))
             at = f"<t:{int(when)}:R>" if when else "-"
             lines.append(f"· <@{discord_id}> {game}: {how} ({at})")
+        lines.append(f"실시간 로그: {f'<#{live}>' if live else '꺼짐 (`/logs live on`)'}")
         recent = logbuffer.recent.tail(15)
         text = "\n".join(lines)
         body = "\n".join(recent) if recent else "없음"
@@ -321,6 +357,29 @@ def register_commands(bot: ChumaiBot) -> None:
         while len(body) > room and "\n" in body:
             body = body.split("\n", 1)[1]  # keep the newest lines
         await interaction.followup.send(f"{text}\n**최근 로그**\n```\n{body[-room:]}\n```", ephemeral=True)
+
+    @logs.command(name="live", description="이 채널에 봇 로그를 실시간으로 올립니다 / 끕니다 (봇 주인만)")
+    @app_commands.describe(switch="on: 이 채널에 올리기 / off: 끄기")
+    async def logs_live(interaction: discord.Interaction, switch: Literal["on", "off"]) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await owner_only(interaction):
+            return
+        if switch == "off":
+            bot.links.set_setting(LIVE_LOG_SETTING, None)
+            await interaction.followup.send("실시간 로그를 껐어요.", ephemeral=True)
+            return
+        missing = missing_permissions(interaction.channel)
+        if missing:
+            await interaction.followup.send(permission_message(missing), ephemeral=True)
+            return
+        bot.links.set_setting(LIVE_LOG_SETTING, str(interaction.channel_id))
+        logbuffer.recent.pending.clear()
+        await interaction.followup.send(
+            "이제 이 채널에 봇 로그를 실시간으로 올릴게요 (경고·오류, 시작·업데이트, 크레딧 업로드). "
+            "채널에 있는 사람은 모두 볼 수 있으니 비공개 채널을 추천해요.", ephemeral=True)
+        log.info("live logs on in channel %s", interaction.channel_id)
+
+    tree.add_command(logs)
 
     @tree.command(name="update", description="GitHub에서 최신 코드를 바로 받아서 봇을 재시작합니다 (봇 주인만)")
     async def update_cmd(interaction: discord.Interaction) -> None:
@@ -619,6 +678,7 @@ async def check_playlog(
         try:
             for i, png in enumerate(images):
                 await channel.send(file=discord.File(io.BytesIO(png), filename=render.filename(f"playlog_{game}_{i}")))
+            log.info("posted %d credit(s) for %s/%s", len(images), discord_id, game)
         except discord.Forbidden:
             if not update:
                 raise

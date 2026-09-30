@@ -9,6 +9,7 @@ import json
 import logging
 import sys
 import os
+import shutil
 import time
 from pathlib import Path
 from typing import Literal
@@ -78,7 +79,8 @@ class ChumaiBot(discord.Client):
         await self.songdb.load_or_update(self.config.songdb_dir)
         await self.jackets.load_or_update()
         self._charts_task = asyncio.create_task(self._load_charts())  # large download; don't wait
-        self._aliases_task = asyncio.create_task(self._load_community_aliases())
+        # GCM-bot nicknames were once cached here; the maimai ones now come from assets/nicknames_ko.tsv
+        shutil.rmtree(Path(self.config.songdb_dir).parent / "aliases", ignore_errors=True)
         render.release_memory()
         render.LOGO_DIR = Path(self.config.logo_dir)
         await download_logos(self.config.logo_dir, self.config.logo_urls)
@@ -235,7 +237,6 @@ class ChumaiBot(discord.Client):
         await self.jackets.load_or_update()
         await self.charts.load_or_update()
         self._load_chart_aliases()
-        await self._load_community_aliases()
         render.release_memory()
 
     async def _load_charts(self) -> None:
@@ -251,12 +252,6 @@ class ChumaiBot(discord.Client):
                 answers.set_community("penguin", "chunithm", json.loads(path.read_text(encoding="utf-8")).items())
         except Exception:
             log.warning("could not load chuni-penguin nicknames", exc_info=True)
-
-    async def _load_community_aliases(self) -> None:
-        try:
-            await answers.update_community(Path(self.config.songdb_dir).parent / "aliases")
-        except Exception:
-            log.warning("could not load community nicknames", exc_info=True)
 
     @refresh_songdb.before_loop
     async def _skip_first_refresh(self) -> None:

@@ -88,8 +88,9 @@ def test_initials_of_korean_names():
 def test_community_nicknames(monkeypatch):
     from chumai import answers
     monkeypatch.setattr(answers, "_community", {})
-    answers.load_community("maimai", "女々しくて\t메메시쿠테\t소심하니까\nGarden\n残酷な天使のテーゼ\t에반게리온\n")
-    answers.load_community("chunithm", "違う、そうじゃない\tCHIGAU SOUJANAI\tChigau Sou Jya Nai\n")
+    answers.set_community("test", "maimai", [("女々しくて", ["메메시쿠테", "소심하니까"]), ("Garden", []),
+                                             ("残酷な天使のテーゼ", ["에반게리온"])])
+    answers.set_community("penguin", "chunithm", [("違う、そうじゃない", ["CHIGAU SOUJANAI", "Chigau Sou Jya Nai"])])
     assert answers.community_aliases("maimai", "女々しくて") == ["메메시쿠테", "소심하니까"]
     assert answers.community_aliases("maimai", "Garden") == []
     assert matches("에반게리온", ["残酷な天使のテーゼ"], [], answers.community_aliases("maimai", "残酷な天使のテーゼ"))

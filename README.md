@@ -81,10 +81,9 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 영문·카타카나 제목은 한국어로 부르는 이름, 일본어 제목은 한국어 번역으로도 됩니다(`엔디미온`, `뱀파이어`, `밤을 달리다`, `네가 모르는 이야기`): `chumai/assets/titles_ko.tsv`에
 영문 약 1,300곡, 카타카나 약 440곡, 일본어 약 750곡에 적어 두었고, 줄마다 `제목<TAB>발음<TAB>...` 형식이라 직접 추가할 수 있습니다.
 한국어 이름의 단어 첫 글자 줄임말(`프다`, `월뱅`)도 됩니다.
-커뮤니티 별명은 [GCM-bot](https://github.com/lomotos10/GCM-bot)이 모아 둔 목록(maimai 한국어, 두 게임 영어·로마자)을
-봇이 실행될 때 받아서 씁니다(`data/aliases/`에 캐시, 일주일마다 갱신, 이 저장소에는 들어 있지 않음).
-CHUNITHM은 [chuni-penguin](https://github.com/beer-psi/chuni-penguin)의 별명(영어·로마자)도 쓰고, 츄니즘 마이너 갤러리 글 제목에서
-모은 한국어 별명(`조율주`, `새콤달콤`, `엔탐`, `팬크라` 등)은 `chumai/assets/nicknames_ko.tsv`에 있습니다.
+츄니즘·maimai 마이너 갤러리 글 제목에서 모은 한국어 별명(`조율주`, `새콤달콤`, `엔탐`, `팬크라` 등)은
+`chumai/assets/nicknames_ko.tsv`에 있습니다. CHUNITHM은 [chuni-penguin](https://github.com/beer-psi/chuni-penguin)의
+별명(영어·로마자)도 봇이 실행될 때 받아서 씁니다.
 `흑니즘`, `알레프흑`, `멜마`처럼 이름에 난이도(흑·마·울·익)를 붙여 써도 됩니다.
 그 밖의 별명은 `/alias add` 로 등록하면 그 서버에서 정답으로 인정됩니다.
 한자음은 Unicode의 [Unihan](https://www.unicode.org/charts/unihan.html) 데이터(kHangul, [Unicode License](https://www.unicode.org/license.txt))에서

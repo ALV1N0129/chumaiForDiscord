@@ -76,10 +76,7 @@ SUMMARIES = {
     "failed to fetch jackets": "자켓을 불러오지 못했어요.",
     "chuni-penguin nicknames updated": None,
     "failed to download chuni-penguin nicknames; using cached copy if any": "커뮤니티 곡 별명을 받지 못했어요. 저장된 걸 쓸게요.",
-    "community nicknames: %s": None,
-    "could not download community nicknames %s/%s: %s": "커뮤니티 곡 별명을 받지 못했어요.",
     "could not load chuni-penguin nicknames": "커뮤니티 곡 별명을 받지 못했어요.",
-    "could not load community nicknames": "커뮤니티 곡 별명을 받지 못했어요.",
     # fonts, logos, certificates
     "downloading the Korean/Japanese font (about 17MB, first run only)...": "한글·일본어 폰트를 받고 있어요. (처음 한 번만)",
     "font saved to %s": None,

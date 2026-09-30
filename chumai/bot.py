@@ -846,20 +846,20 @@ async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> bytes | No
                  ("신기록", str(len({(r.title, r.difficulty) for r in plays if r.new_record}))),
                  (lamp_label, str(len({(r.title, r.difficulty) for r in plays if r.lamp})))]
         # the graph ends at the rating now; without it, starts at the one logged before the day
-        gained = sum(g for _, _, g in steps)
+        gained = sum(g for _, _, g, _ in steps)
         try:
             start = float(player.rating) - gained if player.rating else float(before)
         except (TypeError, ValueError):
             start = None
-        urls = list({r.jacket_url for _, credit in timeline for r, _, _ in credit if r.jacket_url})
+        urls = list({r.jacket_url for _, credit in timeline for r, *_ in credit if r.jacket_url})
         jackets = dict(zip(urls, await asyncio.gather(*(_cached_image(bot, net, game, u) for u in urls))))
         credits = []
         for time, credit in timeline:
             slots = []
-            for r, new, count in credit:
+            for r, new, count, gain in credit:
                 e = to_entry(game, r, bot.songdb, bot.jackets.unrated_level)
                 e.jacket_path = jackets.get(r.jacket_url)
-                slots.append(render.DaySlot(e, new, count))
+                slots.append(render.DaySlot(e, new, count, gain))
             credits.append(render.DayCredit(time, slots))
         png = await asyncio.to_thread(
             render.render_day, game, player.name, day.strftime("%Y/%m/%d"), stats, credits, steps, start, icon,

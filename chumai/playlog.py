@@ -109,9 +109,8 @@ LAMP_ORDER = ["AP+", "AJC", "AP", "AJ", "FC+", "FC"]  # best first
 
 def day_timeline(plays: list[PlayRecord], marks: dict[str, Badge]):
     """A day's plays for /today's timeline: ([(credit's time, [(best play, new record?, times in a
-    row)])],
-    [(credit, where in it 0..1, rating gained)]). Plays of one chart in a row within a credit are
-    one slot, its best play with the best lamp of them."""
+    row, rating gained)])], [(credit, where in it 0..1, rating gained, slot)]). Plays of one chart
+    in a row within a credit are one slot, its best play with the best lamp of them."""
     from .net_parsers import group_credits
 
     credits, steps = [], []
@@ -124,15 +123,17 @@ def day_timeline(plays: list[PlayRecord], marks: dict[str, Badge]):
                 slots.append([r])
             gain = getattr(marks.get(r.key), "gain", None)
             if gain:
-                steps.append((ci, (ti + 0.5) / len(credit), float(gain)))
+                steps.append((ci, (ti + 0.5) / len(credit), float(gain), len(slots) - 1))
         out = []
-        for group in slots:
+        for si, group in enumerate(slots):
             top = max(group, key=lambda r: (r.score, r.key))
             lamps = [r.lamp for r in group if r.lamp in LAMP_ORDER]
             if lamps:
                 top = replace(top, lamp=min(lamps, key=LAMP_ORDER.index))
-            out.append((top, any(r.new_record for r in group), len(group)))
+            gained = sum(g for c, _, g, slot in steps if c == ci and slot == si)
+            out.append((top, any(r.new_record for r in group), len(group), gained))
         credits.append((credit[0].date[-5:], out))
     return credits, steps
+
 
 __all__ = ["to_entry", "level_to_min_const", "Badge", "badges", "day_timeline"]

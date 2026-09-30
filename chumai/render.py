@@ -1304,6 +1304,7 @@ class DaySlot:
     entry: Entry
     new: bool  # any of them a new record
     count: int = 1
+    gain: float = 0.0  # how much they raised the player rating
 
 
 @dataclass
@@ -1314,26 +1315,28 @@ class DayCredit:
 
 DAY_MIN_COL, DAY_MAX_COL = 132, 210  # a credit's column
 DAY_MAX_W = 2600
-DAY_GRAPH_H = 230
+DAY_GRAPH_H = 290
+DAY_TAG = 42  # the jacket on a step of the rating graph
 
 
-def _day_rating_graph(canvas: Image.Image, box: tuple[int, int, int, int], steps: list[tuple[float, float]],
+def _day_rating_graph(canvas: Image.Image, box: tuple[int, int, int, int], steps: list[tuple[float, float, str | None]],
                       start: float, game: str, theme: dict, st: dict) -> None:
     """The rating over the day as a glowing line in `box`: flat, then a step up at each x in
-    `steps` (x, gain), each labelled; the value at both ends. Only the box's area is drawn on
-    layers, so it stays light on memory."""
+    `steps` (x, gain, jacket), each tagged with the song's jacket and the gain (tags that would
+    overlap stack higher, joined to their step by a thin line); the value at both ends. Only the
+    box's area is drawn on layers, so it stays light on memory."""
     x0, y0, x1, y1 = box
     w, h = x1 - x0, y1 - y0
     acc = theme["accent"]
-    end = start + sum(g for _, g in steps)
+    end = start + sum(g for _, g, _ in steps)
     span = max(end - start, 0.02 if game == "chunithm" else 20)
-    lo, hi = start - span * 0.12, start + span * 1.25  # room above for the labels
+    lo, hi = start - span * 0.12, start + span * 1.5  # room above for the tags
 
     def y_of(v: float) -> float:
         return h - (v - lo) / (hi - lo) * h
 
     pts, cur = [(0.0, y_of(start))], start
-    for x, g in steps:
+    for x, g, _ in steps:
         pts.append((x - x0, y_of(cur)))
         cur += g
         pts.append((x - x0, y_of(cur)))
@@ -1361,25 +1364,46 @@ def _day_rating_graph(canvas: Image.Image, box: tuple[int, int, int, int], steps
     d.text((w - 2, y_of(end) + 30), fmt(end), font=num(24), fill=st["text"], anchor="rs")  # under the line
     if steps:
         d.text((4, y_of(start) - 10), fmt(start), font=num(22, "SemiBold"), fill=st["muted"], anchor="ls")
-    last = -1e9
+
+    placed: list[tuple[float, float, float, float]] = []  # tags drawn so far
     cur = start
-    for x, g in steps:
+    for x, g, jacket in steps:
         cur += g
         px, py = x - x0, y_of(cur)
+        text = f"+{g:.3f}" if game == "chunithm" else f"+{g:.0f}"
+        tw = max(DAY_TAG, int(d.textlength(text, font=num(19))) + 4)
+        tag_h = DAY_TAG + 22
+        def free(top: float) -> bool:
+            return not any(px - tw / 2 < r and px + tw / 2 > lft and top < b and top + tag_h > t
+                           for lft, t, r, b in placed)
+
+        # above the step, higher if another tag is in the way; else under the line
+        spots = [*range(int(py) - 16 - tag_h, -1, -18), *range(int(py) + 16, h - tag_h + 1, 18)]
+        top = next((t for t in spots if free(t)), None)
+        if top is not None:
+            placed.append((px - tw / 2, top, px + tw / 2, top + tag_h))
+            below = top > py
+            d.line((px, top if below else top + tag_h, px, py + 8 if below else py - 8), fill=(*acc, 200), width=2)
+            d.text((px, top + 16), text, font=num(19), fill=acc, anchor="ms")
+            art = _load_jacket(jacket) if jacket else None
+            if art is not None:
+                art = art.resize((DAY_TAG, DAY_TAG), Image.LANCZOS)
+                framed = Image.new("RGBA", (DAY_TAG + 4, DAY_TAG + 4), (*acc, 255))
+                framed.paste(art, (2, 2))
+                region.paste(framed, (int(px - DAY_TAG / 2 - 2), int(top + 20)),
+                             _rounded_mask(framed.size, 8))
+                d = ImageDraw.Draw(region)
         d.ellipse((px - 7, py - 7, px + 7, py + 7), fill=(255, 244, 200), outline=acc, width=3)
-        if px - last >= 64:  # skip a label that would sit on the one before
-            text = f"+{g:.3f}" if game == "chunithm" else f"+{g:.0f}"
-            d.text((px, py - 14), text, font=num(19), fill=acc, anchor="ms")
-            last = px
     canvas.paste(region.convert("RGB"), (x0, y0))
 
 
 def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], credits: list[DayCredit],
-               steps: list[tuple[int, float, float]], rating_start: float | None, icon: bytes | None = None,
+               steps: list[tuple[int, float, float, int]], rating_start: float | None, icon: bytes | None = None,
                rating: str | None = None, rating_before: str | None = None) -> bytes:
     """A day of play (/today) as a timeline: the play log's top, the day's numbers, the rating over
     the day (a step up at each new record that raised it), then a column per credit with its
-    charts, new records lit up. `steps`: (credit, where in its column 0..1, rating gained);
+    charts, new records lit up and the ones that raised the rating marked with how much. `steps`:
+    (credit, where in its column 0..1, rating gained, its slot);
     `rating_start`: the rating before the day's first play (None: no graph)."""
     from types import SimpleNamespace
 
@@ -1410,7 +1434,8 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
         draw.text((x, stats_y + 42), label, font=cjk(19), fill=st["muted"], anchor="ls")
         x += draw.textlength(label, font=cjk(19)) + 36
     if graph:
-        points = [(MARGIN + col * (c + frac), gain) for c, frac, gain in steps]
+        points = [(MARGIN + col * (c + frac), gain, credits[c].slots[slot].entry.jacket_path)
+                  for c, frac, gain, slot in steps]
         _day_rating_graph(canvas, (MARGIN, graph_y, width - MARGIN, graph_y + DAY_GRAPH_H), points, rating_start,
                           game, theme, st)
 
@@ -1447,6 +1472,10 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
                 draw.text((jx - 4 + tw / 2, y + 3), "NEW", font=num(18), fill=(40, 20, 30), anchor="mm")
             if slot.count > 1:
                 _draw_count_pill(canvas, jx + jacket + 10, y - 14, slot.count)
+                draw = ImageDraw.Draw(canvas)
+            if slot.gain:  # raised the rating: how much, on the jacket's bottom
+                text = f"+{slot.gain:.3f}" if game == "chunithm" else f"+{slot.gain:.0f}"
+                _up_pill(canvas, jx + jacket - 6, y + jacket - 32, text, 18)
                 draw = ImageDraw.Draw(canvas)
             draw.text((cx + col / 2, y + jacket + 26), e.score_text, font=num(24),
                       fill=st["text"] if slot.new else st["muted"], anchor="ms")

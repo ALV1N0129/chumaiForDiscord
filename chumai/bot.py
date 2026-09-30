@@ -878,6 +878,8 @@ async def render_credits(bot: ChumaiBot, discord_id: int, game: str, select,
             log.warning("could not load best scores", exc_info=True)
             now = None
         marks = play_badges(chosen, cache, cache_key, now or {}, bot.songdb, bot.config.new_versions[game], game)
+        if save_bests:  # for /today: the best scores move on, so how these compared is kept
+            bot.links.save_marks(discord_id, game, marks)
         if now is not None and (save_bests or cache_key is None):
             bot.links.save_bests(discord_id, game, now, latest)
         rating_before = bot.links.get_rating(discord_id, game)
@@ -952,12 +954,17 @@ async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> bytes | No
             log.warning("could not load best scores", exc_info=True)
             now = {}
         marks = play_badges(plays, cache, cache_key, now, bot.songdb, bot.config.new_versions[game], game)
+        # plays already posted: as they compared then (the saved best scores have moved on since)
+        marks.update({k: b for k, b in bot.links.get_marks(discord_id, game).items()
+                      if cache_key is not None and k <= cache_key})
 
         timeline, steps = day_timeline(plays, marks)
-        lamp_label = "AJ·FC" if game == "chunithm" else "AP·FC"
+        top, full = (("AJ", {"AJ", "AJC"}), ("FC", {"FC"})) if game == "chunithm" else \
+            (("AP", {"AP", "AP+"}), ("FC", {"FC", "FC+"}))
         stats = [("크레딧", str(len(timeline))), ("플레이", str(len(plays))),
                  ("신기록", str(len({(r.title, r.difficulty) for r in plays if r.new_record}))),
-                 (lamp_label, str(len({(r.title, r.difficulty) for r in plays if r.lamp})))]
+                 (top[0], str(len({(r.title, r.difficulty) for r in plays if r.lamp in top[1]}))),
+                 (full[0], str(len({(r.title, r.difficulty) for r in plays if r.lamp in full[1]})))]
         # the graph ends at the rating now; without it, starts at the one logged before the day
         gained = sum(g for _, _, g, _ in steps)
         try:

@@ -1422,7 +1422,7 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
     depth = max((len(c.slots) for c in credits), default=0)
     stats_y = CREDIT_HEADER_H + 4
     graph_y = stats_y + 70
-    graph = rating_start is not None
+    graph = rating_start is not None and bool(steps)  # no rise: no graph
     raised = []  # the slots that raised the rating
     for c, _, _, slot in steps:
         if all(r is not credits[c].slots[slot] for r in raised):  # once per slot, however many steps
@@ -1433,7 +1433,7 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
     per_row = max(1, (width - MARGIN - chips_x + DAY_CHIP_GAP) // (DAY_CHIP_W + DAY_CHIP_GAP))
     hero_h = (-(-len(raised) // per_row) * (DAY_CHIP_H + DAY_CHIP_GAP)) if raised else 0
     hero_y = graph_y + DAY_GRAPH_H + 20
-    lane_y = graph_y + (DAY_GRAPH_H + 40 + hero_h if graph else 0)
+    lane_y = graph_y + (DAY_GRAPH_H + 40 + hero_h if graph else 10)
     height = lane_y + 76 + depth * slot_h + 20
 
     stub = SimpleNamespace(game=game, old=[c.slots[0].entry for c in credits if c.slots], new=[], icon=icon)
@@ -1507,7 +1507,9 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
             # rank and lamp, how much it beat the best from before (or that it's the first play), and
             # in green how much it raised the rating
             f = num(16, "SemiBold")
-            parts = [(e.rank + (f" · {e.lamp}" if e.lamp else ""), RANK_COLORS.get(e.rank, st["muted"]), False)]
+            parts = [(e.rank, RANK_COLORS.get(e.rank, st["muted"]), False)]
+            if e.lamp:  # in its color, as on the B50 (FC green, AJ gold)
+                parts.append((e.lamp, LAMP_COLORS.get(e.lamp, st["muted"]), False))
             if slot.new and slot.delta and not slot.first:
                 parts.append((f"+{slot.delta:.4f}%" if game == "maimai" else f"+{int(slot.delta):,}", (255, 170, 150),
                               False))

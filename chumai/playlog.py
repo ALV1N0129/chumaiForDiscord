@@ -114,7 +114,7 @@ LAMP_ORDER = ["AP+", "AJC", "AP", "AJ", "FC+", "FC"]  # best first
 
 @dataclass
 class DaySlotData:
-    """Plays of one chart in a row within a credit (/today)."""
+    """A play in /today's timeline (a slot could hold several: kept general)."""
 
     play: PlayRecord  # the best of them, with the best lamp of them
     new: bool  # any a new record
@@ -126,17 +126,14 @@ class DaySlotData:
 
 def day_timeline(plays: list[PlayRecord], marks: dict[str, Badge]):
     """A day's plays for /today's timeline: ([(credit's time, [DaySlotData])], [(credit, where in it
-    0..1, rating gained, slot)]). Plays of one chart in a row within a credit are one slot."""
+    0..1, rating gained, slot)]). One slot per play."""
     from .net_parsers import group_credits
 
     credits, steps = [], []
     for ci, credit in enumerate(group_credits(sorted(plays, key=lambda r: r.key))):
         slots: list[list[PlayRecord]] = []
         for ti, r in enumerate(credit):
-            if slots and (slots[-1][-1].title, slots[-1][-1].difficulty) == (r.title, r.difficulty):
-                slots[-1].append(r)
-            else:
-                slots.append([r])
+            slots.append([r])  # every play its own slot, the same chart again too
             gain = getattr(marks.get(r.key), "gain", None)
             if gain:
                 steps.append((ci, (ti + 0.5) / len(credit), float(gain), len(slots) - 1))

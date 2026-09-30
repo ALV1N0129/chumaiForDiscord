@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
 import sqlite3
 import time
@@ -56,6 +57,17 @@ class LinkStore:
                 rating TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS rating_log_by_player ON rating_log (discord_id, game, at);
+            CREATE TABLE IF NOT EXISTS play_marks (
+                discord_id INTEGER NOT NULL,
+                game TEXT NOT NULL,
+                play_key TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                delta REAL,
+                best REAL,
+                gain REAL,
+                first INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (discord_id, game, play_key)
+            );
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -122,6 +134,7 @@ class LinkStore:
         self._db.execute("DELETE FROM best_scores_at WHERE discord_id = ?", (discord_id,))
         self._db.execute("DELETE FROM player_ratings WHERE discord_id = ?", (discord_id,))
         self._db.execute("DELETE FROM rating_log WHERE discord_id = ?", (discord_id,))
+        self._db.execute("DELETE FROM play_marks WHERE discord_id = ?", (discord_id,))
         self._db.execute("DELETE FROM playlog_subs WHERE discord_id = ? AND auto = 1 AND last_key != ?",
                          (discord_id, PLAYLOG_OFF))
         self._db.commit()
@@ -221,6 +234,30 @@ class LinkStore:
             (discord_id, game, play_key),
         )
         self._db.commit()
+
+    def save_marks(self, discord_id: int, game: str, marks: dict) -> None:
+        """Each play's badge as worked out when its play log was posted (against the best scores of
+        then), for /today to show later; kept a few days."""
+        self._db.executemany(
+            "INSERT INTO play_marks (discord_id, game, play_key, kind, delta, best, gain, first) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(discord_id, game, play_key) DO UPDATE SET "
+            "kind = excluded.kind, delta = excluded.delta, best = excluded.best, gain = excluded.gain, "
+            "first = excluded.first",
+            [(discord_id, game, key, b.kind, b.delta, b.best, float(b.gain) if b.gain else None, int(b.first))
+             for key, b in marks.items()],
+        )
+        cutoff = (datetime.date.today() - datetime.timedelta(days=3)).strftime("%Y/%m/%d")
+        self._db.execute("DELETE FROM play_marks WHERE play_key < ?", (cutoff,))
+        self._db.commit()
+
+    def get_marks(self, discord_id: int, game: str) -> dict:
+        from .playlog import Badge
+
+        rows = self._db.execute(
+            "SELECT play_key, kind, delta, best, gain, first FROM play_marks WHERE discord_id = ? AND game = ?",
+            (discord_id, game))
+        return {key: Badge(kind, delta=delta, best=best, gain=gain, first=bool(first))
+                for key, kind, delta, best, gain, first in rows}
 
     def get_rating(self, discord_id: int, game: str) -> str | None:
         """Player rating seen last time the play log was checked."""

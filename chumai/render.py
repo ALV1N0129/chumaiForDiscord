@@ -1075,7 +1075,9 @@ def _paint(strips, size: tuple[int, int], background, scale: float) -> bytes:
 
 def _play_badge_style(game: str, badge):
     """(text, gradient colors or None, text color) for a play badge."""
-    if badge.kind == "new":
+    if badge.kind == "new" and getattr(badge, "first", False):
+        text, colors, fg = "FIRST", [(80, 220, 200), (120, 170, 255)], (14, 30, 40)
+    elif badge.kind == "new":
         if badge.delta is None:
             text = "NEW"
         elif game == "maimai":
@@ -1305,6 +1307,8 @@ class DaySlot:
     new: bool  # any of them a new record
     count: int = 1
     gain: float = 0.0  # how much they raised the player rating
+    delta: float | None = None  # how much they beat the best from before
+    first: bool = False  # never played before
 
 
 @dataclass
@@ -1316,6 +1320,20 @@ class DayCredit:
 DAY_MIN_COL, DAY_MAX_COL = 132, 210  # a credit's column
 DAY_MAX_W = 2600
 DAY_GRAPH_H = 250
+
+
+DAY_LEGEND_W, DAY_LEGEND_H = 330, 34  # a song in the list under /today's graph
+
+
+def _rise_width(draw: ImageDraw.ImageDraw, text: str, size: int) -> float:
+    return size * 0.6 + 4 + draw.textlength(text, font=num(size))
+
+
+def _draw_rise(draw: ImageDraw.ImageDraw, x: float, base: float, text: str, size: int) -> None:
+    """A green ▲ and `text` from `x` on the baseline `base` (the ▲ drawn: the font has none)."""
+    tri = size * 0.6
+    draw.polygon([(x, base - 2), (x + tri, base - 2), (x + tri / 2, base - 2 - tri * 0.9)], fill=RISE)
+    draw.text((x + tri + 4, base), text, font=num(size), fill=RISE, anchor="ls")
 
 
 def _number_marker(draw: ImageDraw.ImageDraw, cx: float, cy: float, number: int, color, r: int) -> None:
@@ -1408,7 +1426,7 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
     width = max(2 * MARGIN + col * n, 1200)
     col = (width - 2 * MARGIN) / n  # a narrow day: the columns fill the width
     jacket = int(min(col, DAY_MAX_COL) - 26)
-    slot_h = jacket + 62  # room for a stack of copies behind the next one
+    slot_h = jacket + 94  # score, rank and improvement, the rating gain; room for a stack behind the next one
     depth = max((len(c.slots) for c in credits), default=0)
     stats_y = CREDIT_HEADER_H + 4
     graph_y = stats_y + 70
@@ -1416,7 +1434,11 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
     numbers: dict[tuple[int, int], int] = {}  # (credit, slot) -> its number on the graph
     for c, _, _, slot in steps:
         numbers.setdefault((c, slot), len(numbers) + 1)
-    lane_y = graph_y + (DAY_GRAPH_H + 40 if graph else 0)
+    # under the graph, the songs that raised the rating: "① title +0.008", as many to a line as fit
+    legend = [(n, credits[c].slots[slot]) for (c, slot), n in numbers.items()] if graph else []
+    per_line = max(1, (width - 2 * MARGIN) // DAY_LEGEND_W)
+    legend_h = -(-len(legend) // per_line) * DAY_LEGEND_H + (14 if legend else 0)
+    lane_y = graph_y + (DAY_GRAPH_H + 30 + legend_h if graph else 0)
     height = lane_y + 76 + depth * slot_h + 20
 
     stub = SimpleNamespace(game=game, old=[c.slots[0].entry for c in credits if c.slots], new=[], icon=icon)
@@ -1433,6 +1455,17 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
         points = [(MARGIN + col * (c + frac), gain, numbers[(c, slot)]) for c, frac, gain, slot in steps]
         _day_rating_graph(canvas, (MARGIN, graph_y, width - MARGIN, graph_y + DAY_GRAPH_H), points, rating_start,
                           game, theme, st)
+        ly = graph_y + DAY_GRAPH_H + 14
+        for i, (number, slot) in enumerate(legend):
+            line, place = divmod(i, per_line)
+            lx, lyy = MARGIN + place * DAY_LEGEND_W, ly + line * DAY_LEGEND_H
+            draw = ImageDraw.Draw(canvas)
+            _number_marker(draw, lx + 14, lyy + 17, number, acc, 14)
+            gain = f"+{slot.gain:.3f}" if game == "chunithm" else f"+{slot.gain:.0f}"
+            gw = _rise_width(draw, gain, 20)
+            draw.text((lx + 36, lyy + 26), _fit(draw, slot.entry.title, cjk(19), DAY_LEGEND_W - 60 - gw),
+                      font=cjk(19), fill=st["text"], anchor="ls")
+            _draw_rise(draw, lx + DAY_LEGEND_W - 22 - gw, lyy + 26, gain, 20)
 
     for ci, credit in enumerate(credits):
         cx = MARGIN + col * ci
@@ -1462,29 +1495,44 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
             if number:  # raised the rating: its number on the graph
                 _number_marker(draw, jx + 6, y + 6, number, acc, 16)
             elif slot.new:
-                tw = int(draw.textlength("NEW", font=num(18))) + 14
-                pill = _gradient_fill((tw, 22), [(255, 120, 150), (255, 200, 90)])
+                label, colors = (("FIRST", [(80, 220, 200), (120, 170, 255)]) if slot.first
+                                 else ("NEW", [(255, 120, 150), (255, 200, 90)]))
+                tw = int(draw.textlength(label, font=num(18))) + 14
+                pill = _gradient_fill((tw, 22), colors)
                 pill.putalpha(_rounded_mask((tw, 22), 8))
                 _over(canvas, pill, (jx - 4, y - 8))
                 draw = ImageDraw.Draw(canvas)
-                draw.text((jx - 4 + tw / 2, y + 3), "NEW", font=num(18), fill=(40, 20, 30), anchor="mm")
+                draw.text((jx - 4 + tw / 2, y + 3), label, font=num(18), fill=(40, 20, 30), anchor="mm")
             if slot.count > 1:
                 _draw_count_pill(canvas, jx + jacket + 10, y - 14, slot.count)
                 draw = ImageDraw.Draw(canvas)
             draw.text((cx + col / 2, y + jacket + 26), e.score_text, font=num(24),
                       fill=st["text"] if slot.new else st["muted"], anchor="ms")
-            # rank and lamp, and in green how much it raised the rating
-            f = num(16, "SemiBold")
+            # rank and lamp, then how much it beat the best from before (or that it's the first play)
+            f = num(17, "SemiBold")
             rank = e.rank + (f" · {e.lamp}" if e.lamp else "")
-            gain = (f"+{slot.gain:.3f}" if game == "chunithm" else f"+{slot.gain:.0f}") if slot.gain else ""
-            tri = 10 if gain else 0  # a drawn ▲ (the font has none)
-            width_ = draw.textlength(rank, font=f) + (draw.textlength(gain, font=f) + tri + 12 if gain else 0)
-            tx, base = cx + col / 2 - width_ / 2, y + jacket + 43
+            if slot.first and number:  # the corner shows its number instead of FIRST
+                extra, extra_color = "FIRST", (110, 215, 220)
+            elif slot.first:
+                extra, extra_color = "", None
+            elif slot.new and slot.delta:
+                extra = f"+{slot.delta:.4f}%" if game == "maimai" else f"+{int(slot.delta):,}"
+                extra_color = (255, 170, 150)
+            else:
+                extra, extra_color = "", None
+            width_ = draw.textlength(rank, font=f) + (draw.textlength(extra, font=f) + 10 if extra else 0)
+            tx, base = cx + col / 2 - width_ / 2, y + jacket + 46
             draw.text((tx, base), rank, font=f, fill=RANK_COLORS.get(e.rank, st["muted"]), anchor="ls")
-            if gain:
-                tx += draw.textlength(rank, font=f) + 8
-                draw.polygon([(tx, base - 2), (tx + tri, base - 2), (tx + tri / 2, base - 11)], fill=RISE)
-                draw.text((tx + tri + 3, base), gain, font=f, fill=RISE, anchor="ls")
+            if extra:
+                draw.text((tx + draw.textlength(rank, font=f) + 10, base), extra, font=f, fill=extra_color,
+                          anchor="ls")
+            if slot.gain:  # the rating it raised, on its own line
+                gain = f"+{slot.gain:.3f}" if game == "chunithm" else f"+{slot.gain:.0f}"
+                gw = int(_rise_width(draw, gain, 19)) + 20
+                bx, by = int(cx + col / 2 - gw / 2), y + jacket + 54
+                _panel(canvas, (bx, by, bx + gw, by + 26), (20, 70, 45), alpha=220, radius=13, outline=False)
+                draw = ImageDraw.Draw(canvas)
+                _draw_rise(draw, bx + 10, by + 20, gain, 19)
             y += slot_h
     if not credits:
         draw.text((width / 2, lane_y + 60), "플레이 기록이 없어요", font=cjk(22), fill=st["muted"],

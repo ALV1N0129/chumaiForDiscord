@@ -42,6 +42,7 @@ class Badge:
     delta: float | None = None
     best: float | None = None
     gain: Fraction | None = None  # how much this play raised the player rating (unrounded), if it did
+    first: bool = False  # a new record on a chart never played before (the saved bests say so)
 
 
 def _same(a: float, b: float) -> bool:
@@ -80,6 +81,9 @@ def badges(plays: list[PlayRecord], cache: dict[tuple[str, str], float], cache_k
     """
     running = dict(cache)
     rate = songdb is not None and new_versions is not None and game is not None and bool(cache)
+    # difficulties the saved bests cover (WORLD'S END / 宴 only since they're saved too): a chart
+    # missing there was never played
+    covered = {d for _, d in cache}
     total = b50_sum(game, songdb, new_versions, running) if rate else None
     out: dict[str, Badge] = {}
     for r in sorted(plays, key=lambda r: r.key):
@@ -87,7 +91,8 @@ def badges(plays: list[PlayRecord], cache: dict[tuple[str, str], float], cache_k
         known = cache_key is not None and r.key > cache_key
         prev = running.get(k) if known else None
         if r.new_record:
-            badge = Badge("new", delta=r.score - prev if prev is not None else None)
+            badge = Badge("new", delta=r.score - prev if prev is not None else None,
+                          first=known and prev is None and (r.difficulty in covered or r.difficulty not in UNRATED))
             if known:
                 running[k] = r.score
                 if rate:
@@ -107,10 +112,21 @@ def badges(plays: list[PlayRecord], cache: dict[tuple[str, str], float], cache_k
 LAMP_ORDER = ["AP+", "AJC", "AP", "AJ", "FC+", "FC"]  # best first
 
 
+@dataclass
+class DaySlotData:
+    """Plays of one chart in a row within a credit (/today)."""
+
+    play: PlayRecord  # the best of them, with the best lamp of them
+    new: bool  # any a new record
+    count: int
+    gain: float  # how much they raised the player rating
+    delta: float | None  # how much they beat the best from before, if known
+    first: bool  # never played before
+
+
 def day_timeline(plays: list[PlayRecord], marks: dict[str, Badge]):
-    """A day's plays for /today's timeline: ([(credit's time, [(best play, new record?, times in a
-    row, rating gained)])], [(credit, where in it 0..1, rating gained, slot)]). Plays of one chart
-    in a row within a credit are one slot, its best play with the best lamp of them."""
+    """A day's plays for /today's timeline: ([(credit's time, [DaySlotData])], [(credit, where in it
+    0..1, rating gained, slot)]). Plays of one chart in a row within a credit are one slot."""
     from .net_parsers import group_credits
 
     credits, steps = [], []
@@ -131,9 +147,13 @@ def day_timeline(plays: list[PlayRecord], marks: dict[str, Badge]):
             if lamps:
                 top = replace(top, lamp=min(lamps, key=LAMP_ORDER.index))
             gained = sum(g for c, _, g, slot in steps if c == ci and slot == si)
-            out.append((top, any(r.new_record for r in group), len(group), gained))
+            fresh = [marks[r.key] for r in group if r.new_record and r.key in marks]
+            first = any(b.first for b in fresh)
+            deltas = [b.delta for b in fresh]
+            delta = sum(deltas) if deltas and None not in deltas and not first else None
+            out.append(DaySlotData(top, any(r.new_record for r in group), len(group), gained, delta, first))
         credits.append((credit[0].date[-5:], out))
     return credits, steps
 
 
-__all__ = ["to_entry", "level_to_min_const", "Badge", "badges", "day_timeline"]
+__all__ = ["to_entry", "level_to_min_const", "Badge", "badges", "day_timeline", "DaySlotData"]

@@ -964,15 +964,15 @@ async def render_today(bot: ChumaiBot, discord_id: int, game: str) -> bytes | No
             start = float(player.rating) - gained if player.rating else float(before)
         except (TypeError, ValueError):
             start = None
-        urls = list({r.jacket_url for _, credit in timeline for r, *_ in credit if r.jacket_url})
+        urls = list({slot.play.jacket_url for _, credit in timeline for slot in credit if slot.play.jacket_url})
         jackets = dict(zip(urls, await asyncio.gather(*(_cached_image(bot, net, game, u) for u in urls))))
         credits = []
         for time, credit in timeline:
             slots = []
-            for r, new, count, gain in credit:
-                e = to_entry(game, r, bot.songdb, bot.jackets.unrated_level)
-                e.jacket_path = jackets.get(r.jacket_url)
-                slots.append(render.DaySlot(e, new, count, gain))
+            for slot in credit:
+                e = to_entry(game, slot.play, bot.songdb, bot.jackets.unrated_level)
+                e.jacket_path = jackets.get(slot.play.jacket_url)
+                slots.append(render.DaySlot(e, slot.new, slot.count, slot.gain, slot.delta, slot.first))
             credits.append(render.DayCredit(time, slots))
         png = await asyncio.to_thread(
             render.render_day, game, player.name, day.strftime("%Y/%m/%d"), stats, credits, steps, start, icon,

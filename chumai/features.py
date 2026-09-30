@@ -260,6 +260,22 @@ def register(bot: ChumaiBot) -> None:
             return
         await interaction.followup.send(file=discord.File(io.BytesIO(images[-1]), filename=render.filename(f"recent_{game}")))
 
+    @tree.command(name="today", description="오늘 플레이한 것 정리: 크레딧·곡·신기록 수, 레이팅 변화, 신기록 곡")
+    @app_commands.describe(game="게임")
+    async def today(interaction: discord.Interaction, game: GameChoice) -> None:
+        from .bot import render_today
+
+        await interaction.response.defer(thinking=True)
+        try:
+            png = await render_today(bot, interaction.user.id, game)
+        except SegaError as e:
+            await interaction.followup.send(str(e))
+            return
+        if png is None:
+            await interaction.followup.send("최근 플레이 기록이 없어요.")
+            return
+        await interaction.followup.send(file=discord.File(io.BytesIO(png), filename=render.filename(f"today_{game}")))
+
     # ------------------------------------------------------------------ song info
 
     @tree.command(name="info", description="곡 정보를 검색합니다 (난이도별 상수, 버전, 자켓)")
@@ -642,7 +658,7 @@ def register(bot: ChumaiBot) -> None:
 
         groups = {
             "계정": [("login", "SEGA ID 로그인"), ("logout", "로그인 정보 삭제"), ("privacy", "다른 사람에게 공개 여부")],
-            "기록": [("b50", "베스트 50 레이팅표"), ("profile", "프로필 카드"), ("recent", "최근 크레딧"),
+            "기록": [("b50", "베스트 50 레이팅표"), ("profile", "프로필 카드"), ("recent", "최근 크레딧"), ("today", "오늘 플레이 정리"),
                    ("playlog", "on|off|test — 플레이 기록 자동 업로드")],
             "곡": [("info", "곡 정보"), ("jacket", "자켓"), ("const", "상수별 보면 목록"), ("random", "랜덤 선곡"),
                   ("chart", "채보 보기 (CHUNITHM)")],

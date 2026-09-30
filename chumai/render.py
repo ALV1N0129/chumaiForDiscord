@@ -1238,8 +1238,20 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
     width = max(width, round(height * width / three))
     stub = SimpleNamespace(game=game, old=entries, new=[], icon=icon)
     canvas = _rgb(_background(stub, (width, height), theme, st))
+    _draw_play_header(canvas, game, player, icon, f"PLAY LOG  ·  {date}", rating, rating_before, width, theme, st)
+    if len(entries) >= 4:  # the extra track bought with C to C, under the rating
+        ImageDraw.Draw(canvas).text((width - MARGIN, 104), "C to C", font=num(17, "SemiBold"), fill=theme["accent"],
+                                    anchor="ra")
 
-    # player: icon, "PLAY LOG · date" and name
+    for i, e in enumerate(entries):
+        _draw_play_row(canvas, MARGIN, header + i * (PLAY_ROW_H + GAP_Y), width - 2 * MARGIN, i + 1, e,
+                       badges[i] if i < len(badges) else None, game, theme, st)
+    return encode(canvas)
+
+
+def _draw_play_header(canvas: Image.Image, game: str, player: str, icon: bytes | None, kicker: str,
+                      rating: str | None, rating_before: str | None, width: int, theme: dict, st: dict) -> None:
+    """The play log's top: icon, kicker and name at the left, the logo, and the rating at the right."""
     x = MARGIN
     ic = _open_image(icon)
     if ic is not None:
@@ -1253,7 +1265,7 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
     logo_x = (width - logo.width) // 2
     _over(canvas, logo, (logo_x, 10 + (CREDIT_LOGO[1] - logo.height) // 2))
     draw = ImageDraw.Draw(canvas)
-    draw.text((x, 30), f"PLAY LOG  ·  {date}", font=num(18, "SemiBold"), fill=theme["accent"])
+    draw.text((x, 30), kicker, font=num(18, "SemiBold"), fill=theme["accent"])
     name = unicodedata.normalize("NFKC", player)
     draw.text((x, 52), _fit(draw, name, cjk(38), logo_x - x - 16), font=cjk(38), fill=WHITE)
 
@@ -1270,13 +1282,50 @@ def render_credit(game: str, player: str, entries: list[Entry], badges: list, da
                   fill=st["muted"], anchor="ra")
         if change:
             _up_pill(canvas, right - number.width - 2, 68, change, 18)
-    if len(entries) >= 4:  # the extra track bought with C to C, under the rating
-        ImageDraw.Draw(canvas).text((width - MARGIN, 104), "C to C", font=num(17, "SemiBold"), fill=theme["accent"],
-                                    anchor="ra")
 
-    for i, e in enumerate(entries):
-        _draw_play_row(canvas, MARGIN, header + i * (PLAY_ROW_H + GAP_Y), width - 2 * MARGIN, i + 1, e,
+
+DAY_STATS_H = 92
+
+
+def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], entries: list[Entry],
+               badges: list, more: int = 0, icon: bytes | None = None, rating: str | None = None,
+               rating_before: str | None = None) -> bytes:
+    """A day of play (/today): the play log's top, a line of numbers (credits, tracks, new records,
+    ...), then the day's new records as play rows, the biggest first; `more` of them left out."""
+    from types import SimpleNamespace
+
+    theme = THEMES[game]
+    st = STYLES["version"]
+    row_w = 2 * CARD_W + GAP_X  # a play log row
+    cols = 2 if len(entries) > 3 else 1  # more rows side by side, so the page stays wide, not long
+    per_col = -(-len(entries) // cols)
+    width = MARGIN * 2 + cols * row_w + (cols - 1) * GAP_X
+    top = CREDIT_HEADER_H + DAY_STATS_H
+    rows_h = per_col * (PLAY_ROW_H + GAP_Y) if entries else 70
+    height = top + rows_h + (40 if more else 0) + 26
+    stub = SimpleNamespace(game=game, old=entries, new=[], icon=icon)
+    canvas = _rgb(_background(stub, (width, height), theme, st))
+    _draw_play_header(canvas, game, player, icon, f"TODAY  ·  {date}", rating, rating_before, width, theme, st)
+
+    # the day in numbers: a big figure over a small label, spread across the width
+    draw = ImageDraw.Draw(canvas)
+    y = CREDIT_HEADER_H + 4
+    step = (width - 2 * MARGIN) / max(1, len(stats))
+    for i, (label, value) in enumerate(stats):
+        cx = MARGIN + step * i + step / 2
+        draw.text((cx, y + 44), value, font=num(46), fill=WHITE, anchor="ms")
+        draw.text((cx, y + 72), label, font=cjk(17), fill=st["muted"], anchor="ms")
+    draw.line((MARGIN, top - 8, width - MARGIN, top - 8), fill=(*st["faint"], 90), width=1)
+
+    if not entries:
+        draw.text((width / 2, top + 36), "오늘은 신기록이 없어요", font=cjk(22), fill=st["muted"], anchor="mm")
+    for i, e in enumerate(entries):  # down the first column, then the second
+        col, row = divmod(i, per_col)
+        _draw_play_row(canvas, MARGIN + col * (row_w + GAP_X), top + row * (PLAY_ROW_H + GAP_Y), row_w, i + 1, e,
                        badges[i] if i < len(badges) else None, game, theme, st)
+    if more:
+        ImageDraw.Draw(canvas).text((width / 2, top + rows_h + 14), f"신기록 {more}곡 더", font=cjk(20),
+                                    fill=st["muted"], anchor="mm")
     return encode(canvas)
 
 
@@ -1834,6 +1883,7 @@ def _one_at_a_time(fn):
 
 render_b50 = _one_at_a_time(render_b50)
 render_credit = _one_at_a_time(render_credit)
+render_day = _one_at_a_time(render_day)
 render_profile = _one_at_a_time(render_profile)
 render_random = _one_at_a_time(render_random)
 render_song = _one_at_a_time(render_song)

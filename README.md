@@ -58,6 +58,7 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/logs live on\|off` | | 입력한 채널에 봇 로그를 실시간으로 올리기 / 끄기 (경고·오류, 시작·업데이트, 크레딧 업로드; 봇 주인만) |
 | `/profile game:` | `!p` | 프로필 카드 (아이콘, 칭호, 레벨, 네임플레이트, 레이팅) |
 | `/recent game:` | `!rc` | 가장 최근 크레딧 |
+| `/today game:` | `!td` | 오늘 플레이 정리: 크레딧·곡·신기록·AJ/FC 수, 레이팅 변화, 신기록 곡(많이 오른 순). 새벽 4시까지는 전날로 칩니다 |
 | `/info game: song:` | `!i` | 곡 정보 이미지 (자켓, 난이도별 레벨·상수, 아티스트, 장르, 버전) |
 | `/jacket game: song:` | `!j` | 자켓 이미지 |
 | `/chart song: [difficulty:]` | `!ch` | CHUNITHM 채보 이미지 (sdvx.in, 기본 MASTER) |

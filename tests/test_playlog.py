@@ -296,3 +296,19 @@ def test_first_check_of_an_automatic_play_log(tmp_path, monkeypatch):
     assert keys == {"chunithm": "2026/09/30 18:00#01"}  # maimai was left out
     row = bot.links._db.execute("SELECT last_key FROM playlog_subs WHERE game = 'maimai'").fetchone()
     assert row[0] == PLAYLOG_SKIP
+
+
+def test_own_settings_wait_while_everyone_is_posted(tmp_path, monkeypatch):
+    import asyncio
+
+    from test_features_commands import _bot, _interaction
+
+    from chumai.bot import PLAYLOG_ALL_SETTING
+
+    bot = _bot(tmp_path, monkeypatch)
+    bot.links.set_sega_token(1, "t1")
+    bot.links.set_setting(PLAYLOG_ALL_SETTING, "77")
+    for sub in ("on", "off"):
+        log = []
+        asyncio.run(bot.tree.get_command("playlog").get_command(sub).callback(_interaction(log), game="maimai"))
+        assert "<#77>" in log[-1][1] and log[-1][2]["ephemeral"]

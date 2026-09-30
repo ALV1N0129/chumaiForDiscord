@@ -119,6 +119,8 @@ class ChumaiBot(discord.Client):
             due, active = self._playlog_schedule.get((discord_id, game), (0.0, 0.0))
             if now < due:
                 continue
+            if everyone:  # all of it goes to that channel, whatever each set
+                channel_id = int(everyone)
             if last_key == PLAYLOG_NEW:
                 await self._start_auto_playlog(discord_id, game, channel_id)
                 continue
@@ -296,9 +298,21 @@ def register_commands(bot: ChumaiBot) -> None:
 
     playlog = app_commands.Group(name="playlog", description="플레이 기록을 이 채널에 자동으로 올립니다")
 
+    async def _everyone_note(interaction: discord.Interaction) -> bool:
+        """While /playlog all is on, each person's own setting doesn't count: says so."""
+        everyone = bot.links.get_setting(PLAYLOG_ALL_SETTING)
+        if not everyone:
+            return False
+        await interaction.response.send_message(
+            f"지금은 봇 주인이 켠 전체 업로드로, 로그인한 사람 모두의 기록이 <#{everyone}> 에 올라가요. "
+            "따로 켜거나 끌 수 없어요.", ephemeral=True)
+        return True
+
     @playlog.command(name="on", description="새로 플레이한 크레딧을 이 채널에 자동으로 올리기 시작합니다")
     @app_commands.describe(game="게임")
     async def playlog_on(interaction: discord.Interaction, game: GameChoice) -> None:
+        if await _everyone_note(interaction):
+            return
         token = bot.links.get_sega_token(interaction.user.id)
         if token is None:
             await interaction.response.send_message("`/login` 으로 먼저 SEGA ID 로그인을 해 주세요.", ephemeral=True)
@@ -325,6 +339,8 @@ def register_commands(bot: ChumaiBot) -> None:
     @playlog.command(name="off", description="플레이 기록 자동 업로드를 끕니다")
     @app_commands.describe(game="게임")
     async def playlog_off(interaction: discord.Interaction, game: GameChoice) -> None:
+        if await _everyone_note(interaction):
+            return
         on = any(d == interaction.user.id and g == game for d, g, _, _ in bot.links.playlogs())
         # kept as turned off, so /playlog all doesn't add it back
         bot.links.set_playlog(interaction.user.id, game, 0, PLAYLOG_OFF, auto=True)
@@ -383,9 +399,9 @@ def register_commands(bot: ChumaiBot) -> None:
         bot.links.add_auto_playlogs(interaction.channel_id, tuple(PLAYLOG_PATHS))
         log.info("play log for everyone on in channel %s", interaction.channel_id)
         await interaction.followup.send(
-            f"로그인한 {len(bot.links.sega_users())}명의 maimai·CHUNITHM 플레이 기록을 이 채널에 올릴게요. "
+            f"로그인한 {len(bot.links.sega_users())}명의 maimai·CHUNITHM 플레이 기록을 모두 이 채널에 올릴게요. "
             "지금부터 친 것만 올라가고, 안 하는 게임은 몇 번 확인해 보고 알아서 빼요. "
-            "각자 `/playlog on` 으로 정한 채널이 있으면 그쪽이 우선이고, `/playlog off` 로 뺄 수도 있어요.",
+            "켜져 있는 동안은 각자 `/playlog on` 으로 정한 채널 대신 이 채널로 올라가고, 따로 끌 수 없어요.",
             ephemeral=True)
 
     tree.add_command(playlog)

@@ -17,9 +17,9 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import answers, charts as charts_module, features, i18n, logbuffer, net_parsers, prefix, render, updater
+from . import answers, features, i18n, logbuffer, net_parsers, prefix, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
-from .charts import ChartViews
+from .charts import PenguinNicknames
 from .config import Config
 from .jackets import JacketStore
 from .fonts import ensure_font
@@ -64,7 +64,7 @@ class ChumaiBot(discord.Client):
         self.links = LinkStore(config.db_path, config.token_key)
         self.songdb = SongDB()
         self.jackets = JacketStore(config.jacket_dir)
-        self.charts = ChartViews(config.chart_dir)
+        self.charts = PenguinNicknames(config.chart_dir)
         self.b50_cache: dict[tuple[int, str], tuple[float, B50]] = {}  # reused by /recommend and /whatif
         register_commands(self)
         features.register(self)
@@ -244,8 +244,8 @@ class ChumaiBot(discord.Client):
         render.release_memory()
 
     def _load_chart_aliases(self) -> None:
-        """chuni-penguin's CHUNITHM nicknames, saved with the chart index (see charts.py)."""
-        path = Path(self.config.chart_dir) / charts_module.ALIASES_NAME
+        """chuni-penguin's CHUNITHM nicknames (see charts.py)."""
+        path = self.charts.path
         try:
             if path.exists():
                 answers.set_community("penguin", "chunithm", json.loads(path.read_text(encoding="utf-8")).items())

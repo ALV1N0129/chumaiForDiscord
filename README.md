@@ -29,9 +29,8 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
   처음 실행할 때 받아서 씁니다(`data/logos`에 저장). 비워두면 글자 로고를 그립니다.
   `chumai/assets/logos/maimai.png`처럼 파일을 직접 넣어도 됩니다.
 - 곡 자켓은 SEGA 공식 곡 목록(`music.json`, `maimai_songs.json`)에서 찾아 내려받고 `JACKET_DIR`에 캐시합니다.
-- `/chart`의 채보 이미지는 팬 사이트 [sdvx.in](https://sdvx.in)에서 필요할 때 받아 `CHART_DIR`에 캐시하고,
-  어떤 곡이 sdvx.in의 어느 페이지인지는 [chuni-penguin](https://github.com/beer-psi/chuni-penguin)의 곡 데이터(0BSD)를 씁니다.
-  sdvx.in은 이미지 무단 전재를 금지하므로 개인 서버에서만 쓰세요. maimai는 이 데이터가 없어 지원하지 않습니다.
+- 자켓 맞히기의 CHUNITHM 커뮤니티 별명 일부는 [chuni-penguin](https://github.com/beer-psi/chuni-penguin)의
+  곡 데이터(0BSD)에서 받아 `CHART_DIR`에 저장합니다.
 - 국제판(SEGA ID) 전용입니다. 일본판은 로그인 방식이 달라 지원하지 않습니다.
 
 > Discord 입력창(Modal)은 비밀번호 가리기(`***`)를 지원하지 않아서 입력하는 동안 본인 화면에는 비밀번호가 보입니다.
@@ -62,7 +61,6 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/today game:` | `!td` | 오늘 플레이 정리: 크레딧·곡·신기록·AJ/FC 수, 레이팅 변화, 신기록 곡(많이 오른 순). 새벽 4시까지는 전날로 칩니다 |
 | `/info game: song:` | `!i` | 곡 정보 이미지 (자켓, 난이도별 레벨·상수, 아티스트, 장르, 버전) |
 | `/jacket game: song:` | `!j` | 자켓 이미지 |
-| `/chart song: [difficulty:]` | `!ch` | CHUNITHM 채보 이미지 (sdvx.in, 기본 MASTER) |
 | `/const game: level:` | `!c` | 레벨(14+)·상수(14.5)·범위(14.0-14.8)에 해당하는 보면 목록 이미지 (상수별로 묶어서, 최대 90개) |
 | `/random game: level: [count:]` | `!r` | 레벨·상수·범위에서 랜덤 선곡 (기본 3곡) |
 | `/reach game: const: target:` | `!rh` | 목표 곡 레이팅에 필요한 점수 + 점수별 레이팅 표 |

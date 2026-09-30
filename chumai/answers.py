@@ -210,7 +210,7 @@ def korean_readings(title: str) -> list[str]:
 # Community nicknames, downloaded when the bot runs and kept in the cache folders, not shipped here:
 # - GCM-bot (https://github.com/lomotos10/GCM-bot): Korean for maimai, English/romaji for both;
 # - chuni-penguin (https://github.com/beer-psi/chuni-penguin, 0BSD): English/romaji for CHUNITHM, from
-#   the song data the chart game already downloads (charts.py).
+#   chuni-penguin's song data (charts.py).
 COMMUNITY_URL = "https://raw.githubusercontent.com/lomotos10/GCM-bot/main/data/aliases/{lang}/{name}.tsv"
 COMMUNITY_FILES = {"chunithm": [("en", "chuni")], "maimai": [("ko", "maimai"), ("en", "maimai")]}
 COMMUNITY_REFRESH = 7 * 24 * 60 * 60

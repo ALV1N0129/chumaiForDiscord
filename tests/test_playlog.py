@@ -371,3 +371,19 @@ def test_chunithm_playlog_ultima():
     html = (FIX / "playlog.html").read_text(encoding="utf-8").replace("musiclevel_master", "musiclevel_ultimate", 1)
     records = net_parsers.parse_chunithm_playlog(html)
     assert "ULTIMA" in {r.difficulty for r in records} and "ULTIMATE" not in {r.difficulty for r in records}
+
+
+def test_first_play_of_a_chart():
+    from chumai.playlog import badges
+
+    def play(t, title, diff, score):
+        return net_parsers.PlayRecord(f"2026/09/30 20:{t:02d}", 1, title, diff, score, None, None, True, None)
+
+    cache = {("A", "MASTER"): 1_005_000.0}  # every chart's best saved at 20:00
+    plays = [play(1, "A", "MASTER", 1_006_000), play(2, "B", "MASTER", 1_001_000),
+             play(3, "C", "WORLD'S END", 990_000)]
+    marks = badges(plays, cache, "2026/09/30 20:00#00", {})
+    a, b, c = (marks[p.key] for p in plays)
+    assert a.delta == 1000 and not a.first
+    assert b.first and b.delta is None  # not in the saved bests: never played
+    assert not c.first  # no WORLD'S END saved at all: can't tell

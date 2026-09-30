@@ -45,7 +45,7 @@ def test_plays_of_a_chart_in_a_row_are_one_slot():
     marks = {plays[1].key: Badge("new", gain=Fraction(3, 1000)), plays[4].key: Badge("new")}
     credits, steps = day_timeline(plays, marks)
     assert [time for time, _ in credits] == ["20:01", "20:09"]
-    assert [(r.title, r.score, r.lamp, new, n, g) for r, new, n, g in credits[0][1]] == [
+    assert [(d.play.title, d.play.score, d.play.lamp, d.new, d.count, d.gain) for d in credits[0][1]] == [
         ("A", 1_006_500, "FC", True, 3, 0.003), ("B", 1_000_000, None, False, 1, 0)]
     assert steps == [(0, 0.375, 0.003, 0)]  # the second track, in the first slot
 

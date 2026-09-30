@@ -1320,7 +1320,8 @@ class DayCredit:
 DAY_MIN_COL, DAY_MAX_COL = 132, 210  # a credit's column
 DAY_MAX_W = 2600
 DAY_GRAPH_H = 250
-DAY_HERO, DAY_HERO_GAP = 150, 36  # a song that raised the rating, in the row under the graph
+DAY_CHIP_W, DAY_CHIP_H, DAY_CHIP_GAP = 150, 56, 10  # a song that raised the rating, under the graph
+DAY_CHIP_LABEL_W = 200
 
 
 def _rise_width(draw: ImageDraw.ImageDraw, text: str, size: int) -> float:
@@ -1435,10 +1436,10 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
     # the songs that raised the rating, big and in one place, the biggest gain first
     raised = sorted(((credits[c].slots[slot], n) for (c, slot), n in numbers.items()),
                     key=lambda item: -item[0].gain) if graph else []
-    hero = min(DAY_HERO, int(col * 0.9)) if len(credits) > 6 else DAY_HERO
-    per_row = max(1, (width - 2 * MARGIN + DAY_HERO_GAP) // (hero + DAY_HERO_GAP))
-    hero_h = (44 + -(-len(raised) // per_row) * (hero + 104)) if raised else 0
-    hero_y = graph_y + DAY_GRAPH_H + 26
+    chips_x = MARGIN + DAY_CHIP_LABEL_W  # after "레이팅 ▲+0.057"
+    per_row = max(1, (width - MARGIN - chips_x + DAY_CHIP_GAP) // (DAY_CHIP_W + DAY_CHIP_GAP))
+    hero_h = (-(-len(raised) // per_row) * (DAY_CHIP_H + DAY_CHIP_GAP)) if raised else 0
+    hero_y = graph_y + DAY_GRAPH_H + 20
     lane_y = graph_y + (DAY_GRAPH_H + 40 + hero_h if graph else 0)
     height = lane_y + 76 + depth * slot_h + 20
 
@@ -1457,34 +1458,23 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
         _day_rating_graph(canvas, (MARGIN, graph_y, width - MARGIN, graph_y + DAY_GRAPH_H), points, rating_start,
                           game, theme, st)
 
-    if raised:
+    if raised:  # small chips: jacket, number and gain, the biggest first
         draw = ImageDraw.Draw(canvas)
         total = sum(slot.gain for slot, _ in raised)
-        head = "오늘 레이팅을 올린 곡"
-        draw.text((MARGIN, hero_y + 24), head, font=cjk(24), fill=st["text"], anchor="ls")
-        _draw_rise(draw, MARGIN + draw.textlength(head, font=cjk(24)) + 16, hero_y + 24,
-                   f"+{total:.3f}" if game == "chunithm" else f"+{total:.0f}", 26)
+        fmt = (lambda v: f"+{v:.3f}") if game == "chunithm" else (lambda v: f"+{v:.0f}")
+        draw.text((MARGIN, hero_y + 38), "레이팅", font=cjk(20), fill=st["muted"], anchor="ls")
+        _draw_rise(draw, MARGIN + draw.textlength("레이팅", font=cjk(20)) + 10, hero_y + 38, fmt(total), 24)
         for i, (slot, number) in enumerate(raised):
             row, place = divmod(i, per_row)
-            hx = MARGIN + place * (hero + DAY_HERO_GAP)
-            hy = hero_y + 44 + row * (hero + 104)
-            e = slot.entry
-            ring = Image.new("RGBA", (hero + 60, hero + 60), (0, 0, 0, 0))
-            ImageDraw.Draw(ring).rounded_rectangle((22, 22, hero + 38, hero + 38), radius=14, fill=(*RISE, 255))
-            _over(canvas, ring.filter(ImageFilter.GaussianBlur(12)), (hx - 30, hy - 30))
-            _framed_jacket(canvas, hx, hy, hero, e.jacket_path, e.difficulty)
+            x0 = chips_x + place * (DAY_CHIP_W + DAY_CHIP_GAP)
+            y0 = hero_y + row * (DAY_CHIP_H + DAY_CHIP_GAP)
+            _panel(canvas, (x0, y0, x0 + DAY_CHIP_W, y0 + DAY_CHIP_H), (14, 18, 32), alpha=190, radius=12,
+                   outline=False)
+            js = DAY_CHIP_H - 10
+            _framed_jacket(canvas, x0 + 5, y0 + 5, js, slot.entry.jacket_path, slot.entry.difficulty)
             draw = ImageDraw.Draw(canvas)
-            _number_marker(draw, hx + 6, hy + 6, number, acc, 16)
-            gain = f"+{slot.gain:.3f}" if game == "chunithm" else f"+{slot.gain:.0f}"
-            gw = _rise_width(draw, gain, 38)
-            _draw_rise(draw, hx + hero / 2 - gw / 2, hy + hero + 44, gain, 38)
-            draw.text((hx + hero / 2, hy + hero + 70), _fit(draw, e.title, cjk(17), hero + DAY_HERO_GAP - 8),
-                      font=cjk(17), fill=st["text"], anchor="ms")
-            detail = "FIRST" if slot.first else (
-                (f"+{slot.delta:.4f}%" if game == "maimai" else f"+{int(slot.delta):,}") if slot.delta else "")
-            detail = f"{e.score_text}   {detail}".strip()
-            draw.text((hx + hero / 2, hy + hero + 94), detail, font=num(18, "SemiBold"), fill=st["muted"],
-                      anchor="ms")
+            _number_marker(draw, x0 + 7, y0 + 7, number, acc, 11)
+            _draw_rise(draw, x0 + js + 14, y0 + DAY_CHIP_H / 2 + 9, fmt(slot.gain), 22)
 
     for ci, credit in enumerate(credits):
         cx = MARGIN + col * ci

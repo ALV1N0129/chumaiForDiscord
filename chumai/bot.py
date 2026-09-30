@@ -15,7 +15,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import answers, charts as charts_module, features, net_parsers, prefix, render, updater
+from . import answers, charts as charts_module, features, logbuffer, net_parsers, prefix, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .charts import ChartViews
 from .config import Config
@@ -97,6 +97,8 @@ class ChumaiBot(discord.Client):
     owner_ids: set[int] | None = None
     # (discord_id, game) -> (next check time, last time new plays were seen)
     _playlog_schedule: dict[tuple[int, str], tuple[float, float]] = {}
+    # (discord_id, game) -> (when it was last checked, how it went), for /logs
+    playlog_status: dict[tuple[int, str], tuple[float, str]] = {}
 
     @tasks.loop(minutes=1)
     async def poll_playlogs(self) -> None:
@@ -107,8 +109,10 @@ class ChumaiBot(discord.Client):
                 continue
             try:
                 found = await check_playlog(self, discord_id, game, channel_id, last_key)
-            except Exception:
+                self.playlog_status[(discord_id, game)] = (time.time(), "새 크레딧 올림" if found else "정상")
+            except Exception as e:
                 log.exception("play log check failed for %s/%s", discord_id, game)
+                self.playlog_status[(discord_id, game)] = (time.time(), f"실패: {str(e) or type(e).__name__}")
                 found = False
             if found:
                 active = now
@@ -288,15 +292,41 @@ def register_commands(bot: ChumaiBot) -> None:
 
     tree.add_command(playlog)
 
-    @tree.command(name="update", description="GitHub에서 최신 코드를 바로 받아서 봇을 재시작합니다 (봇 주인만)")
-    async def update_cmd(interaction: discord.Interaction) -> None:
-        # answer Discord first (it gives up after 3 seconds), then do the slow parts
-        await interaction.response.defer(ephemeral=True, thinking=True)
+    async def owner_only(interaction: discord.Interaction) -> bool:
+        """For owner commands, after deferring: True for the bot's owner, else says so."""
         if bot.owner_ids is None:
             app = await bot.application_info()
             bot.owner_ids = {m.id for m in app.team.members} if app.team else {app.owner.id}
         if interaction.user.id not in bot.owner_ids:
             await interaction.followup.send("봇 주인만 쓸 수 있어요.", ephemeral=True)
+            return False
+        return True
+
+    @tree.command(name="logs", description="플레이 로그 확인 상태와 최근 경고·오류 로그를 봅니다 (봇 주인만)")
+    async def logs_cmd(interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await owner_only(interaction):
+            return
+        subs = bot.links.playlogs()
+        lines = [f"**플레이 로그 자동 업로드** ({len(subs)}개, {PLAYLOG_INTERVAL / 60:g}분마다 · "
+                 f"체커 {'동작 중' if bot.poll_playlogs.is_running() else '**멈춤**'})"]
+        for discord_id, game, _, _ in subs:
+            when, how = bot.playlog_status.get((discord_id, game), (0.0, "아직 확인 전"))
+            at = f"<t:{int(when)}:R>" if when else "-"
+            lines.append(f"· <@{discord_id}> {game}: {how} ({at})")
+        recent = logbuffer.recent.tail(15)
+        text = "\n".join(lines)
+        body = "\n".join(recent) if recent else "없음"
+        room = 1900 - len(text)
+        while len(body) > room and "\n" in body:
+            body = body.split("\n", 1)[1]  # keep the newest lines
+        await interaction.followup.send(f"{text}\n**최근 로그**\n```\n{body[-room:]}\n```", ephemeral=True)
+
+    @tree.command(name="update", description="GitHub에서 최신 코드를 바로 받아서 봇을 재시작합니다 (봇 주인만)")
+    async def update_cmd(interaction: discord.Interaction) -> None:
+        # answer Discord first (it gives up after 3 seconds), then do the slow parts
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await owner_only(interaction):
             return
         if not updater.enabled():
             await interaction.followup.send("git으로 받은 폴더가 아니라서 업데이트할 수 없어요.", ephemeral=True)
@@ -646,6 +676,7 @@ async def send_b50(interaction: discord.Interaction, result: B50 | str, game: st
 def main() -> None:
     render.tune_malloc()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger().addHandler(logbuffer.recent)  # for /logs
     config = Config.from_env()
     bot = ChumaiBot(config)
     try:

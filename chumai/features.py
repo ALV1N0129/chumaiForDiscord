@@ -16,7 +16,7 @@ import discord
 from discord import app_commands
 from PIL import Image
 
-from . import answers, charts, net_parsers, rating, render, tools
+from . import answers, charts, i18n, net_parsers, rating, render, tools
 from .b50 import B50
 from .segaid import NetClient, SegaError
 from .songdb import CatalogSong, normalize_title, search
@@ -656,10 +656,12 @@ def register(bot: ChumaiBot) -> None:
     async def help_cmd(interaction: discord.Interaction) -> None:
         from .prefix import ALIASES
 
+        locale = getattr(interaction, "locale", None)  # none for a prefix command
         groups = {
             "계정": [("login", "SEGA ID 로그인"), ("logout", "로그인 정보 삭제"), ("privacy", "다른 사람에게 공개 여부")],
             "기록": [("b50", "베스트 50 레이팅표"), ("profile", "프로필 카드"), ("recent", "최근 크레딧"), ("today", "오늘 플레이 정리"),
-                   ("playlog", "on|off|test — 플레이 기록 자동 업로드")],
+                   ("playlog", "켜기|끄기|테스트 — 플레이 기록 자동 업로드" if locale is discord.Locale.korean
+                    else "on|off|test — 플레이 기록 자동 업로드")],
             "곡": [("info", "곡 정보"), ("jacket", "자켓"), ("const", "상수별 보면 목록"), ("random", "랜덤 선곡"),
                   ("chart", "채보 보기 (CHUNITHM)")],
             "계산": [("calc", "곡 레이팅 계산"), ("reach", "목표 레이팅에 필요한 점수"),
@@ -674,7 +676,7 @@ def register(bot: ChumaiBot) -> None:
             lines = []
             for cmd, desc in cmds:
                 alias = f" · `{p}{short[cmd]}`" if p and cmd in short else ""
-                lines.append(f"/{cmd}{alias} — {desc}")
+                lines.append(f"/{i18n.command_name(cmd, locale)}{alias} — {desc}")
             embed.add_field(name=name, value="\n".join(lines), inline=False)
         from . import updater
 

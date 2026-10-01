@@ -29,9 +29,8 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
   처음 실행할 때 받아서 씁니다(`data/logos`에 저장). 비워두면 글자 로고를 그립니다.
   `chumai/assets/logos/maimai.png`처럼 파일을 직접 넣어도 됩니다.
 - 곡 자켓은 SEGA 공식 곡 목록(`music.json`, `maimai_songs.json`)에서 찾아 내려받고 `JACKET_DIR`에 캐시합니다.
-- `/chart`의 채보 이미지는 팬 사이트 [sdvx.in](https://sdvx.in)에서 필요할 때 받아 `CHART_DIR`에 캐시하고,
-  어떤 곡이 sdvx.in의 어느 페이지인지는 [chuni-penguin](https://github.com/beer-psi/chuni-penguin)의 곡 데이터(0BSD)를 씁니다.
-  sdvx.in은 이미지 무단 전재를 금지하므로 개인 서버에서만 쓰세요. maimai는 이 데이터가 없어 지원하지 않습니다.
+- 자켓 맞히기의 CHUNITHM 커뮤니티 별명 일부는 [chuni-penguin](https://github.com/beer-psi/chuni-penguin)의
+  곡 데이터(0BSD)에서 받아 `CHART_DIR`에 저장합니다.
 - 국제판(SEGA ID) 전용입니다. 일본판은 로그인 방식이 달라 지원하지 않습니다.
 
 > Discord 입력창(Modal)은 비밀번호 가리기(`***`)를 지원하지 않아서 입력하는 동안 본인 화면에는 비밀번호가 보입니다.
@@ -62,7 +61,6 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/today game:` | `!td` | 오늘 플레이 정리: 크레딧·곡·신기록·AJ/FC 수, 레이팅 변화, 신기록 곡(많이 오른 순). 새벽 4시까지는 전날로 칩니다 |
 | `/info game: song:` | `!i` | 곡 정보 이미지 (자켓, 난이도별 레벨·상수, 아티스트, 장르, 버전) |
 | `/jacket game: song:` | `!j` | 자켓 이미지 |
-| `/chart song: [difficulty:]` | `!ch` | CHUNITHM 채보 이미지 (sdvx.in, 기본 MASTER) |
 | `/const game: level:` | `!c` | 레벨(14+)·상수(14.5)·범위(14.0-14.8)에 해당하는 보면 목록 이미지 (상수별로 묶어서, 최대 90개) |
 | `/random game: level: [count:]` | `!r` | 레벨·상수·범위에서 랜덤 선곡 (기본 3곡) |
 | `/reach game: const: target:` | `!rh` | 목표 곡 레이팅에 필요한 점수 + 점수별 레이팅 표 |
@@ -83,10 +81,9 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 영문·카타카나 제목은 한국어로 부르는 이름, 일본어 제목은 한국어 번역으로도 됩니다(`엔디미온`, `뱀파이어`, `밤을 달리다`, `네가 모르는 이야기`): `chumai/assets/titles_ko.tsv`에
 영문 약 1,300곡, 카타카나 약 440곡, 일본어 약 750곡에 적어 두었고, 줄마다 `제목<TAB>발음<TAB>...` 형식이라 직접 추가할 수 있습니다.
 한국어 이름의 단어 첫 글자 줄임말(`프다`, `월뱅`)도 됩니다.
-커뮤니티 별명은 [GCM-bot](https://github.com/lomotos10/GCM-bot)이 모아 둔 목록(maimai 한국어, 두 게임 영어·로마자)을
-봇이 실행될 때 받아서 씁니다(`data/aliases/`에 캐시, 일주일마다 갱신, 이 저장소에는 들어 있지 않음).
-CHUNITHM은 [chuni-penguin](https://github.com/beer-psi/chuni-penguin)의 별명(영어·로마자)도 쓰고, 츄니즘 마이너 갤러리 글 제목에서
-모은 한국어 별명(`조율주`, `새콤달콤`, `엔탐`, `팬크라` 등)은 `chumai/assets/nicknames_ko.tsv`에 있습니다.
+츄니즘·maimai 마이너 갤러리 글 제목에서 모은 한국어 별명(`조율주`, `새콤달콤`, `엔탐`, `팬크라` 등)은
+`chumai/assets/nicknames_ko.tsv`에 있습니다. CHUNITHM은 [chuni-penguin](https://github.com/beer-psi/chuni-penguin)의
+별명(영어·로마자)도 봇이 실행될 때 받아서 씁니다.
 `흑니즘`, `알레프흑`, `멜마`처럼 이름에 난이도(흑·마·울·익)를 붙여 써도 됩니다.
 그 밖의 별명은 `/alias add` 로 등록하면 그 서버에서 정답으로 인정됩니다.
 한자음은 Unicode의 [Unihan](https://www.unicode.org/charts/unihan.html) 데이터(kHangul, [Unicode License](https://www.unicode.org/license.txt))에서
@@ -110,7 +107,7 @@ CHUNITHM은 [chuni-penguin](https://github.com/beer-psi/chuni-penguin)의 별명
 ### 플레이 기록 자동 업로드
 
 `/playlog on`을 입력한 채널에, 크레딧이 끝난 뒤 그 크레딧의 곡들을 이미지 한 장으로 올립니다.
-공식 사이트의 최근 플레이 페이지를 1분마다 한 번씩 확인합니다 (`.env`의 `PLAYLOG_INTERVAL_MINUTES`로 늘릴 수 있음)
+공식 사이트의 최근 플레이 페이지를 30초마다 한 번씩 확인합니다 (`.env`의 `PLAYLOG_INTERVAL_SECONDS`로 늘릴 수 있음)
 (공식 사이트는 크레딧이 끝나야 기록이 반영되므로 실시간은 아닙니다).
 확인할 때마다 다시 로그인하지 않고 공식 사이트의 로그인 상태(쿠키, 메모리에만 보관)를 이어 쓰므로
 평소에는 한 번에 페이지 하나만 받습니다. 사이트가 로그인을 끊었을 때만 다시 로그인합니다.

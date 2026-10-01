@@ -22,7 +22,6 @@ import difflib
 import json
 import logging
 import re
-import time
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
@@ -207,13 +206,8 @@ def korean_readings(title: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
-# Community nicknames, downloaded when the bot runs and kept in the cache folders, not shipped here:
-# - GCM-bot (https://github.com/lomotos10/GCM-bot): Korean for maimai, English/romaji for both;
-# - chuni-penguin (https://github.com/beer-psi/chuni-penguin, 0BSD): English/romaji for CHUNITHM, from
-#   the song data the chart game already downloads (charts.py).
-COMMUNITY_URL = "https://raw.githubusercontent.com/lomotos10/GCM-bot/main/data/aliases/{lang}/{name}.tsv"
-COMMUNITY_FILES = {"chunithm": [("en", "chuni")], "maimai": [("ko", "maimai"), ("en", "maimai")]}
-COMMUNITY_REFRESH = 7 * 24 * 60 * 60
+# Community nicknames from chuni-penguin (https://github.com/beer-psi/chuni-penguin, 0BSD): English/romaji
+# for CHUNITHM, downloaded when the bot runs (charts.py). Korean nicknames are in assets/nicknames_ko.tsv.
 # (source, game) -> {folded title: [nickname]}
 _community: dict[tuple[str, str], dict[str, list[str]]] = {}
 
@@ -229,16 +223,6 @@ def set_community(source: str, game: str, rows) -> None:
     _community[(source, game)] = table
 
 
-def load_community(game: str, text: str, source: str = "gcm") -> None:
-    """Load a GCM-bot alias file (title<TAB>nickname<TAB>...)."""
-    rows = [(line.split("\t")[0], line.split("\t")[1:]) for line in text.splitlines()]
-    set_community(source, game, [*_rows(source, game), *rows])
-
-
-def _rows(source: str, game: str):
-    return [(t, n) for t, n in _community.get((source, game), {}).items()]
-
-
 def community_aliases(game: str, title: str) -> list[str]:
     key = fold(title)
     out: list[str] = []
@@ -246,30 +230,6 @@ def community_aliases(game: str, title: str) -> list[str]:
         if g == game:
             out.extend(n for n in table.get(key, []) if n not in out)
     return out
-
-
-async def update_community(cache_dir: str | Path) -> None:
-    """Download the community nickname files (weekly) and load them; keeps the cached copies (or
-    nothing) when GitHub can't be reached."""
-    import aiohttp
-
-    cache = Path(cache_dir)
-    cache.mkdir(parents=True, exist_ok=True)
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as s:
-        for game, files in COMMUNITY_FILES.items():
-            _community.pop(("gcm", game), None)
-            for lang, name in files:
-                path = cache / f"{lang}_{name}.tsv"
-                if not path.exists() or time.time() - path.stat().st_mtime > COMMUNITY_REFRESH:
-                    try:
-                        async with s.get(COMMUNITY_URL.format(lang=lang, name=name)) as resp:
-                            resp.raise_for_status()
-                            path.write_text(await resp.text(encoding="utf-8"), encoding="utf-8")
-                    except Exception as e:
-                        log.warning("could not download community nicknames %s/%s: %s", lang, name, e)
-                if path.exists():
-                    load_community(game, path.read_text(encoding="utf-8"))
-    log.info("community nicknames: %s", {f"{s}/{g}": len(t) for (s, g), t in _community.items()})
 
 
 def initials(name: str) -> str:

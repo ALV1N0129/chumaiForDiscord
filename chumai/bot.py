@@ -9,6 +9,7 @@ import json
 import logging
 import sys
 import os
+import shutil
 import time
 from pathlib import Path
 from typing import Literal
@@ -17,9 +18,9 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import answers, charts as charts_module, features, i18n, logbuffer, net_parsers, prefix, render, updater
+from . import answers, features, i18n, logbuffer, net_parsers, prefix, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
-from .charts import ChartViews
+from .charts import PenguinNicknames
 from .config import Config
 from .jackets import JacketStore
 from .fonts import ensure_font
@@ -35,15 +36,27 @@ log = logging.getLogger("chumai")
 GameChoice = Literal["maimai", "chunithm"]
 
 
-def _minutes(name: str, default: float) -> float:
+def _playlog_interval() -> float:
+    """Seconds between checks of a play log: PLAYLOG_INTERVAL_SECONDS in .env (or the older
+    PLAYLOG_INTERVAL_MINUTES), 30 by default and at least."""
     try:
-        return max(1.0, float(os.environ.get(name) or default))
+        if os.environ.get("PLAYLOG_INTERVAL_SECONDS"):
+            seconds = float(os.environ["PLAYLOG_INTERVAL_SECONDS"])
+        elif os.environ.get("PLAYLOG_INTERVAL_MINUTES"):
+            seconds = float(os.environ["PLAYLOG_INTERVAL_MINUTES"]) * 60
+        else:
+            seconds = 30
     except ValueError:
-        return default
+        seconds = 30
+    return max(30.0, seconds)
 
 
-# how often each linked play log is checked (one page per check); PLAYLOG_INTERVAL_MINUTES in .env
-PLAYLOG_INTERVAL = _minutes("PLAYLOG_INTERVAL_MINUTES", 1) * 60
+def interval_text(seconds: float) -> str:
+    return f"{seconds / 60:g}분" if seconds >= 60 and seconds % 60 == 0 else f"{seconds:g}초"
+
+
+# how often each linked play log is checked (one page per check)
+PLAYLOG_INTERVAL = _playlog_interval()
 LIVE_LOG_SETTING = "live_log_channel"
 PLAYLOG_ALL_SETTING = "playlog_all_channel"  # /playlog all: everyone logged in, posted here
 RESTART_NOTICE = "🔄 업데이트를 위해 봇이 재부팅됩니다. (약 1분 소요)"
@@ -64,7 +77,7 @@ class ChumaiBot(discord.Client):
         self.links = LinkStore(config.db_path, config.token_key)
         self.songdb = SongDB()
         self.jackets = JacketStore(config.jacket_dir)
-        self.charts = ChartViews(config.chart_dir)
+        self.charts = PenguinNicknames(config.chart_dir)
         self.b50_cache: dict[tuple[int, str], tuple[float, B50]] = {}  # reused by /recommend and /whatif
         register_commands(self)
         features.register(self)
@@ -78,7 +91,8 @@ class ChumaiBot(discord.Client):
         await self.songdb.load_or_update(self.config.songdb_dir)
         await self.jackets.load_or_update()
         self._charts_task = asyncio.create_task(self._load_charts())  # large download; don't wait
-        self._aliases_task = asyncio.create_task(self._load_community_aliases())
+        # GCM-bot nicknames were once cached here; the maimai ones now come from assets/nicknames_ko.tsv
+        shutil.rmtree(Path(self.config.songdb_dir).parent / "aliases", ignore_errors=True)
         render.release_memory()
         render.LOGO_DIR = Path(self.config.logo_dir)
         await download_logos(self.config.logo_dir, self.config.logo_urls)
@@ -111,7 +125,7 @@ class ChumaiBot(discord.Client):
 
     _auto_tries: dict[tuple[int, str], int] = {}
 
-    @tasks.loop(minutes=1)
+    @tasks.loop(seconds=10)  # each play log is checked when it's due (PLAYLOG_INTERVAL)
     async def poll_playlogs(self) -> None:
         now = time.time()
         everyone = self.links.get_setting(PLAYLOG_ALL_SETTING)
@@ -134,7 +148,7 @@ class ChumaiBot(discord.Client):
                     log.info("play log check for %s/%s works again", discord_id, game)
             except Exception as e:
                 status = f"실패: {str(e) or type(e).__name__}"
-                if status != before:  # once per new failure, not every minute
+                if status != before:  # once per new failure, not every check
                     log.exception("play log check failed for %s/%s", discord_id, game)
                 self.playlog_status[(discord_id, game)] = (time.time(), status)
                 found = False
@@ -235,7 +249,6 @@ class ChumaiBot(discord.Client):
         await self.jackets.load_or_update()
         await self.charts.load_or_update()
         self._load_chart_aliases()
-        await self._load_community_aliases()
         render.release_memory()
 
     async def _load_charts(self) -> None:
@@ -244,19 +257,13 @@ class ChumaiBot(discord.Client):
         render.release_memory()
 
     def _load_chart_aliases(self) -> None:
-        """chuni-penguin's CHUNITHM nicknames, saved with the chart index (see charts.py)."""
-        path = Path(self.config.chart_dir) / charts_module.ALIASES_NAME
+        """chuni-penguin's CHUNITHM nicknames (see charts.py)."""
+        path = self.charts.path
         try:
             if path.exists():
                 answers.set_community("penguin", "chunithm", json.loads(path.read_text(encoding="utf-8")).items())
         except Exception:
             log.warning("could not load chuni-penguin nicknames", exc_info=True)
-
-    async def _load_community_aliases(self) -> None:
-        try:
-            await answers.update_community(Path(self.config.songdb_dir).parent / "aliases")
-        except Exception:
-            log.warning("could not load community nicknames", exc_info=True)
 
     @refresh_songdb.before_loop
     async def _skip_first_refresh(self) -> None:
@@ -356,7 +363,7 @@ def register_commands(bot: ChumaiBot) -> None:
         bot._playlog_schedule.pop((interaction.user.id, game), None)
         await interaction.followup.send(
             f"이제 {'maimai DX' if game == 'maimai' else 'CHUNITHM'} 플레이 기록을 이 채널에 올릴게요. "
-            f"크레딧이 끝나고 공식 사이트에 반영된 뒤 {PLAYLOG_INTERVAL / 60:g}분 안에 올라와요.",
+            f"크레딧이 끝나고 공식 사이트에 반영된 뒤 {interval_text(PLAYLOG_INTERVAL)} 안에 올라와요.",
             ephemeral=True,
         )
 
@@ -450,7 +457,7 @@ def register_commands(bot: ChumaiBot) -> None:
         subs = bot.links.playlogs()
         live = bot.links.get_setting(LIVE_LOG_SETTING)
         everyone = bot.links.get_setting(PLAYLOG_ALL_SETTING)
-        lines = [f"**플레이 로그 자동 업로드** ({len(subs)}개, {PLAYLOG_INTERVAL / 60:g}분마다 · "
+        lines = [f"**플레이 로그 자동 업로드** ({len(subs)}개, {interval_text(PLAYLOG_INTERVAL)}마다 · "
                  f"체커 {'동작 중' if bot.poll_playlogs.is_running() else '**멈춤**'})",
                  f"전체 업로드: {f'<#{everyone}>' if everyone else '꺼짐 (`/playlog all on`)'}"]
         for discord_id, game, _, last_key in subs:

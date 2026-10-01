@@ -25,7 +25,6 @@ COMMANDS = {
     "reach": "목표점수",
     "whatif": "만약",
     "recommend": "추천",
-    "chart": "채보",
     "guess": "자켓맞히기",
     "giveup": "포기",
     "answer": "정답",

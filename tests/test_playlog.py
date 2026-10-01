@@ -387,3 +387,16 @@ def test_first_play_of_a_chart():
     assert a.delta == 1000 and not a.first
     assert b.first and b.delta is None  # not in the saved bests: never played
     assert not c.first  # no WORLD'S END saved at all: can't tell
+
+
+def test_quiet_hours():
+    import datetime
+    from chumai.bot import quiet_now
+
+    def at(h):
+        return datetime.datetime(2026, 10, 1, h, 30)
+
+    assert quiet_now(at(22), (22, 8)) and quiet_now(at(3), (22, 8)) and quiet_now(at(7), (22, 8))
+    assert not quiet_now(at(8), (22, 8)) and not quiet_now(at(21), (22, 8))
+    assert quiet_now(at(2), (1, 5)) and not quiet_now(at(5), (1, 5))
+    assert not quiet_now(at(23), None)

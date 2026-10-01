@@ -57,6 +57,29 @@ def interval_text(seconds: float) -> str:
 
 # how often each linked play log is checked (one page per check)
 PLAYLOG_INTERVAL = _playlog_interval()
+
+
+def _quiet_hours() -> tuple[int, int] | None:
+    """Hours (Korea/Japan time) when play logs aren't checked: PLAYLOG_QUIET_HOURS in .env, "22-8" by
+    default (from 22:00 until 8:00), "off" to always check."""
+    text = (os.environ.get("PLAYLOG_QUIET_HOURS") or "22-8").strip()
+    try:
+        start, end = (int(h) % 24 for h in text.split("-"))
+        return (start, end) if start != end else None
+    except ValueError:
+        return None
+
+
+PLAYLOG_QUIET = _quiet_hours()
+
+
+def quiet_now(now: datetime.datetime | None = None, quiet: tuple[int, int] | None = PLAYLOG_QUIET) -> bool:
+    """Whether it's the quiet hours, when play logs wait (plays then are posted after)."""
+    if quiet is None:
+        return False
+    hour = (now or datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))).hour
+    start, end = quiet
+    return start <= hour < end if start < end else hour >= start or hour < end
 LIVE_LOG_SETTING = "live_log_channel"
 PLAYLOG_ALL_SETTING = "playlog_all_channel"  # /playlog all: everyone logged in, posted here
 RESTART_NOTICE = "🔄 업데이트를 위해 봇이 재부팅됩니다. (약 1분 소요)"
@@ -127,6 +150,8 @@ class ChumaiBot(discord.Client):
 
     @tasks.loop(seconds=10)  # each play log is checked when it's due (PLAYLOG_INTERVAL)
     async def poll_playlogs(self) -> None:
+        if quiet_now():
+            return
         now = time.time()
         everyone = self.links.get_setting(PLAYLOG_ALL_SETTING)
         if everyone:  # whoever logged in since

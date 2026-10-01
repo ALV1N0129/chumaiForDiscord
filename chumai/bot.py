@@ -36,15 +36,27 @@ log = logging.getLogger("chumai")
 GameChoice = Literal["maimai", "chunithm"]
 
 
-def _minutes(name: str, default: float) -> float:
+def _playlog_interval() -> float:
+    """Seconds between checks of a play log: PLAYLOG_INTERVAL_SECONDS in .env (or the older
+    PLAYLOG_INTERVAL_MINUTES), 30 by default and at least."""
     try:
-        return max(1.0, float(os.environ.get(name) or default))
+        if os.environ.get("PLAYLOG_INTERVAL_SECONDS"):
+            seconds = float(os.environ["PLAYLOG_INTERVAL_SECONDS"])
+        elif os.environ.get("PLAYLOG_INTERVAL_MINUTES"):
+            seconds = float(os.environ["PLAYLOG_INTERVAL_MINUTES"]) * 60
+        else:
+            seconds = 30
     except ValueError:
-        return default
+        seconds = 30
+    return max(30.0, seconds)
 
 
-# how often each linked play log is checked (one page per check); PLAYLOG_INTERVAL_MINUTES in .env
-PLAYLOG_INTERVAL = _minutes("PLAYLOG_INTERVAL_MINUTES", 1) * 60
+def interval_text(seconds: float) -> str:
+    return f"{seconds / 60:g}분" if seconds >= 60 and seconds % 60 == 0 else f"{seconds:g}초"
+
+
+# how often each linked play log is checked (one page per check)
+PLAYLOG_INTERVAL = _playlog_interval()
 LIVE_LOG_SETTING = "live_log_channel"
 PLAYLOG_ALL_SETTING = "playlog_all_channel"  # /playlog all: everyone logged in, posted here
 RESTART_NOTICE = "🔄 업데이트를 위해 봇이 재부팅됩니다. (약 1분 소요)"
@@ -113,7 +125,7 @@ class ChumaiBot(discord.Client):
 
     _auto_tries: dict[tuple[int, str], int] = {}
 
-    @tasks.loop(minutes=1)
+    @tasks.loop(seconds=10)  # each play log is checked when it's due (PLAYLOG_INTERVAL)
     async def poll_playlogs(self) -> None:
         now = time.time()
         everyone = self.links.get_setting(PLAYLOG_ALL_SETTING)
@@ -136,7 +148,7 @@ class ChumaiBot(discord.Client):
                     log.info("play log check for %s/%s works again", discord_id, game)
             except Exception as e:
                 status = f"실패: {str(e) or type(e).__name__}"
-                if status != before:  # once per new failure, not every minute
+                if status != before:  # once per new failure, not every check
                     log.exception("play log check failed for %s/%s", discord_id, game)
                 self.playlog_status[(discord_id, game)] = (time.time(), status)
                 found = False
@@ -351,7 +363,7 @@ def register_commands(bot: ChumaiBot) -> None:
         bot._playlog_schedule.pop((interaction.user.id, game), None)
         await interaction.followup.send(
             f"이제 {'maimai DX' if game == 'maimai' else 'CHUNITHM'} 플레이 기록을 이 채널에 올릴게요. "
-            f"크레딧이 끝나고 공식 사이트에 반영된 뒤 {PLAYLOG_INTERVAL / 60:g}분 안에 올라와요.",
+            f"크레딧이 끝나고 공식 사이트에 반영된 뒤 {interval_text(PLAYLOG_INTERVAL)} 안에 올라와요.",
             ephemeral=True,
         )
 
@@ -445,7 +457,7 @@ def register_commands(bot: ChumaiBot) -> None:
         subs = bot.links.playlogs()
         live = bot.links.get_setting(LIVE_LOG_SETTING)
         everyone = bot.links.get_setting(PLAYLOG_ALL_SETTING)
-        lines = [f"**플레이 로그 자동 업로드** ({len(subs)}개, {PLAYLOG_INTERVAL / 60:g}분마다 · "
+        lines = [f"**플레이 로그 자동 업로드** ({len(subs)}개, {interval_text(PLAYLOG_INTERVAL)}마다 · "
                  f"체커 {'동작 중' if bot.poll_playlogs.is_running() else '**멈춤**'})",
                  f"전체 업로드: {f'<#{everyone}>' if everyone else '꺼짐 (`/playlog all on`)'}"]
         for discord_id, game, _, last_key in subs:

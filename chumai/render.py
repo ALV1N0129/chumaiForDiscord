@@ -480,10 +480,11 @@ def _utage_title(title: str) -> tuple[str | None, str]:
     return (m.group(1), m.group(2).strip()) if m else (None, title)
 
 
-def _maimai_label(text: str, font, color: tuple[int, int, int], deep: tuple[int, int, int]) -> Image.Image:
+def _maimai_label(text: str, font, color: tuple[int, int, int], deep: tuple[int, int, int],
+                  stroke: int | None = None) -> Image.Image:
     """Text like maimai's difficulty labels: white letters, a thick colored outline and a darker
     drop under them."""
-    stroke = max(2, font.size // 7)
+    stroke = stroke or max(2, font.size // 7)
     bb = font.getbbox(text, stroke_width=stroke)
     w, h = bb[2] - bb[0] + 4, bb[3] - bb[1] + 4 + stroke
     at = (2 - bb[0], 2 - bb[1])
@@ -1489,6 +1490,11 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
                 ImageDraw.Draw(ring).rounded_rectangle((22, 22, jacket + 38, jacket + 38), radius=12, fill=(*acc, 255))
                 _over(canvas, ring.filter(ImageFilter.GaussianBlur(12)), (jx - 30, y - 30))
             _framed_jacket(canvas, jx, y, jacket, e.jacket_path, e.difficulty)
+            kanji = _utage_title(e.title)[0] if e.difficulty and _diff_info(e.difficulty)[0] == "宴" else None
+            if kanji:  # the 宴 kanji over the jacket's bottom left, as on the credit image
+                ksize = max(24, round(jacket * 0.2))
+                mark = _maimai_label(kanji, cjk(ksize), UTAGE_PINK, UTAGE_DEEP, stroke=max(3, ksize // 5))
+                _over(canvas, mark, (jx + 6, y + jacket - mark.height - 4))
             draw = ImageDraw.Draw(canvas)
             if slot.new:
                 label, colors = (("FIRST", [(80, 220, 200), (120, 170, 255)]) if slot.first

@@ -60,9 +60,9 @@ PLAYLOG_INTERVAL = _playlog_interval()
 
 
 def _quiet_hours() -> tuple[int, int] | None:
-    """Hours (Korea/Japan time) when play logs aren't checked: PLAYLOG_QUIET_HOURS in .env, "22-8" by
-    default (from 22:00 until 8:00), "off" to always check."""
-    text = (os.environ.get("PLAYLOG_QUIET_HOURS") or "22-8").strip()
+    """Hours (Korea/Japan time) when play logs aren't checked: PLAYLOG_QUIET_HOURS in .env, "23-8" by
+    default (from 23:00 until 8:00), "off" to always check."""
+    text = (os.environ.get("PLAYLOG_QUIET_HOURS") or "23-8").strip()
     try:
         start, end = (int(h) % 24 for h in text.split("-"))
         return (start, end) if start != end else None

@@ -1489,6 +1489,10 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
                 ImageDraw.Draw(ring).rounded_rectangle((22, 22, jacket + 38, jacket + 38), radius=12, fill=(*acc, 255))
                 _over(canvas, ring.filter(ImageFilter.GaussianBlur(12)), (jx - 30, y - 30))
             _framed_jacket(canvas, jx, y, jacket, e.jacket_path, e.difficulty)
+            kanji = _utage_title(e.title)[0] if e.difficulty and _diff_info(e.difficulty)[0] == "宴" else None
+            if kanji:  # the 宴 kanji over the jacket's bottom left, as on the credit image
+                mark = _maimai_label(kanji, cjk(max(24, round(jacket * 0.2))), UTAGE_PINK, UTAGE_DEEP)
+                _over(canvas, mark, (jx + 6, y + jacket - mark.height - 4))
             draw = ImageDraw.Draw(canvas)
             if slot.new:
                 label, colors = (("FIRST", [(80, 220, 200), (120, 170, 255)]) if slot.first

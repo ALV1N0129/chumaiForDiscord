@@ -1490,7 +1490,12 @@ def render_day(game: str, player: str, date: str, stats: list[tuple[str, str]], 
                 ImageDraw.Draw(ring).rounded_rectangle((22, 22, jacket + 38, jacket + 38), radius=12, fill=(*acc, 255))
                 _over(canvas, ring.filter(ImageFilter.GaussianBlur(12)), (jx - 30, y - 30))
             _framed_jacket(canvas, jx, y, jacket, e.jacket_path, e.difficulty)
-            kanji = _utage_title(e.title)[0] if e.difficulty and _diff_info(e.difficulty)[0] == "宴" else None
+            dlabel = _diff_info(e.difficulty)[0] if e.difficulty else ""
+            kanji = _utage_title(e.title)[0] if dlabel == "宴" else None
+            attr = _we_attribute(e.level) if dlabel == "WE" else None
+            if attr:  # WORLD'S END: the attribute tile over the jacket's bottom left, as on the credit image
+                tile = _we_badge(*attr, max(34, round(jacket * 0.26)))
+                _over(canvas, tile, (jx + 6, y + jacket - tile.height - 6))
             if kanji:  # the 宴 kanji over the jacket's bottom left, as on the credit image
                 ksize = max(24, round(jacket * 0.2))
                 mark = _maimai_label(kanji, cjk(ksize), UTAGE_PINK, UTAGE_DEEP, stroke=max(3, ksize // 5))

@@ -122,8 +122,12 @@ class SongDB:
             for sid, song in songs.items():
                 keys = [normalize_title(t) for t in [song["title"], *song.get("altTitles", []),
                                                      *song.get("searchTerms", [])] if t]
+                # the song's own id: WORLD'S END charts have ids of their own (8000+), whose jackets
+                # aren't on the jacket list
+                legacy = song.get("legacySongID") if name == "chunithm" else None
                 by_song[sid] = CatalogSong(name, song["title"], song.get("artist", ""),
-                                           song.get("data", {}).get("genre", ""), keys, [])
+                                           song.get("data", {}).get("genre", ""), keys, [],
+                                           int(legacy) if legacy is not None else None)
             version = _chart_versions(game, seeds[f"charts-{game}"])
             for c in seeds[f"charts-{game}"]:
                 cs = by_song.get(c["songID"])
@@ -131,8 +135,9 @@ class SongDB:
                     continue
                 cs.charts.append(CatalogChart(c["difficulty"], str(c["level"]), float(c["levelNum"]), version(c)))
                 ids = c.get("data", {}).get("inGameID")
-                if name == "chunithm" and cs.music_id is None and ids is not None:
-                    cs.music_id = int(ids[0] if isinstance(ids, list) else ids)
+                if name == "chunithm" and ids is not None and "legacySongID" not in songs[c["songID"]]:
+                    found = min(int(i) for i in (ids if isinstance(ids, list) else [ids]))
+                    cs.music_id = found if cs.music_id is None else min(cs.music_id, found)
             self.catalog[name] = [cs for cs in by_song.values() if cs.charts]
             for c in seeds[f"charts-{game}"]:
                 song = songs.get(c["songID"])

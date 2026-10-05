@@ -56,6 +56,7 @@ OPTIONS = {
     "title": "제목",
     "name": "별명",
     "switch": "켜기끄기",
+    "category": "카테고리",
 }
 
 

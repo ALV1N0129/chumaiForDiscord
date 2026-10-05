@@ -128,6 +128,36 @@ def playable(chart: CatalogChart) -> bool:
     return chart.level_const > 0
 
 
+# song categories (genres) by the words people use for them: a word -> parts of genre names to look
+# for, in order (the two games name theirs differently)
+_ORIGINAL, _VARIETY, _CROSS = ["original", "maimai"], ["variety", "ゲーム"], ["ゲキマイ", "オンゲキ"]
+CATEGORY_WORDS = {
+    "오리지널": _ORIGINAL, "오리": _ORIGINAL, "original": _ORIGINAL, "마이마이": ["maimai"], "maimai": ["maimai"],
+    "팝스": ["pops"], "애니": ["pops"], "팝": ["pops"], "pops": ["pops"], "anime": ["pops"],
+    "니코": ["niconico"], "니코니코": ["niconico"], "보카로": ["niconico"], "niconico": ["niconico"],
+    "vocaloid": ["niconico"],
+    "버라이어티": _VARIETY, "variety": _VARIETY, "게임": _VARIETY, "game": _VARIETY,
+    "게키마이": _CROSS, "gekimai": _CROSS, "온게키": _CROSS, "ongeki": _CROSS, "츄니즘": _CROSS, "chunithm": _CROSS,
+    "동방": ["東方"], "touhou": ["東方"], "이로도리": ["イロドリ"], "이로드리": ["イロドリ"], "irodorimidori": ["イロドリ"],
+}
+CATEGORY_HELP = "카테고리: 오리지널, 팝스, 니코, 버라이어티, 동방, 게키마이(온게키), 이로도리"
+
+
+def genres(db: SongDB, game: str) -> list[str]:
+    return sorted({s.genre for s in db.catalog.get(game, []) if s.genre})
+
+
+def parse_category(text: str, db: SongDB, game: str) -> str | None:
+    """The genre `text` names (오리지널, 동방, POPS & ANIME…), or None."""
+    word = normalize_title(text).replace(" ", "")
+    names = {g: normalize_title(g).replace(" ", "") for g in genres(db, game)}
+    for key in CATEGORY_WORDS.get(word, [word]):
+        found = [g for g, name in names.items() if key in name]
+        if len(found) == 1:
+            return found[0]
+    return None
+
+
 def charts_in_range(db: SongDB, game: str, lo: float, hi: float) -> list[tuple[CatalogSong, CatalogChart]]:
     out = [
         (song, chart)

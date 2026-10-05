@@ -368,3 +368,18 @@ def test_recommend_skips_charts_not_in_the_players_region():
     b.available = {"Expert": set()}  # Master wasn't checked: no filtering
     assert {r.song.title for r in tools.recommend(db, b, ["maimai でらっくす PRiSM PLUS"], 5, random.Random(0))} \
         == {"Out", "NotYet"}
+
+
+def test_parse_category():
+    from types import SimpleNamespace
+    from chumai import tools
+    song = lambda genre: SimpleNamespace(genre=genre)  # noqa: E731
+    db = SimpleNamespace(catalog={
+        "chunithm": [song("ORIGINAL"), song("POPS & ANIME"), song("東方Project"), song("ゲキマイ"), song("VARIETY")],
+        "maimai": [song("maimai"), song("POPS＆アニメ"), song("ゲーム＆バラエティ"), song("オンゲキ＆CHUNITHM")]})
+    assert tools.parse_category("동방", db, "chunithm") == "東方Project"
+    assert tools.parse_category("팝스", db, "maimai") == "POPS＆アニメ"
+    assert tools.parse_category("오리지널", db, "maimai") == "maimai"
+    assert tools.parse_category("버라이어티", db, "maimai") == "ゲーム＆バラエティ"
+    assert tools.parse_category("온게키", db, "chunithm") == "ゲキマイ"
+    assert tools.parse_category("14+", db, "chunithm") is None

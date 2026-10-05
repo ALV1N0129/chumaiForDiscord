@@ -494,8 +494,19 @@ def register(bot: ChumaiBot) -> None:
         asyncio.create_task(timeout())
 
     @tree.command(name="guess", description="자켓 일부를 보고 곡을 맞히는 게임을 시작합니다")
-    @app_commands.describe(game="게임", level=f"문제로 낼 곡의 {tools.LEVEL_HELP} (선택)")
-    async def guess(interaction: discord.Interaction, game: GameChoice, level: str | None = None) -> None:
+    @app_commands.describe(game="게임", level=f"문제로 낼 곡의 {tools.LEVEL_HELP} (선택)",
+                           category=f"문제로 낼 곡의 {tools.CATEGORY_HELP} (선택)")
+    async def guess(interaction: discord.Interaction, game: GameChoice, level: str | None = None,
+                    category: str | None = None) -> None:
+        if level and category is None and tools.parse_category(level, bot.songdb, game):
+            level, category = None, level  # !guess chuni 동방
+        genre = None
+        if category:
+            genre = tools.parse_category(category, bot.songdb, game)
+            if genre is None:
+                await interaction.response.send_message(
+                    f"`{category}` 카테고리를 모르겠어요. {tools.CATEGORY_HELP}", ephemeral=True)
+                return
         try:
             lo, hi = tools.parse_level(level, game) if level else (1.0, 16.0)
         except ValueError as e:
@@ -505,7 +516,8 @@ def register(bot: ChumaiBot) -> None:
             await interaction.response.send_message("이 채널에서 이미 게임이 진행 중이에요.", ephemeral=True)
             return
         await interaction.response.defer(thinking=True)
-        pool = list({id(s): s for s, _ in tools.charts_in_range(bot.songdb, game, lo, hi)}.values())
+        pool = list({id(s): s for s, _ in tools.charts_in_range(bot.songdb, game, lo, hi)
+                     if genre is None or s.genre == genre}.values())
         rng = random.Random()
         rng.shuffle(pool)
         for song in pool[:15]:
@@ -517,7 +529,7 @@ def register(bot: ChumaiBot) -> None:
             return
         rnd = GuessRound(game, song, str(paths[0]))
         hint = await asyncio.to_thread(_crop_hint, rnd.jacket, rng)
-        await _start_round(interaction, rnd, hint, "이 자켓의 곡은?")
+        await _start_round(interaction, rnd, hint, f"이 자켓의 곡은? ({genre})" if genre else "이 자켓의 곡은?")
 
     @tree.command(name="giveup", description="자켓 맞히기를 포기하고 정답을 봅니다 (접두어: !포기)")
     async def giveup(interaction: discord.Interaction) -> None:

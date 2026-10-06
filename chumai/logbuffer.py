@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import re
 from collections import deque
 
 KST = datetime.timezone(datetime.timedelta(hours=9))
@@ -20,6 +21,28 @@ def _game(game) -> str:
     return GAMES.get(str(game), str(game))
 
 
+# git's errors -> what they mean, in a few words
+GIT_REASONS = [
+    ("local changes", "봇 폴더에서 바뀐 파일이 있어요. `git status` 로 확인해 주세요"),
+    ("untracked working tree files would be overwritten", "봇 폴더에 덮어쓸 수 없는 파일이 있어요"),
+    ("not possible to fast-forward", "봇 폴더의 코드가 GitHub와 갈라졌어요"),
+    ("diverg", "봇 폴더의 코드가 GitHub와 갈라졌어요"),
+    ("could not resolve host", "GitHub에 접속하지 못했어요"),
+    ("unable to access", "GitHub에 접속하지 못했어요"),
+    ("timed out", "시간 초과"),
+    ("index.lock", "다른 git 작업이 남아 있어요 (.git/index.lock)"),
+]
+
+
+def _git_reason(out) -> str:
+    text = str(out)
+    for key, reason in GIT_REASONS:
+        if key in text.lower():
+            return reason
+    line = next((ln for ln in text.splitlines() if ln.strip()), "?")
+    return re.sub(r"//[^/@\s]+@", "//", line)[:120]  # no login in a URL
+
+
 # message template -> summary: text, a function of the message's arguments, or None (not shown)
 SUMMARIES = {
     # start, updates
@@ -27,8 +50,8 @@ SUMMARIES = {
     "synced %d global commands (GUILD_ID not set; may take a while to show up): %s": "재부팅 되었어요.",
     "new version pulled; restarting": None,  # the bot says so itself (RESTART_NOTICE)
     "updated %s -> %s": lambda old, new, *_: f"업데이트했어요. ({str(old)[:7]} → {str(new)[:7]})",
-    "git fetch failed: %s": "업데이트를 확인하지 못했어요.",
-    "git pull failed: %s": "업데이트를 받지 못했어요.",
+    "git fetch failed: %s": lambda out, *_: f"업데이트를 확인하지 못했어요. ({_git_reason(out)})",
+    "git pull failed: %s": lambda out, *_: f"업데이트를 받지 못했어요. ({_git_reason(out)})",
     "update failed": "업데이트에 실패했어요.",
     "live logs on in channel %s": "실시간 로그를 켰어요.",
     # play logs

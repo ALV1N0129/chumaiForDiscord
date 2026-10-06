@@ -55,10 +55,18 @@ async def check() -> tuple[bool, str]:
             return True, f"최신 코드(`{local}`)는 받아져 있는데 봇은 `{started_at}` 로 돌고 있어요. 재시작할게요."
         return False, f"이미 최신 버전이에요. (`{branch}` @ `{local}`)"
     code, out = await _git("pull", "--ff-only")
-    if code != 0 and "local changes" in out and await _files_match("@{u}"):
-        # the files are already the new version (copied in by the host, say), only git's record is
-        # behind: move it along, nothing is lost
-        code, out = await _git("reset", "--quiet", "@{u}")
+    if code != 0 and "local changes" in out:
+        if await _files_match("@{u}"):
+            # the files are already the new version (copied in by the host, say), only git's record is
+            # behind: move it along, nothing is lost
+            code, out = await _git("reset", "--quiet", "@{u}")
+        else:
+            # files changed on the server (a host that copies some files in, say): put them aside in
+            # `git stash` (`git stash list` / `git stash pop` brings them back), then update
+            code, out = await _git("stash", "push", "--quiet", "-m", "chumai: changed files put aside before an update")
+            if code == 0:
+                log.warning("files changed in the bot folder were put aside (git stash) to update")
+                code, out = await _git("pull", "--ff-only")
     if code != 0:
         log.warning("git pull failed: %s", out)
         return False, (f"새 버전(`{remote}`)이 있지만 받지 못했어요. 지금 `{local}` 이에요.\n"
@@ -69,7 +77,8 @@ async def check() -> tuple[bool, str]:
 
 async def _files_match(ref: str) -> bool:
     """Whether the tracked files on disk are exactly `ref`'s."""
-    code, _ = await _git("diff", "--quiet", ref, "--")
+    # file permissions and line endings don't count: a host copying files in may change those
+    code, _ = await _git("-c", "core.fileMode=false", "diff", "--quiet", "--ignore-cr-at-eol", ref, "--")
     return code == 0
 
 

@@ -9,3 +9,4 @@ tools/.venv/
 tools/upscaled/
 tools/*.pth
 tools/exported/
+tools/upload_url.txt

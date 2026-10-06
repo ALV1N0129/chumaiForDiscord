@@ -153,9 +153,10 @@ def _crop_hint(path: str, rng: random.Random) -> bytes:
     size = int(min(im.size) * 0.35)
     x = rng.randint(0, im.width - size)
     y = rng.randint(0, im.height - size)
-    hint = im.crop((x, y, x + size, y + size)).resize((300, 300), Image.LANCZOS)
-    if size < 200:  # blown up a lot (not an AI-upscaled jacket): a little sharper
-        hint = hint.filter(ImageFilter.UnsharpMask(radius=2, percent=120, threshold=2))
+    hint = im.crop((x, y, x + size, y + size))
+    if size < 200:  # blown up a lot: soften the jacket's compression blocks first
+        hint = hint.filter(ImageFilter.GaussianBlur(0.6))
+    hint = hint.resize((300, 300), Image.LANCZOS)
     return render.encode(hint)
 
 

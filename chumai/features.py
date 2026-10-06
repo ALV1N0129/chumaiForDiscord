@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Literal
 
 import discord
 from discord import app_commands
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from . import answers, i18n, net_parsers, rating, render, tools
 from .b50 import B50
@@ -154,6 +154,8 @@ def _crop_hint(path: str, rng: random.Random) -> bytes:
     x = rng.randint(0, im.width - size)
     y = rng.randint(0, im.height - size)
     hint = im.crop((x, y, x + size, y + size)).resize((300, 300), Image.LANCZOS)
+    if size < 200:  # blown up a lot (not an AI-upscaled jacket): a little sharper
+        hint = hint.filter(ImageFilter.UnsharpMask(radius=2, percent=120, threshold=2))
     return render.encode(hint)
 
 

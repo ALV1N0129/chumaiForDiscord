@@ -1,4 +1,4 @@
-"""Make sharper CHUNITHM jackets with an AI upscaler (Real-ESRGAN anime model), on a PC.
+"""Make sharper CHUNITHM jackets with an AI upscaler (Real-ESRGAN), on a PC.
 
 The bot's server is too small to run this (128MB). Run it on a PC once (a graphics card makes it
 much faster), then upload the files it makes to the bot's `data/jackets/chunithm/` folder: the bot
@@ -6,6 +6,13 @@ uses `hq_<music id>.jpg` there before downloading anything.
 
     python tools/upscale_jackets.py            # every song (resumes where it stopped)
     python tools/upscale_jackets.py --limit 5  # just a few, to try it out
+    python tools/upscale_jackets.py --model anime --redo   # another model, over the old results
+    python tools/upscale_jackets.py --from "D:\\chuni\\A000" --from "D:\\chuni\\option"
+        # jackets (CHU_UI_Jacket_xxxx.dds) from folders, searched all the way down: newer songs come
+        # out sharper (SEGA's site has them at 190x190 only), and songs no longer in the game get one
+
+Models: general (default; keeps texture, --denoise 0~1 sets how much noise it removes, 0.5 by
+default), x4plus (sharper, bigger), anime (smoothest: flattens textures).
 
 The jackets are SEGA's: keep the results on your own server, don't put them on GitHub.
 """
@@ -24,7 +31,12 @@ from pathlib import Path
 MUSIC_JSON = "https://chunithm.sega.jp/storage/json/music.json"
 LXNS = "https://assets2.lxns.net/chunithm/jacket/{}.png"  # 300x300
 SEGA = "https://new.chunithm-net.com/chuni-mobile/html/mobile/img/{}"  # 190x190
-MODEL_URL = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth"
+RELEASES = "https://github.com/xinntao/Real-ESRGAN/releases/download/"
+MODELS = {  # name -> model files (general: the plain one and the denoising one, mixed by --denoise)
+    "general": ["v0.2.5.0/realesr-general-x4v3.pth", "v0.2.5.0/realesr-general-wdn-x4v3.pth"],
+    "x4plus": ["v0.1.0/RealESRGAN_x4plus.pth"],
+    "anime": ["v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth"],
+}
 SIZE = 600  # saved size: twice LXNS's
 HERE = Path(__file__).resolve().parent
 UA = {"User-Agent": "Mozilla/5.0 (chumaiForDiscord jacket upscaler)"}
@@ -42,6 +54,11 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--limit", type=int, default=0, help="only this many songs (to try it out)")
     ap.add_argument("--out", default=str(HERE / "upscaled" / "chunithm"), help="output folder")
+    ap.add_argument("--model", choices=list(MODELS), default="general", help="AI model (general by default)")
+    ap.add_argument("--denoise", type=float, default=0.5, help="general model: noise removed, 0~1 (0.5)")
+    ap.add_argument("--redo", action="store_true", help="convert again the songs already done")
+    ap.add_argument("--from", dest="folders", action="append", default=[],
+                    help="a folder with CHU_UI_Jacket_xxxx.dds files (searched in subfolders; can repeat)")
     args = ap.parse_args()
 
     import numpy as np
@@ -49,23 +66,49 @@ def main() -> None:
     from PIL import Image
     from spandrel import ModelLoader
 
-    model_path = HERE / "RealESRGAN_x4plus_anime_6B.pth"
-    if not model_path.exists():
-        print("AI 모델을 받는 중 (18MB)...")
-        model_path.write_bytes(get(MODEL_URL) or b"")
+    paths = []
+    for rel in MODELS[args.model]:
+        path = HERE / rel.rsplit("/", 1)[1]
+        if not path.exists():
+            print(f"AI 모델을 받는 중 ({path.name})...")
+            data = get(RELEASES + rel)
+            if not data:
+                raise SystemExit("AI 모델을 받지 못했어요. 인터넷 연결을 확인해 주세요.")
+            path.write_bytes(data)
+        paths.append(path)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cpu":
         torch.set_num_threads(os.cpu_count() or 4)
+    model = ModelLoader().load_from_file(str(paths[0])).eval()
+    if len(paths) == 2:  # general: mix in the denoising model
+        d = min(1.0, max(0.0, args.denoise))
+        other = torch.load(paths[1], map_location="cpu")
+        other = other.get("params", other)
+        mine = model.model.state_dict()
+        model.model.load_state_dict({k: (1 - d) * mine[k] + d * other[k] for k in mine})
     # full precision: half precision is faster but gives black images on some cards (GTX 16xx)
-    model = ModelLoader().load_from_file(str(model_path)).eval().to(device)
+    model = model.to(device)
+    print(f"모델: {args.model}" + (f" (노이즈 제거 {args.denoise})" if len(paths) == 2 else ""))
     print(f"장치: {'그래픽카드 (' + torch.cuda.get_device_name(0) + ')' if device == 'cuda' else 'CPU (느려요)'}")
 
     songs = [m for m in json.loads(get(MUSIC_JSON) or b"[]") if m.get("image") and int(m["id"]) < 8000]
+    local: dict[int, Path] = {}  # music id -> jacket file in the folders given
+    for folder in args.folders:
+        found = 0
+        for f in Path(folder).rglob("CHU_UI_Jacket_*.dds"):
+            digits = "".join(ch for ch in f.stem.rsplit("_", 1)[-1] if ch.isdigit())
+            if digits and int(digits) < 8000:  # 8000+: WORLD'S END charts, the same jacket as the song's
+                local.setdefault(int(digits), f)
+                found += 1
+        print(f"{folder}: 자켓 {found}개")
+    known = {int(m["id"]) for m in songs}
+    songs += [{"id": str(mid), "title": f"#{mid} ({f.parent.name})", "image": ""}
+              for mid, f in sorted(local.items()) if mid not in known]
     if not songs:
         raise SystemExit("곡 목록을 받지 못했어요. 인터넷 연결을 확인해 주세요.")
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    todo = [m for m in songs if not (out / f"hq_{int(m['id'])}.jpg").exists()]
+    todo = [m for m in songs if args.redo or not (out / f"hq_{int(m['id'])}.jpg").exists()]
     if args.limit:
         todo = todo[:args.limit]
     print(f"곡 {len(songs)}개 중 {len(todo)}개 변환 (이미 한 건 건너뜀)")
@@ -73,11 +116,16 @@ def main() -> None:
     started = time.time()
     for n, m in enumerate(todo, 1):
         mid = int(m["id"])
-        data = get(LXNS.format(mid)) or get(SEGA.format(m["image"]))
+        data = (local[mid].read_bytes() if mid in local else None) or get(LXNS.format(mid)) or \
+            (get(SEGA.format(m["image"])) if m["image"] else None)
         if not data:
             print(f"  [{n}/{len(todo)}] {m['title']}: 자켓을 받지 못했어요, 건너뜀")
             continue
-        src = Image.open(io.BytesIO(data)).convert("RGB")
+        try:
+            src = Image.open(io.BytesIO(data)).convert("RGB")
+        except Exception:
+            print(f"  [{n}/{len(todo)}] {m['title']}: 이미지를 읽지 못했어요, 건너뜀")
+            continue
         x = torch.from_numpy(np.array(src)).permute(2, 0, 1).float().div(255).unsqueeze(0).to(device)
         with torch.no_grad():
             y = model(x)[0].float().clamp(0, 1)

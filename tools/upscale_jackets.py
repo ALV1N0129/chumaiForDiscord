@@ -7,6 +7,9 @@ uses `hq_<music id>.jpg` there before downloading anything.
     python tools/upscale_jackets.py            # every song (resumes where it stopped)
     python tools/upscale_jackets.py --limit 5  # just a few, to try it out
     python tools/upscale_jackets.py --model anime --redo   # another model, over the old results
+    python tools/upscale_jackets.py --from "D:\\chuni\\A000" --from "D:\\chuni\\option"
+        # jackets (CHU_UI_Jacket_xxxx.dds) from folders, searched all the way down: newer songs come
+        # out sharper (SEGA's site has them at 190x190 only), and songs no longer in the game get one
 
 Models: general (default; keeps texture, --denoise 0~1 sets how much noise it removes, 0.5 by
 default), x4plus (sharper, bigger), anime (smoothest: flattens textures).
@@ -54,6 +57,8 @@ def main() -> None:
     ap.add_argument("--model", choices=list(MODELS), default="general", help="AI model (general by default)")
     ap.add_argument("--denoise", type=float, default=0.5, help="general model: noise removed, 0~1 (0.5)")
     ap.add_argument("--redo", action="store_true", help="convert again the songs already done")
+    ap.add_argument("--from", dest="folders", action="append", default=[],
+                    help="a folder with CHU_UI_Jacket_xxxx.dds files (searched in subfolders; can repeat)")
     args = ap.parse_args()
 
     import numpy as np
@@ -87,6 +92,18 @@ def main() -> None:
     print(f"장치: {'그래픽카드 (' + torch.cuda.get_device_name(0) + ')' if device == 'cuda' else 'CPU (느려요)'}")
 
     songs = [m for m in json.loads(get(MUSIC_JSON) or b"[]") if m.get("image") and int(m["id"]) < 8000]
+    local: dict[int, Path] = {}  # music id -> jacket file in the folders given
+    for folder in args.folders:
+        found = 0
+        for f in Path(folder).rglob("CHU_UI_Jacket_*.dds"):
+            digits = "".join(ch for ch in f.stem.rsplit("_", 1)[-1] if ch.isdigit())
+            if digits and int(digits) < 8000:  # 8000+: WORLD'S END charts, the same jacket as the song's
+                local.setdefault(int(digits), f)
+                found += 1
+        print(f"{folder}: 자켓 {found}개")
+    known = {int(m["id"]) for m in songs}
+    songs += [{"id": str(mid), "title": f"#{mid} ({f.parent.name})", "image": ""}
+              for mid, f in sorted(local.items()) if mid not in known]
     if not songs:
         raise SystemExit("곡 목록을 받지 못했어요. 인터넷 연결을 확인해 주세요.")
     out = Path(args.out)
@@ -99,11 +116,16 @@ def main() -> None:
     started = time.time()
     for n, m in enumerate(todo, 1):
         mid = int(m["id"])
-        data = get(LXNS.format(mid)) or get(SEGA.format(m["image"]))
+        data = (local[mid].read_bytes() if mid in local else None) or get(LXNS.format(mid)) or \
+            (get(SEGA.format(m["image"])) if m["image"] else None)
         if not data:
             print(f"  [{n}/{len(todo)}] {m['title']}: 자켓을 받지 못했어요, 건너뜀")
             continue
-        src = Image.open(io.BytesIO(data)).convert("RGB")
+        try:
+            src = Image.open(io.BytesIO(data)).convert("RGB")
+        except Exception:
+            print(f"  [{n}/{len(todo)}] {m['title']}: 이미지를 읽지 못했어요, 건너뜀")
+            continue
         x = torch.from_numpy(np.array(src)).permute(2, 0, 1).float().div(255).unsqueeze(0).to(device)
         with torch.no_grad():
             y = model(x)[0].float().clamp(0, 1)

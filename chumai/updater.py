@@ -55,12 +55,22 @@ async def check() -> tuple[bool, str]:
             return True, f"최신 코드(`{local}`)는 받아져 있는데 봇은 `{started_at}` 로 돌고 있어요. 재시작할게요."
         return False, f"이미 최신 버전이에요. (`{branch}` @ `{local}`)"
     code, out = await _git("pull", "--ff-only")
+    if code != 0 and "local changes" in out and await _files_match("@{u}"):
+        # the files are already the new version (copied in by the host, say), only git's record is
+        # behind: move it along, nothing is lost
+        code, out = await _git("reset", "--quiet", "@{u}")
     if code != 0:
         log.warning("git pull failed: %s", out)
         return False, (f"새 버전(`{remote}`)이 있지만 받지 못했어요. 지금 `{local}` 이에요.\n"
                        f"```{out[:900]}```\n봇 폴더에서 `git status` 로 바뀐 파일이 있는지 확인해 주세요.")
     log.info("updated %s -> %s", local, remote)
     return True, f"`{local}` → `{remote}` 로 업데이트했어요. 몇 초 뒤 재시작돼요."
+
+
+async def _files_match(ref: str) -> bool:
+    """Whether the tracked files on disk are exactly `ref`'s."""
+    code, _ = await _git("diff", "--quiet", ref, "--")
+    return code == 0
 
 
 async def pull_if_updated() -> bool:

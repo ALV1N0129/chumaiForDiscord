@@ -83,7 +83,7 @@ def main() -> None:
                 print(f"  {f}: 읽지 못했어요, 건너뜀")
                 continue
             buf = BytesIO()
-            img.save(buf, "JPEG", quality=92)
+            img.save(buf, "JPEG", quality=95, subsampling=0)  # close to lossless (avg. diff ~2/255)
             z.writestr(f"hq_{mid}.jpg", buf.getvalue())
             done += 1
     print(f"\n자켓 {done}개 → {zip_path}")

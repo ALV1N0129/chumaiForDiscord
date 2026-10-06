@@ -73,7 +73,7 @@ def shrink_jacket(data: bytes, size: int = HQ_SIZE) -> bytes:
         if im.width > size:
             im = im.resize((size, size), Image.LANCZOS)
         out = BytesIO()
-        im.save(out, "JPEG", quality=92)
+        im.save(out, "JPEG", quality=95, subsampling=0)  # close to lossless
         im.close()
     return out.getvalue()
 

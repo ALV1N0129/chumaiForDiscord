@@ -18,7 +18,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import answers, features, i18n, logbuffer, net_parsers, prefix, render, updater
+from . import answers, features, i18n, jacket_upload, logbuffer, net_parsers, prefix, render, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .charts import PenguinNicknames
 from .config import Config
@@ -106,6 +106,8 @@ class ChumaiBot(discord.Client):
         features.register(self)
 
     async def on_message(self, message: discord.Message) -> None:
+        if message.webhook_id and message.attachments and await jacket_upload.accept(self, message):
+            return
         if message.author.bot or not self.config.prefix or not message.content.startswith(self.config.prefix):
             return
         await prefix.handle(self, message, self.config.prefix)
@@ -524,6 +526,27 @@ def register_commands(bot: ChumaiBot) -> None:
         log.info("live logs on in channel %s", interaction.channel_id)
 
     tree.add_command(logs)
+
+    @tree.command(name="jacketupload",
+                  description="PC에서 자켓을 보낼 주소를 이 채널에 만듭니다 (tools/export_jackets, 봇 주인만)")
+    async def jacket_upload_cmd(interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await owner_only(interaction):
+            return
+        try:
+            url = await jacket_upload.make_webhook(bot, interaction.channel)
+        except discord.Forbidden:
+            await interaction.followup.send("이 채널에서 웹후크를 만들 권한(웹후크 관리)이 봇에게 없어요.", ephemeral=True)
+            return
+        except (discord.HTTPException, AttributeError):
+            await interaction.followup.send("이 채널에서는 웹후크를 만들 수 없어요. 서버의 일반 채널에서 해 주세요.",
+                                            ephemeral=True)
+            return
+        await interaction.followup.send(
+            "PC에서 이렇게 실행하면 자켓이 이 채널을 거쳐 봇 폴더에 바로 저장돼요 (처음 한 번만 주소를 넣으면 기억해요):\n"
+            f"```export_jackets.bat --upload {url} \"자켓 폴더\"```"
+            "이 주소는 비밀번호처럼 다뤄 주세요. 다시 만들면 예전 주소는 못 써요. "
+            "봇에 메시지 내용 읽기 권한(접두어 명령어용)이 켜져 있어야 해요.", ephemeral=True)
 
     @tree.command(name="update", description="GitHub에서 최신 코드를 바로 받아서 봇을 재시작합니다 (봇 주인만)")
     async def update_cmd(interaction: discord.Interaction) -> None:

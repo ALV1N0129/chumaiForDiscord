@@ -101,6 +101,8 @@ SUMMARIES = {
     "jacket %s: download failed (%s); retrying in %d min": "자켓을 받지 못했어요. 잠시 뒤에 다시 받을게요.",
     "jacket fetch failed": "자켓을 불러오지 못했어요.",
     "failed to fetch jackets": "자켓을 불러오지 못했어요.",
+    "saved %d uploaded jackets": lambda n, *_: f"PC에서 보낸 자켓 {n}개를 저장했어요.",
+    "could not save uploaded jackets %s": "PC에서 보낸 자켓을 저장하지 못했어요.",
     "chuni-penguin nicknames updated": None,
     "failed to download chuni-penguin nicknames; using cached copy if any": "커뮤니티 곡 별명을 받지 못했어요. 저장된 걸 쓸게요.",
     "could not load chuni-penguin nicknames": "커뮤니티 곡 별명을 받지 못했어요.",

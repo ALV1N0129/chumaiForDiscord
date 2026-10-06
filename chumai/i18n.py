@@ -30,6 +30,7 @@ COMMANDS = {
     "answer": "정답",
     "alias": "별명",
     "help": "도움말",
+    "jacketupload": "자켓업로드",
     # subcommands
     "on": "켜기",
     "off": "끄기",

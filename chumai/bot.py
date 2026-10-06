@@ -754,6 +754,11 @@ async def _cached_image(bot: ChumaiBot, net: NetClient, game: str, url: str | No
     if not url:
         return None
     name = url.split("?")[0].rsplit("/", 1)[-1]
+    key = bot.jackets.key_of_image(game, name)
+    if key is not None:  # the larger copy, when there is one
+        found = await bot.jackets.fetch(game, [key])
+        if 0 in found:
+            return str(found[0])
     path = Path(bot.config.jacket_dir) / game / name
     if not path.exists():
         data = await _fetch_image(net, url)

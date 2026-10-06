@@ -45,6 +45,7 @@ def test_fetch_downloads_once_and_caches(tmp_path, monkeypatch):
         await site.start()
         port = site._server.sockets[0].getsockname()[1]
         monkeypatch.setattr(jackets, "CHUNITHM_IMG_BASES", [f"http://127.0.0.1:{port}/img/"])
+        monkeypatch.setattr(jackets, "LXNS_CHUNITHM_JACKET", f"http://127.0.0.1:{port}/lxns/{{}}.png")  # none
         try:
             store = JacketStore(tmp_path)
             store.load_index(
@@ -60,3 +61,22 @@ def test_fetch_downloads_once_and_caches(tmp_path, monkeypatch):
     assert sorted(first) == [0, 3] and first[0].read_bytes() == buf.getvalue()
     assert second[0] == first[0]
     assert hits["n"] == 1  # downloaded once, then served from disk
+
+
+def test_lxns_ids():
+    from chumai.jackets import lxns_ids
+    text = ('{"songs":[{"id":8,"title":"True Love Song","artist":"Kai"},'
+            '{"id":10363,"title":"Say \\"Hi\\"","artist":"x"},'
+            '{"id":11,"title":"Link","artist":"a"},{"id":12,"title":"Link","artist":"b"}],'
+            '"genres":[{"id":1,"title":"maimai","genre":"maimai"}]}')
+    assert lxns_ids(text) == {"true love song": 8, 'say "hi"': 363}  # Link: two songs, can't tell
+
+
+def test_shrink_jacket():
+    import io
+    from PIL import Image
+    from chumai.jackets import shrink_jacket
+    buf = io.BytesIO()
+    Image.new("RGBA", (400, 400), (200, 10, 10, 255)).save(buf, "PNG")
+    with Image.open(io.BytesIO(shrink_jacket(buf.getvalue()))) as im:
+        assert im.size == (300, 300) and im.format == "JPEG"

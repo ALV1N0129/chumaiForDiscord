@@ -67,12 +67,37 @@ async def check() -> tuple[bool, str]:
             if code == 0:
                 log.warning("files changed in the bot folder were put aside (git stash) to update")
                 code, out = await _git("pull", "--ff-only")
+    if code != 0 and "untracked working tree files would be overwritten" in out:
+        # new files of the update already there (a host copying files in): out of the way, then pull
+        await _move_aside(_listed_paths(out))
+        code, out = await _git("pull", "--ff-only")
     if code != 0:
         log.warning("git pull failed: %s", out)
         return False, (f"새 버전(`{remote}`)이 있지만 받지 못했어요. 지금 `{local}` 이에요.\n"
                        f"```{out[:900]}```\n봇 폴더에서 `git status` 로 바뀐 파일이 있는지 확인해 주세요.")
     log.info("updated %s -> %s", local, remote)
     return True, f"`{local}` → `{remote}` 로 업데이트했어요. 몇 초 뒤 재시작돼요."
+
+
+def _listed_paths(out: str) -> list[str]:
+    """The files git lists (tab-indented) in an error message."""
+    return [line.strip() for line in out.splitlines() if line.startswith("\t") and line.strip()]
+
+
+async def _move_aside(paths: list[str]) -> None:
+    """Untracked files in the update's way: deleted if they're already the update's version, else
+    renamed to <name>.bak (kept)."""
+    for rel in paths:
+        path = (REPO / rel).resolve()
+        if REPO not in path.parents or not path.is_file():
+            continue
+        code, theirs = await _git("show", f"@{{u}}:{rel}")
+        mine = path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n").strip()
+        if code == 0 and mine == theirs.replace("\r\n", "\n").strip():
+            path.unlink()
+        else:
+            path.rename(path.with_name(path.name + ".bak"))
+            log.warning("untracked file %s was in the update's way; kept as %s.bak", rel, rel)
 
 
 async def _files_match(ref: str) -> bool:

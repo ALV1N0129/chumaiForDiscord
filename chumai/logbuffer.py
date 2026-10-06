@@ -53,6 +53,8 @@ SUMMARIES = {
     "git fetch failed: %s": lambda out, *_: f"업데이트를 확인하지 못했어요. ({_git_reason(out)})",
     "git pull failed: %s": lambda out, *_: f"업데이트를 받지 못했어요. ({_git_reason(out)})",
     "update failed": "업데이트에 실패했어요.",
+    "untracked file %s was in the update's way; kept as %s.bak":
+        lambda path, *_: f"업데이트와 겹치는 파일 `{path}` 을(를) `{path}.bak` 으로 바꿔 두고 업데이트했어요.",
     "files changed in the bot folder were put aside (git stash) to update":
         "봇 폴더에서 바뀐 파일을 따로 보관(git stash)하고 업데이트했어요.",
     "live logs on in channel %s": "실시간 로그를 켰어요.",

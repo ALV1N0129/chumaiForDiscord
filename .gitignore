@@ -8,3 +8,4 @@ data/
 tools/.venv/
 tools/upscaled/
 tools/*.pth
+tools/exported/

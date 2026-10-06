@@ -38,6 +38,18 @@ def test_check_pulls_and_explains_failures(tmp_path, monkeypatch):
     pulled, msg = asyncio.run(updater.check())
     assert pulled and "업데이트했어요" in msg and (clone / "a.txt").read_text() == "2"
     assert "put aside" in _git(clone, "stash", "list")
+
+    # the update's new files already copied in (one the same, one not): out of the way, then pulled
+    (work / "new.txt").write_text("new")
+    (work / "other.txt").write_text("other")
+    _git(work, "add", ".")
+    _git(work, "commit", "-qm", "three")
+    _git(work, "push", "-q", "origin", "HEAD")
+    (clone / "new.txt").write_text("new\r\n")
+    (clone / "other.txt").write_text("mine")
+    pulled, msg = asyncio.run(updater.check())
+    assert pulled and (clone / "new.txt").read_text() == "new"
+    assert (clone / "other.txt.bak").read_text() == "mine" and (clone / "other.txt").read_text() == "other"
     assert asyncio.run(updater.version()) != "?"
 
 

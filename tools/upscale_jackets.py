@@ -56,9 +56,8 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cpu":
         torch.set_num_threads(os.cpu_count() or 4)
+    # full precision: half precision is faster but gives black images on some cards (GTX 16xx)
     model = ModelLoader().load_from_file(str(model_path)).eval().to(device)
-    if device == "cuda":
-        model = model.half()
     print(f"장치: {'그래픽카드 (' + torch.cuda.get_device_name(0) + ')' if device == 'cuda' else 'CPU (느려요)'}")
 
     songs = [m for m in json.loads(get(MUSIC_JSON) or b"[]") if m.get("image") and int(m["id"]) < 8000]
@@ -79,10 +78,13 @@ def main() -> None:
             print(f"  [{n}/{len(todo)}] {m['title']}: 자켓을 받지 못했어요, 건너뜀")
             continue
         src = Image.open(io.BytesIO(data)).convert("RGB")
-        x = torch.from_numpy(np.asarray(src)).permute(2, 0, 1).float().div(255).unsqueeze(0).to(device)
+        x = torch.from_numpy(np.array(src)).permute(2, 0, 1).float().div(255).unsqueeze(0).to(device)
         with torch.no_grad():
-            y = model(x.half() if device == "cuda" else x)
-        img = Image.fromarray((y[0].float().clamp(0, 1).permute(1, 2, 0).cpu().numpy() * 255).round().astype("uint8"))
+            y = model(x)[0].float().clamp(0, 1)
+        if not torch.isfinite(y).all():
+            print(f"  [{n}/{len(todo)}] {m['title']}: 변환이 깨졌어요, 건너뜀")
+            continue
+        img = Image.fromarray((y.permute(1, 2, 0).cpu().numpy() * 255).round().astype("uint8"))
         img.resize((SIZE, SIZE), Image.LANCZOS).save(out / f"hq_{mid}.jpg", quality=90)
         left = (time.time() - started) / n * (len(todo) - n)
         print(f"  [{n}/{len(todo)}] {m['title']}  (남은 시간 약 {left / 60:.0f}분)")

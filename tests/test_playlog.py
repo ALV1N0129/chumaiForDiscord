@@ -114,7 +114,8 @@ def test_check_playlog_posts_only_new_credits(tmp_path, monkeypatch):
     last_key = credits[-3][-1].key  # the last two credits are "new"
     links.set_playlog(1, "chunithm", 99, last_key)
     fake_bot = SimpleNamespace(
-        links=links, songdb=SongDB(), jackets=SimpleNamespace(unrated_level=lambda title, diff: None),
+        links=links, songdb=SongDB(), jackets=SimpleNamespace(unrated_level=lambda title, diff: None,
+                                                                 key_of_image=lambda game, name: None),
         config=SimpleNamespace(jacket_dir=str(tmp_path / "j"), new_versions={"chunithm": [], "maimai": []}),
         get_channel=lambda cid: Channel(),
     )
@@ -146,7 +147,8 @@ def test_check_playlog_without_updating_key(tmp_path, monkeypatch):
     links.set_playlog(1, "chunithm", 99, "9999")  # already up to date
     credits = net_parsers.group_credits(net_parsers.parse_chunithm_playlog(playlog))
     fake_bot = SimpleNamespace(
-        links=links, songdb=SongDB(), jackets=SimpleNamespace(unrated_level=lambda title, diff: None),
+        links=links, songdb=SongDB(), jackets=SimpleNamespace(unrated_level=lambda title, diff: None,
+                                                                 key_of_image=lambda game, name: None),
         config=SimpleNamespace(jacket_dir=str(tmp_path / "j"), new_versions={"chunithm": [], "maimai": []}),
         get_channel=lambda cid: Channel(),
     )

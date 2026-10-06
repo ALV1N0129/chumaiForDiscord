@@ -1,6 +1,10 @@
 """Turn CHUNITHM jackets from game folders (CHU_UI_Jacket_xxxx.dds, 300x300) into files the bot uses.
 
     python tools/export_jackets.py "D:\\chuni\\A000" "D:\\chuni\\option"
+    python tools/export_jackets.py --all "D:\\chuni\\A000"   # every jacket, not just the missing ones
+
+Only the songs LXNS has no jacket for are packed by default: the bot gets the others from LXNS by
+itself, at the same 300x300, so they'd just make the upload slower.
 
 Folders are searched all the way down. It makes `tools/exported/chunithm_jackets.zip`: upload it to
 the bot's `data/jackets/chunithm/` folder and unzip it there. The bot uses `hq_<music id>.jpg` there
@@ -20,8 +24,30 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 
+LXNS_SONGS = "https://maimai.lxns.net/api/v0/chunithm/song/list"
+
+
+def lxns_ids() -> set[int]:
+    """Music ids LXNS has a jacket for (empty if it can't be reached: then everything is packed)."""
+    import json
+    import re
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(LXNS_SONGS, headers={"User-Agent": "Mozilla/5.0 (chumaiForDiscord)"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            text = r.read().decode("utf-8")
+        json.loads(text)
+    except Exception:
+        print("LXNS 곡 목록을 받지 못해서 전부 담을게요.")
+        return set()
+    return {int(i) for i in re.findall(r'\{"id":(\d+),"title":', text)}
+
+
 def main() -> None:
-    folders = sys.argv[1:]
+    args = sys.argv[1:]
+    every = "--all" in args
+    folders = [a for a in args if a != "--all"]
     if not folders:
         raise SystemExit("자켓이 있는 폴더를 적어 주세요. 예: export_jackets.bat \"D:\\chuni\\A000\"")
     from PIL import Image
@@ -37,6 +63,13 @@ def main() -> None:
         print(f"{folder}: 자켓 {n}개")
     if not found:
         raise SystemExit("CHU_UI_Jacket_xxxx.dds 파일을 찾지 못했어요. 폴더를 확인해 주세요.")
+
+    if not every:
+        have = lxns_ids()
+        skip = [mid for mid in found if mid in have]
+        for mid in skip:
+            del found[mid]
+        print(f"LXNS에 있는 {len(skip)}곡은 봇이 알아서 받으니 빼고, {len(found)}곡만 담아요. (전부: --all)")
 
     zip_path = HERE / "exported" / "chunithm_jackets.zip"
     zip_path.parent.mkdir(exist_ok=True)

@@ -53,6 +53,8 @@ SUMMARIES = {
     "git fetch failed: %s": lambda out, *_: f"업데이트를 확인하지 못했어요. ({_git_reason(out)})",
     "git pull failed: %s": lambda out, *_: f"업데이트를 받지 못했어요. ({_git_reason(out)})",
     "update failed": "업데이트에 실패했어요.",
+    "files changed in the bot folder were put aside (git stash) to update":
+        "봇 폴더에서 바뀐 파일을 따로 보관(git stash)하고 업데이트했어요.",
     "live logs on in channel %s": "실시간 로그를 켰어요.",
     # play logs
     "posted %d credit(s) for %s/%s": lambda n, who, game: f"<@{who}> 님의 {_game(game)} 플레이 기록 {n}크레딧을 올렸어요.",

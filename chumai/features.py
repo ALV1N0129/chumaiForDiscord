@@ -222,6 +222,9 @@ SHORT_GENRES = {
 
 
 def register(bot: ChumaiBot) -> None:
+    from . import favorites
+
+    favorites.register(bot)
     tree = bot.tree
     rounds: dict[int, GuessRound] = {}
 

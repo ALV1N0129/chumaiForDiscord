@@ -262,15 +262,17 @@ class NetClient:
                 return cookie.value
         return None
 
-    async def post(self, path: str, data: dict[str, str]) -> bytes:
-        """Submit a form on the site. The session token (`_t` cookie) is sent as `token`."""
+    async def post(self, path: str, data: dict[str, str] | list[tuple[str, str]]) -> bytes:
+        """Submit a form on the site. The session token (`_t` cookie) is sent as `token`. A list of
+        pairs sends a field more than once (e.g. music[])."""
         assert self._session is not None
         target = self.site.base.join(URL(path))
         top = self.site.home_path.rstrip("/")
         for attempt in range(2):
             if not self._authed:
                 await self._authenticate()
-            form = {**data, "token": self._cookie("_t") or ""}
+            pairs = list(data.items()) if isinstance(data, dict) else list(data)
+            form = [*pairs, ("token", self._cookie("_t") or "")]
             resp, body = await _request(self._session, "POST", target, data=form)
             final = resp.url
             bounced = final.path.rstrip("/") == top or "/error" in final.path

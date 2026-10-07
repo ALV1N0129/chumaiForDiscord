@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 import sqlite3
 import time
@@ -78,6 +79,13 @@ class LinkStore:
                 title TEXT NOT NULL,
                 alias TEXT NOT NULL,
                 PRIMARY KEY (guild_id, game, title, alias)
+            );
+            CREATE TABLE IF NOT EXISTS favorite_presets (
+                discord_id INTEGER NOT NULL,
+                game TEXT NOT NULL,
+                name TEXT NOT NULL,
+                songs TEXT NOT NULL,
+                PRIMARY KEY (discord_id, game, name)
             );
             CREATE TABLE IF NOT EXISTS sega_tokens (
                 discord_id INTEGER PRIMARY KEY,
@@ -258,6 +266,28 @@ class LinkStore:
             (discord_id, game))
         return {key: Badge(kind, delta=delta, best=best, gain=gain, first=bool(first))
                 for key, kind, delta, best, gain, first in rows}
+
+    # favorite presets (/favorite): songs as [[title, genre number], ...]
+    def save_preset(self, discord_id: int, game: str, name: str, songs: list) -> None:
+        self._db.execute("INSERT OR REPLACE INTO favorite_presets (discord_id, game, name, songs) VALUES (?, ?, ?, ?)",
+                         (discord_id, game, name, json.dumps(songs, ensure_ascii=False)))
+        self._db.commit()
+
+    def get_preset(self, discord_id: int, game: str, name: str) -> list | None:
+        row = self._db.execute("SELECT songs FROM favorite_presets WHERE discord_id = ? AND game = ? AND name = ?",
+                               (discord_id, game, name)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def presets(self, discord_id: int, game: str) -> list[tuple[str, list]]:
+        return [(name, json.loads(songs)) for name, songs in self._db.execute(
+            "SELECT name, songs FROM favorite_presets WHERE discord_id = ? AND game = ? ORDER BY name",
+            (discord_id, game))]
+
+    def delete_preset(self, discord_id: int, game: str, name: str) -> bool:
+        cur = self._db.execute("DELETE FROM favorite_presets WHERE discord_id = ? AND game = ? AND name = ?",
+                               (discord_id, game, name))
+        self._db.commit()
+        return cur.rowcount > 0
 
     def get_rating(self, discord_id: int, game: str) -> str | None:
         """Player rating seen last time the play log was checked."""

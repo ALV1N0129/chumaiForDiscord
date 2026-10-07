@@ -400,3 +400,26 @@ def group_credits(records: list[PlayRecord]) -> list[list[PlayRecord]]:
             credits.append([])
         credits[-1].append(r)
     return credits
+
+
+@dataclass
+class FavoriteRow:
+    """A song on maimai DX NET's favorite songs page (userOption/favorite/updateMusic)."""
+    genre: int  # 1 POPS＆ANIME … 6 オンゲキ＆CHUNITHM
+    title: str
+    value: str  # what the form sends for it (changes every session)
+    checked: bool
+
+
+def parse_maimai_favorites(html: str | bytes) -> list[FavoriteRow]:
+    """Every song on the favorite songs page, in page order, with whether it's a favorite now."""
+    if isinstance(html, bytes):
+        html = html.decode("utf-8", "replace")
+    rows: list[FavoriteRow] = []
+    for genre, block in re.findall(r'<div class="m_t_10" name=genre(\d+)>(.*?)(?=<div class="screw_block|'
+                                   r'<input type="hidden" name="token"|</form>)', html, re.S):
+        for value, attrs, title in re.findall(
+                r'<input type="checkbox"[^>]*?value="([^"]+)"([^>]*)/?>\s*<div class="favorite_music_name[^"]*">'
+                r'(.*?)</div>', block, re.S):
+            rows.append(FavoriteRow(int(genre), html_lib.unescape(title.strip()), value, "checked" in attrs))
+    return rows

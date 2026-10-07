@@ -32,6 +32,11 @@ COMMANDS = {
     "help": "도움말",
     "jacketupload": "자켓업로드",
     "pagesource": "페이지소스",
+    "favorite": "즐겨찾기",
+    "save": "저장",
+    "make": "만들기",
+    "apply": "적용",
+    "delete": "지우기",
     # subcommands
     "on": "켜기",
     "off": "끄기",
@@ -60,6 +65,8 @@ OPTIONS = {
     "switch": "켜기끄기",
     "category": "카테고리",
     "path": "주소",
+    "songs": "곡들",
+    "preset": "프리셋",
 }
 
 

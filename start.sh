@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 [ -d .git ] && git pull --ff-only
 [ -d .venv ] || python3 -m venv .venv
 source .venv/bin/activate
+export CHUMAI_SUPERVISED=1  # the loop below restarts the bot after an update
 while true; do
     pip install -q -r requirements.txt
     python -m chumai

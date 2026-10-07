@@ -48,7 +48,8 @@ SUMMARIES = {
     # start, updates
     "synced %d commands to server %s: %s": "재부팅 되었어요.",
     "synced %d global commands (GUILD_ID not set; may take a while to show up): %s": "재부팅 되었어요.",
-    "new version pulled; restarting": None,  # the bot says so itself (RESTART_NOTICE)
+    "new version pulled; restarting": None,
+    "requirements changed; installing": "새 패키지를 설치하고 재시작해요.",  # the bot says so itself (RESTART_NOTICE)
     "updated %s -> %s": lambda old, new, *_: f"업데이트했어요. ({str(old)[:7]} → {str(new)[:7]})",
     "git fetch failed: %s": lambda out, *_: f"업데이트를 확인하지 못했어요. ({_git_reason(out)})",
     "git pull failed: %s": lambda out, *_: f"업데이트를 받지 못했어요. ({_git_reason(out)})",

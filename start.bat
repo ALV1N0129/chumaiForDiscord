@@ -8,6 +8,7 @@ if not exist .venv (
     py -m venv .venv
 )
 call .venv\Scripts\activate.bat
+set CHUMAI_SUPERVISED=1
 :run
 pip install -q -r requirements.txt
 python -m chumai

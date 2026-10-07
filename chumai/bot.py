@@ -527,6 +527,32 @@ def register_commands(bot: ChumaiBot) -> None:
 
     tree.add_command(logs)
 
+    @tree.command(name="pagesource", description="SEGA NET 페이지 원본을 파일로 받습니다 (기능 개발용, 봇 주인만)")
+    @app_commands.describe(game="게임", path="페이지 주소 (예: /maimai-mobile/home/userOption/favorite/musicList)")
+    async def page_source(interaction: discord.Interaction, game: Literal["maimai", "chunithm"], path: str) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await owner_only(interaction):
+            return
+        path = "/" + path.split("://", 1)[-1].split("/", 1)[-1] if "://" in path else path  # a full URL too
+        if not path.startswith("/maimai-mobile/" if game == "maimai" else "/mobile/"):
+            await interaction.followup.send("그 게임의 SEGA NET 페이지 주소가 아니에요.", ephemeral=True)
+            return
+        token = bot.links.get_sega_token(interaction.user.id)
+        if token is None:
+            await interaction.followup.send("`/login` 으로 먼저 로그인해 주세요.", ephemeral=True)
+            return
+        try:
+            async with NetClient(game, token) as net:
+                html = await net.get(path)
+            if net.clal != token:
+                bot.links.set_sega_token(interaction.user.id, net.clal)
+        except SegaError as e:
+            await interaction.followup.send(f"불러오지 못했어요: {e}", ephemeral=True)
+            return
+        name = path.strip("/").replace("/", "_")[-60:] or "page"
+        await interaction.followup.send("페이지 원본이에요. 개인 정보가 들어 있으니 필요한 곳에만 보내 주세요.",
+                                        file=discord.File(io.BytesIO(html), f"{name}.html"), ephemeral=True)
+
     @tree.command(name="jacketupload",
                   description="PC에서 자켓을 보낼 주소를 이 채널에 만듭니다 (tools/export_jackets, 봇 주인만)")
     async def jacket_upload_cmd(interaction: discord.Interaction) -> None:

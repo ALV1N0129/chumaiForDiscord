@@ -31,6 +31,7 @@ COMMANDS = {
     "alias": "별명",
     "help": "도움말",
     "jacketupload": "자켓업로드",
+    "pagesource": "페이지소스",
     # subcommands
     "on": "켜기",
     "off": "끄기",
@@ -58,6 +59,7 @@ OPTIONS = {
     "name": "별명",
     "switch": "켜기끄기",
     "category": "카테고리",
+    "path": "주소",
 }
 
 

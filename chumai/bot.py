@@ -1171,4 +1171,6 @@ def main() -> None:
         # restart can finish their database writes
         bot.links.close()
     if bot.restart_requested:
-        raise SystemExit(updater.RESTART_EXIT_CODE)
+        if updater.SUPERVISED:
+            raise SystemExit(updater.RESTART_EXIT_CODE)
+        updater.restart_in_place()

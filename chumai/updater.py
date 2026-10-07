@@ -11,6 +11,9 @@ log = logging.getLogger(__name__)
 
 RESTART_EXIT_CODE = 3
 REPO = Path(__file__).resolve().parent.parent
+# start.sh / start.bat restart the bot when it exits with RESTART_EXIT_CODE; anywhere else (a hosting
+# panel running `python app.py`) the bot starts itself again instead
+SUPERVISED = os.environ.get("CHUMAI_SUPERVISED") == "1"
 started_at: str | None = None  # commit the running code came from (set by remember_start)
 
 
@@ -115,3 +118,30 @@ async def pull_if_updated() -> bool:
 async def version() -> str:
     code, out = await _git("log", "-1", "--format=%h %cd", "--date=format:%m/%d %H:%M")
     return out if code == 0 else "?"
+
+
+def _requirements() -> bytes:
+    try:
+        return (REPO / "requirements.txt").read_bytes()
+    except OSError:
+        return b""
+
+
+_requirements_at_start = _requirements()
+
+
+def restart_in_place() -> None:
+    """Start the bot again in this process (installing new requirements first, if they changed)."""
+    import subprocess
+    import sys
+
+    if _requirements() != _requirements_at_start:
+        log.info("requirements changed; installing")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(REPO / "requirements.txt")],
+                       cwd=REPO, check=False)
+    spec = getattr(sys.modules.get("__main__"), "__spec__", None)
+    if spec is not None and spec.name:  # python -m chumai
+        args = ["-m", spec.name.removesuffix(".__main__")]
+    else:  # python app.py
+        args = sys.argv
+    os.execv(sys.executable, [sys.executable, *args])

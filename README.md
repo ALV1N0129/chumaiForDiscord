@@ -71,6 +71,21 @@ SEGA ID로 로그인하면 봇이 국제판 공식 사이트([CHUNITHM-NET](http
 | `/giveup` | `!포기` / `!gu` | 맞히기를 포기하고 정답 보기 (문제 아래 버튼으로도 가능) |
 | `/alias add\|remove\|list game: song: [name:]` | | 맞히기에서 정답으로 인정할 곡 별명 (서버별, 예: 뇌장작렬걸) |
 | `/help` | `!h` | 명령어 목록 |
+| `/favorite save\|make\|apply\|list\|delete` | | maimai 즐겨찾기 프리셋 (게임 즐겨찾기는 30곡까지). 기록 사이트와 연결하면 사이트 프리셋을 같이 씀 |
+| `/site link code:` | | 기록 사이트(mai records) 계정과 연결. 코드는 사이트 설정 → 디스코드 봇 연결 |
+| `/site sync` | | maimai 기록을 지금 기록 사이트에 올리기 |
+| `/site unlink` | | 기록 사이트와 연결 끊기 |
+
+### 기록 사이트 연동
+
+`.env`의 `SITE_BOT_SECRET`에 사이트(Cloudflare Worker)의 `BOT_SECRET`과 같은 값을 넣으면 켜집니다.
+`/site link`로 연결한 사람은:
+
+- 새 크레딧이 플레이 로그에 잡히거나, `SITE_SYNC_MINUTES`(기본 30분)마다 확인해서 플레이 수가 늘었으면
+  봇이 maimai 기록을 사이트에 올립니다. 사이트의 북마클릿과 같은 형식으로 읽습니다(`chumai/site_payload.py`).
+- `/favorite` 프리셋이 사이트에 저장돼서 사이트와 같이 쓰고, 연결할 때 봇에 있던 프리셋은 사이트로 옮깁니다.
+- 사이트의 "게임 즐겨찾기"에서 누른 적용/읽기는 사이트에 작업으로 쌓이고, 봇이 5초마다 가져가서 처리합니다.
+  봇에 `/login`이 돼 있어야 합니다.
 
 ### 맞히기 정답
 
@@ -177,6 +192,8 @@ chumai/
   jackets.py  곡 자켓 찾기·캐시
   tls.py      인증서 체인이 불완전한 사이트 대응
   storage.py  로그인 토큰 저장 (SQLite)
+  site.py     기록 사이트 연동 (/site, 기록 업로드, 사이트에서 온 즐겨찾기 작업)
+  site_payload.py  maimai DX NET → 기록 사이트 업로드 형식 (사이트 북마클릿과 같은 파서)
 ```
 
 `tests/fixtures/chunithm_net/`의 HTML은 [chuni-penguin](https://github.com/beer-psi/chuni-penguin)의

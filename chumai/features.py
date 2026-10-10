@@ -639,6 +639,12 @@ def register(bot: ChumaiBot) -> None:
             "놀이": [("guess", "자켓 맞히기"), ("answer", "정답 입력"), ("alias", "곡 별명 등록"),
                    ("giveup", "포기하고 정답 보기")],
         }
+        if getattr(bot, "site", None) is not None and bot.site.enabled:
+            groups["기록 사이트"] = [
+                ("site", "연결|연결끊기|올리기 — 기록 사이트 연동" if locale is discord.Locale.korean
+                 else "link|unlink|sync — 기록 사이트 연동"),
+                ("favorite", "즐겨찾기 프리셋 (연결하면 사이트와 같이 써요)"),
+            ]
         p = bot.config.prefix
         short = {full: alias for alias, full in ALIASES.items()}
         embed = discord.Embed(title="명령어", color=0x8A7CFF)

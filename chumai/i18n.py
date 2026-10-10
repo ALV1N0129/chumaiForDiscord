@@ -37,6 +37,10 @@ COMMANDS = {
     "make": "만들기",
     "apply": "적용",
     "delete": "지우기",
+    "site": "사이트",
+    "link": "연결",
+    "unlink": "연결끊기",
+    "sync": "올리기",
     # subcommands
     "on": "켜기",
     "off": "끄기",
@@ -67,6 +71,7 @@ OPTIONS = {
     "path": "주소",
     "songs": "곡들",
     "preset": "프리셋",
+    "code": "코드",
 }
 
 

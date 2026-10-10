@@ -18,7 +18,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from . import answers, features, i18n, jacket_upload, logbuffer, net_parsers, prefix, render, updater
+from . import answers, features, i18n, jacket_upload, logbuffer, net_parsers, prefix, render, site, updater
 from .b50 import B50, b50_from_chunithm_net, b50_from_maimai_net
 from .charts import PenguinNicknames
 from .config import Config
@@ -104,6 +104,8 @@ class ChumaiBot(discord.Client):
         self.b50_cache: dict[tuple[int, str], tuple[float, B50]] = {}  # reused by /recommend and /whatif
         register_commands(self)
         features.register(self)
+        site.register(self)  # sets self.site and self.site_sync
+        self.site_loops = site.SiteLoops(self)
 
     async def on_message(self, message: discord.Message) -> None:
         if message.webhook_id and message.attachments and await jacket_upload.accept(self, message):
@@ -129,6 +131,7 @@ class ChumaiBot(discord.Client):
             self.check_update.start()
         self.poll_playlogs.start()
         self.push_live_logs.start()
+        self.site_loops.start()
         await self.tree.set_translator(i18n.KoreanNames())
         if self.config.guild_id:
             guild = discord.Object(id=self.config.guild_id)
@@ -149,6 +152,8 @@ class ChumaiBot(discord.Client):
     playlog_status: dict[tuple[int, str], tuple[float, str]] = {}
 
     _auto_tries: dict[tuple[int, str], int] = {}
+    site: site.SiteClient
+    site_sync: site.SiteSync
 
     @tasks.loop(seconds=10)  # each play log is checked when it's due (PLAYLOG_INTERVAL)
     async def poll_playlogs(self) -> None:
@@ -181,6 +186,8 @@ class ChumaiBot(discord.Client):
                 found = False
             if found:
                 active = now
+                if game == "maimai":
+                    self.site_sync.request_upload(discord_id)  # send the new records to the site
             self._playlog_schedule[(discord_id, game)] = (time.time() + PLAYLOG_INTERVAL, active)
 
     async def _start_auto_playlog(self, discord_id: int, game: str, channel_id: int) -> None:
@@ -301,6 +308,8 @@ class ChumaiBot(discord.Client):
         self.check_update.cancel()
         self.poll_playlogs.cancel()
         self.push_live_logs.cancel()
+        self.site_loops.stop()
+        await self.site.close()
         await super().close()
 
 

@@ -1,5 +1,8 @@
 """Favorite song presets for maimai DX NET (/favorite): save the favorites as a named list, make one
-from song names, and put one on the site (at most 30 songs, the site's limit)."""
+from song names, and put one on the site (at most 30 songs, the site's limit).
+
+Someone linked to the record site (/site link) keeps their presets there, shared with the site; everyone
+else keeps them in the bot's database."""
 
 from __future__ import annotations
 
@@ -11,6 +14,7 @@ from discord import app_commands
 
 from . import answers, net_parsers
 from .segaid import NetClient, SegaError
+from .site import SiteError
 from .songdb import normalize_title, search
 
 if TYPE_CHECKING:
@@ -51,6 +55,36 @@ def pick(rows: list[net_parsers.FavoriteRow], songs: list) -> tuple[list[net_par
         row = next((r for r in same if r.genre == genre), same[0] if same else None)
         (found if row else missing).append(row or title)
     return found, missing
+
+
+async def _on_site(bot, discord_id: int) -> bool:
+    site = getattr(bot, "site", None)
+    return site is not None and site.enabled and await site.username(discord_id) is not None
+
+
+async def list_presets(bot, discord_id: int) -> list[tuple[str, list]]:
+    if await _on_site(bot, discord_id):
+        return await bot.site.presets(discord_id)
+    return bot.links.presets(discord_id, "maimai")
+
+
+async def get_preset(bot, discord_id: int, name: str) -> list | None:
+    if await _on_site(bot, discord_id):
+        return next((songs for n, songs in await bot.site.presets(discord_id) if n == name), None)
+    return bot.links.get_preset(discord_id, "maimai", name)
+
+
+async def save_preset(bot, discord_id: int, name: str, songs: list) -> None:
+    if await _on_site(bot, discord_id):
+        await bot.site.save_preset(discord_id, name, songs)
+    else:
+        bot.links.save_preset(discord_id, "maimai", name, songs)
+
+
+async def delete_preset(bot, discord_id: int, name: str) -> bool:
+    if await _on_site(bot, discord_id):
+        return await bot.site.delete_preset(discord_id, name)
+    return bot.links.delete_preset(discord_id, "maimai", name)
 
 
 def _songs_text(songs: list) -> str:
@@ -94,7 +128,11 @@ def register(bot: ChumaiBot) -> None:
         if not songs:
             await interaction.followup.send("지금 걸린 즐겨찾기가 없어요.", ephemeral=True)
             return
-        bot.links.save_preset(interaction.user.id, "maimai", name, songs)
+        try:
+            await save_preset(bot, interaction.user.id, name, songs)
+        except SiteError as e:
+            await interaction.followup.send(f"저장하지 못했어요: {e}", ephemeral=True)
+            return
         await interaction.followup.send(f"프리셋 **{name}** 저장 ({len(songs)}곡)\n{_songs_text(songs)}", ephemeral=True)
 
     @group.command(name="make", description="곡 이름(별명 가능)으로 프리셋을 만듭니다. 쉼표로 구분")
@@ -121,8 +159,12 @@ def register(bot: ChumaiBot) -> None:
         if not chosen:
             await interaction.followup.send("곡을 하나도 찾지 못했어요.", ephemeral=True)
             return
-        bot.links.save_preset(interaction.user.id, "maimai", name, chosen)
-        text = f"프리셋 **{name}** 저장 ({len(chosen)}곡)\n{_songs_text(chosen)}"
+        try:
+            await save_preset(bot, interaction.user.id, name, chosen)
+        except SiteError as e:
+            await interaction.followup.send(f"저장하지 못했어요: {e}", ephemeral=True)
+            return
+        text =f"프리셋 **{name}** 저장 ({len(chosen)}곡)\n{_songs_text(chosen)}"
         if len(chosen) > LIMIT:
             text += f"\n게임 즐겨찾기는 {LIMIT}곡까지라 적용하면 앞의 {LIMIT}곡만 걸려요."
         if unknown:
@@ -134,7 +176,11 @@ def register(bot: ChumaiBot) -> None:
     @app_commands.rename(name="preset")
     async def fav_apply(interaction: discord.Interaction, name: str) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
-        songs = bot.links.get_preset(interaction.user.id, "maimai", name)
+        try:
+            songs = await get_preset(bot, interaction.user.id, name)
+        except SiteError as e:
+            await interaction.followup.send(f"프리셋을 불러오지 못했어요: {e}", ephemeral=True)
+            return
         if songs is None:
             await interaction.followup.send(f"**{name}** 프리셋이 없어요. `/favorite list` 로 확인해 주세요.",
                                             ephemeral=True)
@@ -163,26 +209,38 @@ def register(bot: ChumaiBot) -> None:
     @app_commands.describe(name="볼 프리셋 이름 (선택)")
     @app_commands.rename(name="preset")
     async def fav_list(interaction: discord.Interaction, name: str | None = None) -> None:
-        if name:
-            songs = bot.links.get_preset(interaction.user.id, "maimai", name)
-            text = f"**{name}** ({len(songs)}곡)\n{_songs_text(songs)}" if songs else f"**{name}** 프리셋이 없어요."
-        else:
-            presets = bot.links.presets(interaction.user.id, "maimai")
-            text = ("\n".join(f"· **{n}** ({len(s)}곡)" for n, s in presets) if presets else
-                    "저장한 프리셋이 없어요. `/favorite save` 나 `/favorite make` 로 만들어 보세요.")
-        await interaction.response.send_message(text[:1990], ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            if name:
+                songs = await get_preset(bot, interaction.user.id, name)
+                text = f"**{name}** ({len(songs)}곡)\n{_songs_text(songs)}" if songs else f"**{name}** 프리셋이 없어요."
+            else:
+                presets = await list_presets(bot, interaction.user.id)
+                text = ("\n".join(f"· **{n}** ({len(s)}곡)" for n, s in presets) if presets else
+                        "저장한 프리셋이 없어요. `/favorite save` 나 `/favorite make` 로 만들어 보세요.")
+        except SiteError as e:
+            text = f"프리셋을 불러오지 못했어요: {e}"
+        await interaction.followup.send(text[:1990], ephemeral=True)
 
     @group.command(name="delete", description="프리셋을 지웁니다")
     @app_commands.describe(name="프리셋 이름")
     @app_commands.rename(name="preset")
     async def fav_delete(interaction: discord.Interaction, name: str) -> None:
-        ok = bot.links.delete_preset(interaction.user.id, "maimai", name)
-        await interaction.response.send_message(f"**{name}** 을(를) 지웠어요." if ok else f"**{name}** 프리셋이 없어요.",
-                                                ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            ok = await delete_preset(bot, interaction.user.id, name)
+        except SiteError as e:
+            await interaction.followup.send(f"지우지 못했어요: {e}", ephemeral=True)
+            return
+        await interaction.followup.send(f"**{name}** 을(를) 지웠어요." if ok else f"**{name}** 프리셋이 없어요.",
+                                        ephemeral=True)
 
     async def preset_names(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-        return [app_commands.Choice(name=n, value=n) for n, _ in bot.links.presets(interaction.user.id, "maimai")
-                if current.lower() in n.lower()][:25]
+        try:
+            presets = await list_presets(bot, interaction.user.id)
+        except SiteError:
+            presets = []
+        return [app_commands.Choice(name=n, value=n) for n, _ in presets if current.lower() in n.lower()][:25]
 
     for cmd in (fav_apply, fav_list, fav_delete):
         cmd.autocomplete("name")(preset_names)

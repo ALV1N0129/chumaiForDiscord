@@ -116,6 +116,18 @@ SUMMARIES = {
     "could not download the %s logo from %s (PNG/JPG/WebP only)": lambda game, *_: f"{_game(game)} 로고를 받지 못했어요.",
     "added missing intermediate certificate for %s: %s": None,
     "could not fetch the missing intermediate certificate for %s": lambda host: f"{host} 인증서 문제로 접속하지 못했어요.",
+    # record site (/site)
+    "site link on: %s": None,
+    "records sent to the site for %s (%d charts, %s changed)":
+        lambda who, n, changed, *_: f"<@{who}> 님의 maimai 기록을 사이트에 올렸어요. (바뀐 기록 {changed}개)",
+    "site sync failed for %s: %s": lambda who, e, *_: f"<@{who}> 님의 maimai 기록을 사이트에 올리지 못했어요. ({e})",
+    "could not reach the record site: %s": lambda e, *_: f"기록 사이트에 연결하지 못했어요. ({e})",
+    "favorites applied from the site for %s: %d songs":
+        lambda who, n, *_: f"<@{who}> 님이 사이트에서 maimai 즐겨찾기를 바꿨어요. ({n}곡)",
+    "site job %s failed": "사이트에서 온 즐겨찾기 작업을 처리하지 못했어요.",
+    "could not claim site job %s: %s": "사이트에서 온 즐겨찾기 작업을 가져오지 못했어요.",
+    "could not report site job %s: %s": "사이트에 즐겨찾기 작업 결과를 보내지 못했어요.",
+    "could not move preset %r to the site": "즐겨찾기 프리셋을 사이트로 옮기지 못했어요.",
     # commands
     "prefix command %s failed": lambda name: f"`!{name}` 명령어를 처리하다 오류가 났어요.",
     "could not send logs to channel %s: %s": "실시간 로그를 채널에 올리지 못했어요.",
